@@ -289,6 +289,19 @@ Varios labs pueden estar desplegados a la vez en el mismo nodo.
 de los *vmids* **no se puede probar sin credenciales** —los asigna el motor al
 aplicar—. Está dicho aquí y no se maquilla.
 
+**El límite de esa garantía: es *en serie*.** La identidad se deriva **una vez**, al
+calcular el plan, de una sola lectura del clúster: dos `apply` **en vuelo a la vez**
+leen el mismo mundo y proponen el mismo vmid libre. Está medido sin escribir nada —
+dos `plan --api` lanzados en paralelo sobre el mismo clúster proponen el mismo
+número, y sus diarios sólo tienen `GET`—, y el segundo `create` lo rechazaría la API
+por vmid ocupado. Concurrencia de verdad exigiría serializar la asignación, o
+reintentar el paso, y no está: **se aplica un lab y luego el siguiente**.
+
+Los tres labs de este repositorio **sí conviven** desplegados a la vez —nueve
+invitados, tres pools, vmids disjuntos, cada uno en su bridge y todos verificados—
+porque se aplicaron **uno tras otro**. Lo que no está probado, y por eso no se debe,
+es lanzarlos en paralelo.
+
 ---
 
 ## Verificación: no se cree a sí misma
@@ -413,10 +426,13 @@ Esta sección no lleva adjetivos.
   (`labs/<lab>/logs/verify-<ts>.json`).
 - **Idempotencia**: una segunda ejecución seguida de `apply` sale `changed=0` y su
   diario sólo tiene `GET` (regla 6).
-- **El ciclo entero, con vuelta**: las tres se han destruido con `destroy` y el
-  nodo se ha quedado **sin ningún pool de ningún lab**. Lo único que `destroy` no
-  se lleva son los bridges (§Lo que `destroy` no borra); los que quedaron huérfanos
-  se quitaron a mano por la API, con su recarga de red, y el nodo quedó limpio.
+- **Convivencia**: las tres topologías declaradas, **desplegadas a la vez** (nueve
+  invitados en tres pools, con vmids disjuntos y cada invitado en el bridge de su
+  lab) y verificadas las tres con `verify` en verde. Después se destruyeron las
+  tres y el nodo quedó **sin ningún pool**.
+- **El ciclo entero, con vuelta**: lo único que `destroy` no se lleva son los
+  bridges (§Lo que `destroy` no borra); los que quedaron huérfanos se quitaron a
+  mano por la API, con su recarga de red.
 
 **No verificado, y por qué:**
 

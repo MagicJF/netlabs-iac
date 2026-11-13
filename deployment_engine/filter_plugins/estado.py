@@ -3,7 +3,9 @@
 #              respuestas de la API) y `estado_verificar` (la comparación por
 #              conjuntos EN LOS DOS SENTIDOS: falta algo = fallo, sobra algo =
 #              también fallo). Para calcular el plan delega en tools/plan.py, para
-#              que no exista una segunda lógica de decisión.
+#              que no exista una segunda lógica de decisión. Aquí vive también la
+#              decisión de qué BRIDGES puede borrar `destroy` (del nodo, no del lab:
+#              su prueba de propiedad es el `comments` del motor).
 # INVARIANTES: el conjunto ESPERADO se DERIVA de la declaración; el test nunca
 #              recorre la lista que él mismo trae. El estado es lo que dice la API
 #              (o un fixture), nunca una caché propia: no hay estado en disco.
@@ -12,7 +14,10 @@
 # LÍMITES:     la dirección IP declarada de cada rol NO se puede verificar por
 #              API: la IP vive dentro del invitado y la config del hipervisor no
 #              la guarda. `verify` lo dice explícitamente en vez de callarse.
-# VER:         README.md §Verificación; AGENTS.md §Identidad; ./lab check declaracion
+#              Un bridge sin la marca del motor (o con la de otro lab) no se puede
+#              reclamar: se conserva y se dice por qué.
+# VER:         README.md §Verificación; README.md §Los bridges;
+#              AGENTS.md §Identidad; ./lab check declaracion
 
 import os
 import sys
@@ -75,6 +80,7 @@ def estado_vacio():
         "nodo": "",
         "vmids_usados": [],
         "bridges_nodo": [],
+        "bridges_comentarios": {},
         "pools": {},
         "invitados": {},
         "invitados_otros": {},
@@ -98,6 +104,7 @@ def estado_normalizar(datos):
     base["invitados"] = base.get("invitados") or {}
     base["invitados_otros"] = base.get("invitados_otros") or {}
     base["bridges_nodo"] = base.get("bridges_nodo") or []
+    base["bridges_comentarios"] = base.get("bridges_comentarios") or {}
     return base
 
 
@@ -134,11 +141,16 @@ def estado_desde_api(datos):
 
     for interfaz in datos.get("red_nodo") or []:
         # El nodo devuelve interfaces de varios tipos; sólo interesan los bridges,
-        # que son los que un lab puede necesitar crear.
+        # que son los que un lab puede necesitar crear. Del `comments` sale la marca
+        # del motor (`lab=<lab>`), que es lo único que prueba que el bridge lo creó
+        # este lab: Proxmox no mete interfaces en pools.
         if interfaz.get("iface") and (
             interfaz.get("type") == "bridge" or str(interfaz["iface"]).startswith("vmbr")
         ):
             estado["bridges_nodo"].append(interfaz["iface"])
+            estado["bridges_comentarios"][interfaz["iface"]] = _descripcion_sin_ruido(
+                interfaz.get("comments")
+            )
 
     for recurso in recursos:
         vmid = recurso.get("vmid")
@@ -190,6 +202,133 @@ def estado_resumen(estado):
     )
 
 
+# --- Bridges: del nodo, no del lab -------------------------------------------
+# Un invitado se puede probar con el pool; un BRIDGE no, porque Proxmox no mete
+# interfaces de red en ningún pool. La única prueba de que un bridge lo creó este
+# lab es el `comments` que le escribió `plan` al crearlo (`lab=<lab> ...`), y la
+# segunda guarda es que ningún invitado de FUERA del lab lo esté usando. En la duda
+# se conserva: un bridge huérfano es inerte, uno borrado por error es una caída.
+
+
+def _usos_de_bridges(configs):
+    """(usos, sin_leer) leyendo TODAS las interfaces (net0, net1, …) de unas configs.
+
+    `usos` es {bridge: [(vmid, nombre)]}. Se miran todas las interfaces y no sólo
+    `net0`: un invitado con dos patas puede tener la segunda en un bridge del lab, y
+    borrarlo lo dejaría sin esa red.
+
+    `sin_leer` son los vmids cuya config NO se pudo leer. Se distinguen de un
+    invitado sin interfaces porque una lectura con éxito SIEMPRE trae contenido (al
+    menos `digest`); un mapa vacío sólo sale de un error de la API. La diferencia
+    importa: con una config sin leer no se puede descartar que ese invitado use el
+    bridge, y ahí no se borra.
+    """
+    usos = {}
+    sin_leer = []
+    for vmid, config in (configs or {}).items():
+        if not isinstance(config, dict) or not config:
+            sin_leer.append(str(vmid))
+            continue
+        nombre = config.get("name") or config.get("hostname") or str(vmid)
+        for clave, valor in config.items():
+            if not str(clave).startswith("net"):
+                continue
+            bridge, _ = _red_de_net0(valor)
+            if bridge:
+                usos.setdefault(bridge, []).append((str(vmid), str(nombre)))
+    return usos, sorted(sin_leer)
+
+
+def estado_bridges_candidatos(declaracion, estado):
+    """Los bridges que este lab declara, existen en el nodo y llevan SU marca.
+
+    Son los únicos que `destroy` puede plantearse borrar. Se separa del borrado
+    final para no gastar ni una llamada leyendo la red de los invitados ajenos
+    cuando no hay nada marcado que borrar.
+    """
+    lab = declaracion["lab"]
+    en_nodo = set(estado.get("bridges_nodo") or [])
+    comentarios = estado.get("bridges_comentarios") or {}
+    return sorted(
+        bridge["nombre"]
+        for bridge in declaracion["bridges"]
+        if bridge["nombre"] in en_nodo
+        and modulo_identidad.lab_de_comentario(comentarios.get(bridge["nombre"])) == lab
+    )
+
+
+def estado_bridges_a_borrar(declaracion, estado, configs_fuera):
+    """Qué bridges borra `destroy` y por qué conserva los demás.
+
+    `configs_fuera` son las configs de los invitados que NO son de este lab (las de
+    los propios se van con el lab, así que no cuentan como uso). Devuelve
+    `{"borrar": [...], "conservar": [{"nombre", "motivo"}, ...]}`.
+    """
+    lab = declaracion["lab"]
+    comentarios = estado.get("bridges_comentarios") or {}
+    candidatos = estado_bridges_candidatos(declaracion, estado)
+    usos, sin_leer = _usos_de_bridges(configs_fuera)
+
+    conservar = []
+    borrar = []
+    # La duda va siempre al lado de conservar: si no se pudo leer la red de algún
+    # invitado ajeno, no se puede descartar que use el bridge.
+    if candidatos and sin_leer:
+        for nombre in candidatos:
+            conservar.append(
+                {
+                    "nombre": nombre,
+                    "motivo": f"no se pudo leer la red de {len(sin_leer)} invitado(s) ajenos "
+                    f"({', '.join(sin_leer)}): no se borra sin poder descartar que lo usen",
+                }
+            )
+    else:
+        for nombre in candidatos:
+            if usos.get(nombre):
+                quien = ", ".join(f"vmid={v} ({n})" for v, n in sorted(usos[nombre]))
+                conservar.append(
+                    {"nombre": nombre, "motivo": f"lo usa un invitado que no es de este lab: {quien}"}
+                )
+                continue
+            borrar.append(nombre)
+
+    # Y lo que este lab declara pero NO se puede borrar, con el motivo dicho.
+    en_nodo = set(estado.get("bridges_nodo") or [])
+    for bridge in declaracion["bridges"]:
+        nombre = bridge["nombre"]
+        if nombre not in en_nodo or nombre in borrar or any(c["nombre"] == nombre for c in conservar):
+            continue
+        dueno = modulo_identidad.lab_de_comentario(comentarios.get(nombre))
+        if dueno:
+            motivo = f"su comentario dice que es del lab '{dueno}', no de '{lab}': no se toca"
+        else:
+            motivo = (
+                "no lleva la marca del motor en su comentario: no consta que lo creara este lab "
+                "(pudo estar en el nodo antes de que el lab llegara)"
+            )
+        conservar.append({"nombre": nombre, "motivo": motivo})
+
+    return {"borrar": sorted(borrar), "conservar": conservar}
+
+
+def estado_bridges_texto(decision):
+    """El informe de bridges de un `destroy`, en texto: primero lo que se borra."""
+    lineas = []
+    borrar = decision.get("borrar") or []
+    conservar = decision.get("conservar") or []
+    if borrar:
+        lineas.append(f"bridges que se borran ({len(borrar)}): lo creó este lab y no los usa nadie")
+        for nombre in borrar:
+            lineas.append(f"  - {nombre}")
+    if conservar:
+        lineas.append(f"bridges que se conservan ({len(conservar)}): son del nodo, no del lab")
+        for item in conservar:
+            lineas.append(f"  - {item['nombre']}: {item['motivo']}")
+    if not borrar and not conservar:
+        lineas.append("bridges: este lab no declara ninguno que exista en el nodo")
+    return "\n".join(lineas)
+
+
 def pve_invitados_del_pool(cluster_recursos, lab):
     """Los invitados que la API dice que están en el pool del lab.
 
@@ -201,6 +340,28 @@ def pve_invitados_del_pool(cluster_recursos, lab):
         if recurso.get("pool") != lab:
             continue
         if recurso.get("vmid") is None:
+            continue
+        salida.append(
+            {
+                "vmid": int(recurso["vmid"]),
+                "tipo": "lxc" if recurso.get("type") == "lxc" else "qemu",
+                "nodo": recurso.get("node"),
+                "rol_o_nombre": recurso.get("name") or str(recurso.get("vmid")),
+            }
+        )
+    return sorted(salida, key=lambda i: i["vmid"])
+
+
+def pve_invitados_fuera_del_pool(cluster_recursos, lab):
+    """Los invitados que NO son de este lab: de otro pool, o de nadie.
+
+    `destroy` los necesita para una sola cosa: saber si alguno usa un bridge del lab
+    antes de borrarlo. Los invitados sin pool cuentan igual que los de otro lab: si
+    uno está colgado de un bridge del lab, ese bridge NO se borra.
+    """
+    salida = []
+    for recurso in cluster_recursos or []:
+        if recurso.get("pool") == lab or recurso.get("vmid") is None:
             continue
         salida.append(
             {
@@ -387,7 +548,11 @@ class FilterModule:
             "estado_normalizar": estado_normalizar,
             "estado_desde_api": estado_desde_api,
             "estado_resumen": estado_resumen,
+            "estado_bridges_candidatos": estado_bridges_candidatos,
+            "estado_bridges_a_borrar": estado_bridges_a_borrar,
+            "estado_bridges_texto": estado_bridges_texto,
             "pve_invitados_del_pool": pve_invitados_del_pool,
+            "pve_invitados_fuera_del_pool": pve_invitados_fuera_del_pool,
             "estado_plan": estado_plan,
             "estado_plan_texto": estado_plan_texto,
             "estado_verificar": estado_verificar,

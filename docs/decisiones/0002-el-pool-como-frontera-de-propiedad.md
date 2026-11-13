@@ -24,6 +24,17 @@ exactamente el origen de los conflictos en el intento anterior. El pool es una
 frontera que el propio hipervisor mantiene, y mirar todo el clúster (no sólo el pool)
 hace que dos labs no puedan chocar de vmid **por construcción**, no por disciplina.
 
+**El hueco: los bridges.** Un pool contiene **invitados**, no interfaces de red, así
+que la frontera de propiedad no dice nada de un bridge. Y el plan crea un bridge
+**sólo si falta**, de modo que un lab puede encontrarse uno que ya estaba en el nodo:
+por el nombre declarado no se puede saber quién lo creó. Por eso el plan escribe en el
+`comments` de cada bridge que **crea él** la marca `lab=<lab> gestionado por
+netlabs_v4_b`, y `destroy` exige **las dos** pruebas: esa marca, y que ningún invitado
+de fuera del lab lo esté usando —mirando **todas** sus interfaces, y conservando el
+bridge si la config de alguno no se pudo leer—. Un bridge sin marca no se adopta: se
+conserva y se dice por qué. Es la misma regla de siempre, aplicada a lo que no cabe en
+un pool: **en la duda, el lado que no rompe nada**.
+
 **Consecuencia.** Un invitado borrado a mano no se recupera del repositorio: se
 declara como falta y `apply` lo recrea. La disjunción de vmids no se puede probar sin
 credenciales; la de lo declarado (bridges, direcciones) sí, y la vigila el check

@@ -1,16 +1,28 @@
 ---
-# PROPÓSITO:   el verbo `destroy`. El ÚNICO que destruye. Borra los invitados del lab
-#              y, al final, su pool (sólo cuando ya está vacío).
+# PROPÓSITO:   el verbo `destroy`. El ÚNICO que destruye. Borra los invitados del lab,
+#              su pool (sólo cuando ya está vacío) y, al final, los BRIDGES que creó
+#              este lab y que ya no usa nadie.
 # INVARIANTES: el motor NUNCA borra un invitado que no esté en la declaración: si en
 #              el pool del lab aparece algo que ningún rol declara, `destroy` se
 #              NIEGA y lo dice. Borrar es irreversible; equivocarse no tiene vuelta.
-#              El pool se borra el último y sólo si ha quedado vacío, para que un
-#              fallo a medias no deje invitados huérfanos sin su frontera de propiedad.
+#              El pool se borra el último de los invitados y sólo si ha quedado
+#              vacío, para que un fallo a medias no deje invitados huérfanos sin su
+#              frontera de propiedad.
+#              Un bridge se borra SÓLO con dos pruebas: que su `comments` lleve la
+#              marca de ESTE lab (lo escribió el plan al crearlo) y que ningún
+#              invitado de fuera del lab lo esté usando. Un bridge sin marca es un
+#              bridge del nodo que el lab encontró puesto: no se toca.
 # LÍMITES:     borrar un invitado ARRANCADO no se puede: primero hay que pararlo.
 #              Parar y borrar son asíncronos, y el motor ESPERA cada tarea sondeando
 #              la API (tasks/esperar_tarea.yml) antes de seguir; el pool sólo cae
 #              cuando de verdad ha quedado vacío.
-# VER:         README.md §Cómo se usa; AGENTS.md §Reglas duras (regla 9)
+#              Borrar un bridge exige recargar la red del nodo (PUT /network), que es
+#              la llamada más delicada del motor: se hace UNA vez y sólo si de verdad
+#              se ha borrado alguno. Los bridges que el lab encontró puestos y los que
+#              ya existían sin marca se conservan, y se dice por qué: limpiarlos es
+#              cirugía a mano sobre /etc/network/interfaces, no un verbo del motor.
+# VER:         README.md §Cómo se usa; README.md §Los bridges;
+#              AGENTS.md §Reglas duras (regla 9)
 
 - name: "DESTROY · borrar los invitados del lab y su pool"
   hosts: proxmox_api
@@ -100,8 +112,66 @@
         pve_api_etiqueta: "el pool del lab, ya vacío"
       when: pve_lab in (estado.pools | default({}))
 
+    # --- Los bridges: del nodo, no del lab --------------------------------------
+    # Un bridge no está en ningún pool, así que la frontera de propiedad no sirve
+    # aquí: lo único que prueba que lo creó ESTE lab es el `comments` que le escribió
+    # el plan al crearlo (`lab=<lab> gestionado por netlabs_v4_b`). Y hay una segunda
+    # guarda: que ningún invitado de FUERA del lab lo esté usando. En la duda se
+    # conserva, siempre: un bridge huérfano es inerte (sin dirección y sin nadie
+    # colgado), uno borrado por error deja sin red a quien lo usaba.
+    # Van los ÚLTIMOS, después del pool, porque hasta hace un momento los usaban los
+    # invitados del lab: borrarlos antes los dejaría sin red a medio destruir.
+    - name: "DESTROY · ¿qué bridges declara este lab y llevan su marca?"
+      ansible.builtin.set_fact:
+        pve_bridges_candidatos: "{{ declaracion | estado_bridges_candidatos(estado) }}"
+
+    # Sólo se lee la red de los invitados ajenos si hay algo marcado que borrar: si no
+    # hay candidatos, esta lista va vacía y no se gasta ni una llamada.
+    - name: "DESTROY · leer la red de los invitados que NO son de este lab"
+      ansible.builtin.include_tasks: ../tasks/pve_api.yml
+      vars:
+        pve_api_metodo: GET
+        pve_api_ruta: "/nodes/{{ item.nodo }}/{{ item.tipo }}/{{ item.vmid }}/config"
+        pve_api_etiqueta: "red del invitado ajeno {{ item.vmid }} ({{ item.rol_o_nombre }}): ¿usa un bridge del lab?"
+        pve_api_tolerar_error: true
+        pve_api_acumular_configs_ajenas: true
+        pve_api_vmid: "{{ item.vmid }}"
+      loop: "{{ pve_cluster_recursos | pve_invitados_fuera_del_pool(pve_lab) if (pve_bridges_candidatos | length) > 0 else [] }}"
+      loop_control:
+        label: "{{ item.tipo }}/{{ item.vmid }} {{ item.rol_o_nombre }}"
+
+    - name: "DESTROY · decidir qué bridges se borran y cuáles se conservan"
+      ansible.builtin.set_fact:
+        pve_bridges_decision: "{{ declaracion | estado_bridges_a_borrar(estado, pve_configs_ajenas | default({})) }}"
+
+    - name: "DESTROY · borrar los bridges que creó este lab y no usa nadie"
+      ansible.builtin.include_tasks: ../tasks/pve_api.yml
+      vars:
+        pve_api_metodo: DELETE
+        pve_api_ruta: "/nodes/{{ estado.nodo }}/network/{{ item }}"
+        pve_api_etiqueta: "el bridge {{ item }}: lo creó este lab (lleva su marca) y no lo usa nadie"
+      loop: "{{ pve_bridges_decision.borrar }}"
+      loop_control:
+        label: "{{ item }}"
+
+    # Un bridge borrado sigue ACTIVO hasta que el nodo recarga su red, y recargar es
+    # lo más delicado que hace este motor (reescribe la red del nodo): se hace una vez,
+    # al final, y sólo si de verdad se ha borrado algo.
+    - name: "DESTROY · recargar la red del nodo, una sola vez, para aplicar los borrados"
+      ansible.builtin.include_tasks: ../tasks/pve_api_y_esperar.yml
+      vars:
+        pve_api_metodo: PUT
+        pve_api_ruta: "/nodes/{{ estado.nodo }}/network"
+        pve_api_etiqueta: "recarga de la red del nodo: un bridge borrado sigue activo hasta recargar"
+      when: (pve_bridges_decision.borrar | length) > 0
+
+    - name: "DESTROY · qué ha pasado con los bridges"
+      ansible.builtin.debug:
+        msg: "{{ pve_bridges_decision | estado_bridges_texto }}"
+
     - name: "DESTROY · resultado"
       ansible.builtin.debug:
         msg: >-
-          '{{ pve_lab }}' destruido: {{ estado.invitados | length }} invitado(s) y su pool.
+          '{{ pve_lab }}' destruido: {{ estado.invitados | length }} invitado(s), su pool y
+          {{ pve_bridges_decision.borrar | length }} bridge(s) propio(s).
           El diario dice exactamente qué se llamó: {{ pve_carpeta_logs }}/api.jsonl

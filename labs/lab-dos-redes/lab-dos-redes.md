@@ -113,13 +113,15 @@ real**; más abajo queda anotado lo que se aprendió al hacerlo.
    ./lab --lab lab-dos-redes verify
    ```
 
-7. **Destruye** cuando ya no lo quieras (borra los invitados del lab y, al final,
-   su pool si ha quedado vacío):
+7. **Destruye** cuando ya no lo quieras (borra los invitados del lab, su pool si ha
+   quedado vacío y, al final, **los bridges que creó él** —los que llevan su marca en
+   el `comments` y que ya no usa nadie—, con **una** recarga de red):
    ```
    ./lab --lab lab-dos-redes destroy
    ```
-   Los bridges **no** se borran: son del nodo, no del lab. Si querías que
-   desaparecieran, se quitan a mano en Proxmox (y con la red recargada después).
+   El verbo dice bridge a bridge qué se lleva y qué conserva, y por qué. Un bridge
+   que ya estaba en el nodo antes de que el lab llegara no lleva marca: se queda
+   donde está, y quitarlo es cirugía a mano en Proxmox.
 
 ## Por qué así
 
@@ -167,9 +169,10 @@ conviene tener delante:
   configura el interior de los invitados—, así que es el plan de direccionamiento,
   no una dirección puesta.
 - **La dirección del bridge se declara y no se envía**: el `POST` que crea un
-  bridge manda `iface`, `type` y `autostart`, y nada de `address`/`cidr`. Los dos
-  bridges de este lab existen, están activos y arrancan solos, pero salen con
-  `method=manual` y **sin** dirección: la del YAML es intención documentada.
+  bridge manda `iface`, `type`, `autostart` y el `comments` con la marca del motor, y
+  nada de `address`/`cidr`. Los dos bridges de este lab existen, están activos y
+  arrancan solos, pero salen con `method=manual` y **sin** dirección: la del YAML es
+  intención documentada.
 - **`disco` se declara y se valida, pero la API no recibe ninguna orden de disco**:
   el plan no inventa recursos que la API no da, y una plantilla de disco es uno de
   ellos (`tools/plan.py` lo deja escrito). Los tres contenedores se crean con el
@@ -196,10 +199,15 @@ pasó al correrlo contra el Proxmox real.)*
   salteados: no son un rango contiguo ni el orden de creación. Se ve al mirar la
   tabla de identidad de un despliegue real, y es el motivo de que esa tabla no se
   rellene a mano.
-- **Los bridges sobreviven al lab.** `destroy` borra los invitados y el pool, pero
-  no los bridges: son del nodo. Un lab que se despliega y se destruye varias veces
-  deja bridges huérfanos si nadie los limpia; conviene saberlo antes de crear el
-  quinto.
+- **Los bridges son del nodo, y por eso se borran con dos pruebas.** `destroy` se
+  lleva los invitados y el pool, y además los bridges **que creó él**: los reconoce
+  por la marca que les dejó el plan en el `comments` (`lab=<lab> gestionado por
+  netlabs_v4_b`) y comprueba antes que **ningún invitado de fuera del lab** los esté
+  usando. Un bridge que ya estaba en el nodo cuando el lab llegó no se marca y no se
+  borra: es del nodo. Y un bridge borrado sigue activo hasta que el nodo recarga su
+  red, así que la recarga se hace **una vez** al final y sólo si de verdad cayó
+  alguno. Lo que sigue sin tener verbo son esos bridges sin marca: limpiarlos es
+  cirugía del nodo, no del despliegue.
 - **La recarga de red es el paso que más tarda y el único que toca el nodo.** Los
   `POST`/`DELETE` de invitados van contra el pool del lab; el `PUT` de recarga
   reescribe `/etc/network/interfaces` del nodo y corre `ifreload -a`. Si esa

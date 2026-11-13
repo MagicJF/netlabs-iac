@@ -57,6 +57,18 @@ def campos_que_difieren(esperado, actual):
     return diferencias
 
 
+def comentario_bridge(lab, parametros):
+    """El `comments` que el motor escribe en un bridge que CREA él.
+
+    Es la prueba de propiedad del bridge, y se rellena con la plantilla del motor
+    (`engine_plantilla_comentario_bridge`) para que crear y reconocer digan lo
+    mismo: `destroy` busca aquí el `lab=<lab>` antes de borrar nada. Si la plantilla
+    no llega (un llamante antiguo), devuelve cadena vacía y el bridge se crea sin
+    marca: se conservará al destruir, que es el lado seguro del error.
+    """
+    return str(parametros.get("comentario_bridge") or "").replace("{lab}", str(lab))
+
+
 def construir_plan(declaracion, estado, identidad, parametros):
     """(declaración, estado del mundo, identidad) -> plan ordenado.
 
@@ -84,17 +96,28 @@ def construir_plan(declaracion, estado, identidad, parametros):
 
     # Fase 0 bis — los bridges del lab. Un bridge es del NODO, no del lab, así que
     # puede existir ya (lo comparte el nodo con otros usos): sólo se crea si falta.
+    # Al crearlo se le escribe el `comments` del motor (`lab=<lab> ...`), que es la
+    # ÚNICA prueba de propiedad que tendrá `destroy`: Proxmox no mete interfaces en
+    # pools, así que sin esa marca un bridge declarado por el lab no se puede
+    # distinguir de uno que ya estaba en el nodo. A un bridge que YA existe no se le
+    # toca el comentario: no consta que lo creara este lab, y adoptarlo sería
+    # atribuirse infraestructura ajena.
     faltan_bridges = []
     for bridge in declaracion["bridges"]:
         if bridge["nombre"] not in (estado.get("bridges_nodo") or []):
             faltan_bridges.append(bridge)
+            parametros_bridge = {"iface": bridge["nombre"], "type": "bridge", "autostart": 1}
+            comentario = comentario_bridge(lab, parametros)
+            if comentario:
+                parametros_bridge["comments"] = comentario
             pasos.append(
                 _paso(
                     ACCION_BRIDGE,
                     "POST",
                     f"/nodes/{nodo}/network",
-                    {"iface": bridge["nombre"], "type": "bridge", "autostart": 1},
-                    f"el bridge '{bridge['nombre']}' no existe en el nodo {nodo}",
+                    parametros_bridge,
+                    f"el bridge '{bridge['nombre']}' no existe en el nodo {nodo}: se crea y se "
+                    f"marca como de este lab, para que `destroy` pueda borrarlo después",
                 )
             )
     if faltan_bridges:

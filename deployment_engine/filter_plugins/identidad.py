@@ -26,6 +26,12 @@ except ImportError:  # pragma: no cover - sólo ocurre fuera de Ansible
 # propiedad que permite reconstruir rol->vmid sin fichero de estado.
 EXPRESION_ROL = re.compile(r"(?:^|\s)rol=([A-Za-z0-9][A-Za-z0-9_.-]*)")
 
+# La MISMA marca, pero en el `comments` de un bridge (`lab=<lab> gestionado por
+# netlabs_v4_b`). Un bridge no está en ningún pool: esta marca es la única prueba
+# de que lo creó este lab, y por eso se lee con la misma expresión, no con una
+# parecida que se desvíe con el tiempo.
+EXPRESION_LAB = re.compile(r"(?:^|\s)lab=([A-Za-z0-9][A-Za-z0-9_.-]*)")
+
 
 def identidad_mac(vmid, prefijo_mac):
     """La MAC es función pura del vmid: `BC:24:11:` + los 3 bytes bajos del vmid.
@@ -52,6 +58,20 @@ def rol_de_descripcion(descripcion):
     if not descripcion:
         return None
     coincidencia = EXPRESION_ROL.search(str(descripcion))
+    return coincidencia.group(1) if coincidencia else None
+
+
+def lab_de_comentario(comentario):
+    """Extrae `lab=<x>` del comentario de una interfaz. None si no está.
+
+    Es la prueba de propiedad de un BRIDGE, y la usa `destroy`: Proxmox no mete
+    interfaces de red en pools, así que lo único que distingue "este bridge lo creó
+    este lab" de "ya estaba ahí" es esta marca. Un comentario sin `lab=` (o escrito
+    a mano) no la lleva: no se adopta, se conserva.
+    """
+    if not comentario:
+        return None
+    coincidencia = EXPRESION_LAB.search(str(comentario))
     return coincidencia.group(1) if coincidencia else None
 
 
@@ -180,6 +200,7 @@ class FilterModule:
         return {
             "identidad_mac": identidad_mac,
             "identidad_rol_de_descripcion": rol_de_descripcion,
+            "identidad_lab_de_comentario": lab_de_comentario,
             "identidad_asignar": identidad_asignar,
             "identidad_invitado_por_rol": identidad_invitado_por_rol,
             "identidad_por_escalon": identidad_por_escalon,

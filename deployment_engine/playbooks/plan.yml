@@ -53,6 +53,10 @@
           nodo: "{{ pve_nombre_nodo | default(engine_nodo_simulado) }}"
           ostemplate_lxc: "{{ engine_ostemplate_lxc }}"
           comentario_pool: "topología gestionada por netlabs_v4_b (motor por API)"
+          # La marca que el motor escribe en el `comments` de cada bridge que CREA:
+          # es la prueba de propiedad que `destroy` busca antes de borrar un bridge
+          # (Proxmox no mete interfaces de red en pools, así que no hay pool que valga).
+          comentario_bridge: "{{ engine_plantilla_comentario_bridge }}"
 
     - name: "PLAN · calcular el plan ordenado"
       ansible.builtin.set_fact:

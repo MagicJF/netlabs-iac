@@ -42,6 +42,15 @@ engine_plantilla_descripcion: "lab={lab} rol={rol} gestionado por netlabs_v4_b"
 # Plantilla del nombre canónico de un invitado: <nombre-lab>-<rol>.
 engine_plantilla_nombre: "{lab}-{rol}"
 
+# Marca que el motor escribe en el `comments` de un bridge que CREA él. Es la
+# TERCERA mitad de la frontera de propiedad, y existe por un hueco concreto: un
+# invitado se puede probar con el pool, pero Proxmox NO mete interfaces de red en
+# ningún pool, así que para un bridge no hay frontera que valga. Sin esta marca,
+# `destroy` no puede distinguir "lo creó este lab" de "ya estaba en el nodo cuando
+# el lab llegó" (el plan sólo crea el bridge si falta) — y en esa duda no se borra.
+# La escribe `plan` al crear el bridge y la lee `destroy` antes de borrarlo.
+engine_plantilla_comentario_bridge: "lab={lab} gestionado por netlabs_v4_b"
+
 # --- Puerta de la API -----------------------------------------------------
 # Segundos que se espera una respuesta antes de dar la llamada por perdida.
 engine_timeout_api: 30

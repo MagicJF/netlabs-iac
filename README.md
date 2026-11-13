@@ -178,21 +178,39 @@ que la API conteste `596 no such node`.
 necesita la API, y lo dice en claro si falta. `plan` sin `--api` no lo necesita:
 usa un fixture.
 
-### Lo que `destroy` no borra
+### Los bridges: qué se lleva `destroy` y qué no
 
-`destroy` borra los invitados del lab y su pool, y **nada más**. Los **bridges son
-del nodo, no del lab**: el motor los crea si faltan, pero no los borra nunca,
-porque puede haber otra cosa usándolos. Un nodo donde los labs van y vienen
-acumula interfaces huérfanas; se quitan a mano, por la API y sólo cuando nadie las
-use:
+`destroy` borra los invitados del lab, su pool y **los bridges que creó él** —y nada
+más—. La diferencia importa, porque un bridge **no está en ningún pool**: Proxmox no
+mete interfaces de red en pools, así que aquí la frontera de propiedad no sirve y el
+motor necesita otra prueba.
+
+La tiene: cuando `apply` **crea** un bridge le escribe en el `comments` la marca del
+motor (`lab=<lab> gestionado por netlabs_v4_b`), y `destroy` sólo borra un bridge si
+se cumplen **las dos** condiciones:
+
+1. su `comments` lleva la marca de **este** lab (consta que lo creó él), y
+2. **ningún invitado de fuera del lab lo está usando** — se miran **todas** las patas
+   (`net0`, `net1`…) de todos los invitados que no son del lab; y si la config de
+   alguno no se pudo leer, **no se borra**: en la duda se conserva.
+
+Un bridge que ya estaba en el nodo antes de que el lab llegara (el plan sólo lo crea
+si falta) **no se marca**, así que no se adopta y no se borra: es del nodo, no del
+lab. `destroy` lo dice en su salida, bridge a bridge, con el motivo.
+
+La recarga de red (`PUT /nodes/<nodo>/network`, la llamada más delicada del motor
+porque reescribe la red del nodo) se hace **una sola vez** y sólo si de verdad se ha
+borrado algún bridge.
+
+**Lo que sigue sin tener verbo:** los bridges que el lab encontró puestos, los que
+marcó otro lab y los huérfanos anteriores a esta marca (no llevan `comments`, así que
+no se pueden reclamar). Limpiarlos es cirugía del nodo, no del despliegue, y se hace
+a mano por la API:
 
 ```
 DELETE /nodes/<nodo>/network/<bridge>    # una por bridge huérfano
 PUT    /nodes/<nodo>/network             # UNA recarga al final, no una por bridge
 ```
-
-Es el único trozo del ciclo de vida que **no** tiene verbo: borrar un bridge es
-cirugía del nodo, no del despliegue. El pool, en cambio, sí se va con el lab.
 
 ### `plan` no necesita credenciales
 
@@ -255,14 +273,17 @@ vmids, ni el nombre de un bridge. Sí hay **reglas**.
 | bridges del lab y direcciones | la **MAC**: derivada del vmid (`BC:24:11:` + los 3 bytes bajos) |
 | orden de arranque por escalones | la **descripción**: `lab=<lab> rol=<rol> gestionado por netlabs_v4_b` |
 | | la **pertenencia al pool**: el invitado se crea dentro del pool del lab |
+| | el **`comments` del bridge**: `lab=<lab> gestionado por netlabs_v4_b`, sólo si el motor lo crea él |
 
 **El vmid y la MAC no se declaran nunca.** Las pruebas: añadir un lab nuevo no
 modifica ni un fichero de `deployment_engine/` (`check pureza-lab`), y dos labs
 distintos reciben identidades disjuntas (tests con fixtures).
 
 **Sin fichero de estado.** La asignación se **re-deriva** en cada ejecución
-leyendo la API, con dos piezas: el **pool del lab** (llamado como su carpeta) es
-la frontera de propiedad, y la **descripción** de cada invitado lleva el rol. Eso
+leyendo la API, con tres piezas: el **pool del lab** (llamado como su carpeta) es
+la frontera de propiedad, la **descripción** de cada invitado lleva el rol, y el
+**`comments` de cada bridge que creó el motor** lleva el lab —sin esa marca, un
+bridge no se puede reclamar, porque no hay pool que lo contenga (§Los bridges). Eso
 es el estado del sistema, no una caché nuestra. Un invitado borrado a mano no se
 recupera del repo: se declara como falta y `apply` lo recrea con el vmid libre que
 toque.
@@ -430,9 +451,15 @@ Esta sección no lleva adjetivos.
   invitados en tres pools, con vmids disjuntos y cada invitado en el bridge de su
   lab) y verificadas las tres con `verify` en verde. Después se destruyeron las
   tres y el nodo quedó **sin ningún pool**.
-- **El ciclo entero, con vuelta**: lo único que `destroy` no se lleva son los
-  bridges (§Lo que `destroy` no borra); los que quedaron huérfanos se quitaron a
-  mano por la API, con su recarga de red.
+- **El ciclo entero, con vuelta**: `destroy` se lleva los invitados, el pool y
+  **sus** bridges, y lo dice bridge a bridge en su salida. Probado en las dos
+  direcciones contra el nodo real: un bridge que **ya estaba** en el nodo antes de
+  que el lab llegara (sin marca) se **conserva** —`destroy` lo reporta con su motivo
+  y no gasta ni una llamada en mirar quién lo usa—, y un bridge **creado** por el
+  motor (con su marca `lab=<lab>` en el `comments`) se **borra**: `DELETE
+  /nodes/<nodo>/network/<bridge>` por bridge y **una sola** `PUT /nodes/<nodo>/network`
+  al final, con el nodo quedando limpio (cero pools, cero invitados del lab, cero
+  bridges suyos). Los huérfanos anteriores a la marca se quitaron a mano por la API.
 
 **No verificado, y por qué:**
 
@@ -511,6 +538,7 @@ AVISO refs: README.md cita `deployment_engine/tools/framework_check.py`, que ha 
 ```bash
 ./lab check                          # los ocho checks, sin credenciales ni Proxmox
 python3 test/test_identidad.py       # los casos del asignador, con fixtures
+python3 test/test_bridges.py         # la propiedad de los bridges: qué borra destroy
 ansible-lint                         # perfil basic, 0 hallazgos
 yamllint -c .yamllint .              # 0 hallazgos
 for p in deployment_engine/playbooks/*.yml; do ansible-playbook --syntax-check "$p"; done

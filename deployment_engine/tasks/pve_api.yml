@@ -20,6 +20,11 @@
 #   pve_api_cuerpo   (opcional) parámetros de la llamada
 #   pve_api_etiqueta (opcional) para qué era esta llamada, en el diario
 #   pve_api_vmid pve_api_acumular_configs  (opcional) acumula pve_configs[vmid]
+#   pve_api_vmid pve_api_acumular_configs_ajenas (opcional) acumula
+#                    pve_configs_ajenas[vmid]: las configs de invitados que NO son
+#                    del lab. Van a un acumulador DISTINTO a propósito: mezclarlas
+#                    con las del lab haría que `destroy` no pudiera distinguir el
+#                    uso propio del ajeno, y esa distinción es la guarda.
 #   pve_api_tolerar_error  (opcional) no fallar en error: el llamante decide
 # Y deja en `pve_api_ultimo_*` el status, el cuerpo, los datos y el error legible.
 
@@ -119,6 +124,13 @@
   ansible.builtin.set_fact:
     pve_configs: "{{ (pve_configs | default({})) | combine({(pve_api_vmid | string): pve_api_ultimo_datos}) }}"
   when: pve_api_acumular_configs | default(false) | bool
+
+# El mismo gancho, pero para los invitados AJENOS, y en su propio acumulador: las
+# configs del lab y las de fuera no se mezclan nunca (ver la cabecera).
+- name: "PUERTA · acumular la config ajena del vmid {{ pve_api_vmid | default('?') }}"
+  ansible.builtin.set_fact:
+    pve_configs_ajenas: "{{ (pve_configs_ajenas | default({})) | combine({(pve_api_vmid | string): pve_api_ultimo_datos}) }}"
+  when: pve_api_acumular_configs_ajenas | default(false) | bool
 
 # Salvo que el llamante pida tolerar errores (para poder explicar por su cuenta qué
 # pasa), una respuesta de error PARA el verbo. El mensaje es legible y lleva el

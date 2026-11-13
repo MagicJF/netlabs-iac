@@ -96,6 +96,11 @@ falla una tarea— existe una vía de depuración por SSH **para quien diagnosti
 - **Sin fichero de estado.** La asignación se re-deriva leyendo la API: el **pool**
   del lab (llamado como su carpeta) es la frontera de propiedad, y la
   **descripción** de cada invitado lleva el rol.
+- **Un bridge no está en ningún pool**, así que ahí la frontera no vale: la prueba
+  de propiedad es el `comments` que el plan le escribe **al crearlo**
+  (`lab=<lab> gestionado por netlabs_v4_b`). `destroy` sólo borra un bridge que
+  lleve esa marca **y** que no esté usando ningún invitado de fuera del lab; sin
+  marca no se adopta y no se toca, porque el plan crea el bridge sólo si falta.
 - El asignador (`filter_plugins/identidad.py`) es una **función pura** —*(estado
   del mundo, declaración) → mapa rol→identidad*—, y por eso se prueba con
   **fixtures**, sin Proxmox.
@@ -139,6 +144,7 @@ Un fichero con dos escritores es el que envejece mal. `labs/<lab>/<lab>.md` tien
 | cambiaste el texto de prosa de un `.md` | `./lab check docs --sellar labs/<lab>/<lab>.md` |
 | creaste o borraste ficheros | `./lab check links` |
 | antes de cualquier commit | `./lab check` (todo) + `ansible-lint` |
+| tocaste la propiedad de los bridges (`plan`, `destroy`, `estado`) | `python3 test/test_bridges.py` y `./lab check` |
 | vas a decir "hecho" | `./lab check` verde y la evidencia pegada en la respuesta |
 | vas a subir a GitHub | ciclo `destroy → apply → verify` verde + `./lab check` (ver §Commits y subida a GitHub) |
 

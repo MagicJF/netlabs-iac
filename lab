@@ -1,0 +1,257 @@
+#!/usr/bin/env python3
+# PROPÓSITO:   el ÚNICO punto de entrada del repositorio. Resuelve el lab, comprueba
+#              el entorno antes de empezar y lanza el playbook del verbo. Guarda la
+#              salida humana de Ansible en `labs/<lab>/logs/ansible.log`.
+# INVARIANTES: el wrapper NO llama a la API (regla 4.2): sólo valida y lanza
+#              `ansible-playbook`. Tampoco EXPORTA nada (regla 4.4): no hay una sola
+#              variable de entorno de configuración. Se coloca en la raíz del repo
+#              antes de lanzar nada, porque `ansible.cfg` se busca en el directorio
+#              actual y lanzarlo desde otro sitio correría el motor sin inventario y
+#              sin filtros, EN SILENCIO: de ahí que este fichero exista.
+# LÍMITES:     sólo stdlib: el wrapper tiene que funcionar aunque el resto del
+#              entorno esté a medias. No decide qué desplegar; eso es la declaración.
+# VER:         README.md §Cómo se usa; AGENTS.md §Mapa
+
+import os
+import shutil
+import subprocess
+import sys
+import time
+
+RAIZ = os.path.dirname(os.path.abspath(__file__))
+DIRECTORIO_LABS = os.path.join(RAIZ, "labs")
+PLANTILLA = os.path.join(DIRECTORIO_LABS, ".plantilla")
+SECRETS = os.path.join(RAIZ, "deployment_engine", "secrets.yml")
+PLAYBOOKS = os.path.join(RAIZ, "deployment_engine", "playbooks")
+CHECKS = os.path.join(RAIZ, "deployment_engine", "tools", "framework_check.py")
+FIXTURE_VACIO = os.path.join(RAIZ, "test", "fixtures", "cluster-vacio.json")
+
+VERBOS = ("plan", "preflight", "apply", "verify", "destroy")
+
+# Verbos que necesitan credenciales para leer el estado del mundo. `plan` no está en
+# la lista a propósito: por defecto planifica contra un clúster vacío simulado, así
+# que es demostrable sin credenciales. Con `--api` sí las necesita.
+VERBOS_CON_API = ("preflight", "apply", "verify", "destroy")
+
+# El fichero en el que cada verbo deja su resumen humano, para imprimirlo al final.
+RESUMEN_DE = {
+    "plan": "plan.txt",
+    "preflight": "preflight.txt",
+    "apply": "ultimo-verify.txt",
+    "verify": "ultimo-verify.txt",
+}
+
+AYUDA = """\
+netlabs_v4_b — motor de despliegue en Proxmox por su API REST
+
+    ./lab list                      labs declarados en labs/
+    ./lab new <nombre>              scaffoldea labs/<nombre>/ desde labs/.plantilla/
+    ./lab --lab <nombre> plan       ORDENA y muestra las llamadas REST que haría
+    ./lab --lab <nombre> preflight  sólo lectura: qué hay, qué falta, qué difiere
+    ./lab --lab <nombre> apply      converge lo declarado + verifica
+    ./lab --lab <nombre> verify     TEST FINAL: ¿existe de verdad lo declarado?
+    ./lab --lab <nombre> destroy    único verbo que destruye; pide confirmación
+    ./lab check [nombre]            checks del motor, sin credenciales ni Proxmox
+
+Opciones:
+    --api        en `plan`, leer el estado del mundo de la API en vez del fixture
+    --yes        en `destroy`, no pedir confirmación interactiva
+    --actualizar en `check docs`, reescribir la región generada de cada documento
+    --sellar <doc> en `check docs`, sellar un documento tras revisar su prosa
+
+Se ejecuta desde cualquier sitio: el wrapper se coloca en la raíz del repositorio,
+que es donde Ansible busca ansible.cfg.
+"""
+
+
+def fallo(mensaje):
+    print(f"\n./lab: {mensaje}\n", file=sys.stderr)
+    return 2
+
+
+def ruta_ansible_playbook():
+    """Dónde está `ansible-playbook`. En el PATH o en el sitio habitual de usuario."""
+    encontrado = shutil.which("ansible-playbook")
+    if encontrado:
+        return encontrado
+    candidato = os.path.expanduser("~/.local/bin/ansible-playbook")
+    if os.path.exists(candidato):
+        return candidato
+    return None
+
+
+def labs_declarados():
+    """Una carpeta con `<carpeta>.yml` dentro. Los nombres con punto (`.plantilla`)
+    no son labs."""
+    if not os.path.isdir(DIRECTORIO_LABS):
+        return []
+    labs = []
+    for nombre in sorted(os.listdir(DIRECTORIO_LABS)):
+        ruta = os.path.join(DIRECTORIO_LABS, nombre)
+        if nombre.startswith(".") or not os.path.isdir(ruta):
+            continue
+        if os.path.exists(os.path.join(ruta, f"{nombre}.yml")):
+            labs.append(nombre)
+    return labs
+
+
+def comprobar_entorno():
+    """Lo que tiene que estar en pie ANTES de lanzar Ansible. Falla pronto y claro."""
+    if not os.path.exists(os.path.join(RAIZ, "ansible.cfg")):
+        return "falta ansible.cfg en la raíz del repositorio"
+    if ruta_ansible_playbook() is None:
+        return "no encuentro `ansible-playbook` (¿está en el PATH o en ~/.local/bin?)"
+    return None
+
+
+def orden_list():
+    labs = labs_declarados()
+    if not labs:
+        print("No hay ningún lab declarado en labs/ (créalo con `./lab new <nombre>`).")
+        return 0
+    print(f"Labs declarados en labs/ ({len(labs)}):")
+    for lab in labs:
+        carpeta = os.path.join(DIRECTORIO_LABS, lab)
+        tiene_doc = "sí" if os.path.exists(os.path.join(carpeta, f"{lab}.md")) else "NO"
+        tiene_logs = "sí" if os.path.isdir(os.path.join(carpeta, "logs")) else "NO"
+        print(f"  - {lab:<24} documento={tiene_doc:<3} logs/={tiene_logs}")
+    return 0
+
+
+def orden_new(nombre):
+    if not nombre or not all(c.isalnum() or c == "-" for c in nombre) or nombre != nombre.lower():
+        return fallo(f"nombre de lab inválido: {nombre!r} (minúsculas, dígitos y guiones)")
+    destino = os.path.join(DIRECTORIO_LABS, nombre)
+    if os.path.exists(destino):
+        return fallo(f"labs/{nombre} ya existe")
+    if not os.path.isdir(PLANTILLA):
+        return fallo("falta labs/.plantilla/")
+
+    os.makedirs(os.path.join(destino, "logs"), exist_ok=True)
+    for origen in sorted(os.listdir(PLANTILLA)):
+        extension = os.path.splitext(origen)[1]
+        destino_fichero = os.path.join(destino, f"{nombre}{extension}")
+        with open(os.path.join(PLANTILLA, origen), encoding="utf-8") as fichero:
+            contenido = fichero.read()
+        with open(destino_fichero, "w", encoding="utf-8") as fichero:
+            fichero.write(contenido.replace("<NOMBRE>", nombre))
+    # `.gitkeep` para que la carpeta de logs exista en el clon, sin versionar los logs.
+    with open(os.path.join(destino, "logs", ".gitkeep"), "w", encoding="utf-8") as fichero:
+        fichero.write("")
+
+    print(f"labs/{nombre}/ creado desde labs/.plantilla/")
+    print("Siguiente paso:")
+    print(f"  1. rellena labs/{nombre}/{nombre}.yml (roles, bridges, direcciones y escalones)")
+    print(f"  2. ./lab --lab {nombre} plan")
+    print(f"  3. ./lab check docs --actualizar   (regenera la parte de datos del documento)")
+    return 0
+
+
+def ejecutar_verbo(lab, verbo, opciones):
+    """Valida el lab y lanza el playbook del verbo, con la salida a logs/ansible.log."""
+    carpeta = os.path.join(DIRECTORIO_LABS, lab)
+    declaracion = os.path.join(carpeta, f"{lab}.yml")
+    logs = os.path.join(carpeta, "logs")
+
+    if not os.path.isdir(carpeta):
+        return fallo(f"no existe labs/{lab} (míralo con `./lab list`)")
+    if not os.path.exists(declaracion):
+        return fallo(f"falta la declaración labs/{lab}/{lab}.yml")
+    if not os.path.isdir(logs):
+        return fallo(
+            f"falta labs/{lab}/logs/ (es el directorio donde van el diario de API y los "
+            f"informes; créalo con `mkdir -p labs/{lab}/logs`)"
+        )
+
+    usa_api = verbo in VERBOS_CON_API or "--api" in opciones
+    if usa_api and not os.path.exists(SECRETS):
+        return fallo(
+            "faltan las credenciales: copia deployment_engine/secrets.yml.example a "
+            "deployment_engine/secrets.yml, dale modo 0600 y rellénalo.\n"
+            "            (El verbo 'plan' sin --api no las necesita: usa un fixture.)"
+        )
+
+    if verbo == "destroy" and "--yes" not in opciones:
+        print(f"Vas a DESTRUIR el lab '{lab}': sus invitados y su pool en Proxmox.")
+        print("Es irreversible y no se puede deshacer desde este repositorio.")
+        respuesta = input(f"Escribe el nombre del lab para confirmar ({lab}): ").strip()
+        if respuesta != lab:
+            return fallo("confirmación incorrecta: no se ha destruido nada")
+
+    entorno = comprobar_entorno()
+    if entorno:
+        return fallo(entorno)
+
+    orden = [ruta_ansible_playbook(), os.path.join(PLAYBOOKS, f"{verbo}.yml")]
+    orden += ["-e", f"pve_lab={lab}"]
+    orden += ["-e", f"pve_archivo_lab={declaracion}"]
+    orden += ["-e", f"pve_carpeta_logs={logs}"]
+    orden += ["-e", f"pve_verb={verbo}"]
+    if os.path.exists(SECRETS):
+        orden += ["-e", f"@{SECRETS}"]
+    # `plan` sin --api: el estado del mundo es un clúster vacío simulado. Es lo que
+    # hace el plan demostrable sin credenciales, y se dice en la salida.
+    if verbo == "plan" and "--api" not in opciones:
+        orden += ["-e", f"pve_estado_fixture={FIXTURE_VACIO}"]
+
+    titulo = f"=== ./lab --lab {lab} {verbo} · {time.strftime('%Y-%m-%d %H:%M:%S')} ==="
+    print(titulo)
+    print(f"log: {os.path.relpath(os.path.join(logs, 'ansible.log'), RAIZ)}")
+    print()
+
+    inicio = time.time()
+    proceso = subprocess.Popen(
+        orden, cwd=RAIZ, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1
+    )
+    with open(os.path.join(logs, "ansible.log"), "a", encoding="utf-8") as registro:
+        registro.write(f"\n{titulo}\n")
+        for linea in proceso.stdout:
+            sys.stdout.write(linea)
+            registro.write(linea)
+    codigo = proceso.wait()
+
+    # El resumen lo escribe el playbook (no Ansible): en la salida de Ansible un texto
+    # multilínea sale escapado y es ilegible, así que el playbook deja el texto en un
+    # fichero y el wrapper lo imprime tal cual.
+    nombre_resumen = RESUMEN_DE.get(verbo)
+    if nombre_resumen:
+        ruta_resumen = os.path.join(logs, nombre_resumen)
+        if os.path.exists(ruta_resumen) and os.path.getmtime(ruta_resumen) >= inicio:
+            print()
+            with open(ruta_resumen, encoding="utf-8") as fichero:
+                print(fichero.read().rstrip("\n"))
+    return codigo
+
+
+def orden_check(argumentos):
+    if not os.path.exists(CHECKS):
+        return fallo("falta deployment_engine/tools/framework_check.py")
+    return subprocess.call([sys.executable, CHECKS, *argumentos], cwd=RAIZ)
+
+
+def main(argumentos):
+    if not argumentos or argumentos[0] in ("-h", "--help", "help"):
+        print(AYUDA)
+        return 0 if argumentos else 2
+    if argumentos[0] == "list":
+        return orden_list()
+    if argumentos[0] == "new":
+        return orden_new(argumentos[1] if len(argumentos) > 1 else None)
+    if argumentos[0] == "check":
+        return orden_check(argumentos[1:])
+
+    if argumentos[0] != "--lab":
+        return fallo(f"no entiendo `{argumentos[0]}` (prueba `./lab --help`)")
+    if len(argumentos) < 3:
+        return fallo("--lab necesita un nombre de lab y un verbo")
+
+    lab = argumentos[1]
+    verbo = argumentos[2]
+    opciones = argumentos[3:]
+    if verbo not in VERBOS:
+        return fallo(f"verbo desconocido: {verbo}. Los que hay: {', '.join(VERBOS)}")
+    return ejecutar_verbo(lab, verbo, opciones)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

@@ -1,0 +1,47 @@
+#!/bin/sh
+# PROPÓSITO:   las guardas docs<->código en el momento en que se commitea. Si lo que
+#              entra toca el motor, dice qué documentos lo citan (el cambio va al
+#              revés del puntero) y comprueba que los documentos no se quedan atrás.
+# INVARIANTES: BLOQUEA lo que es un hecho mecánico (la región generada de un .md no
+#              coincide con su render: eso no admite criterio, o está o no está).
+#              SÓLO AVISA de la caducidad de la prosa: decidir si un texto sigue
+#              siendo cierto exige criterio, y un hook no lo tiene.
+# LÍMITES:     no lintea, no ejecuta pruebas y no habla con Proxmox. No es un CI.
+#              Se activa una vez por clon:  git config core.hooksPath .githooks
+# VER:         README.md §Documentación; AGENTS.md §Documentación
+
+set -e
+
+RAIZ="$(git rev-parse --show-toplevel)"
+cd "$RAIZ"
+
+CHECKS="deployment_engine/tools/framework_check.py"
+if [ ! -f "$CHECKS" ]; then
+    echo "pre-commit: no encuentro $CHECKS; sigo sin comprobar nada" >&2
+    exit 0
+fi
+
+# --- 1. Si lo que entra toca el motor, decir quién lo documenta --------------
+# El puntero va del documento al código; esta es la dirección inversa, que es la que
+# hace falta en el momento de cambiar el código.
+FICHEROS_MOTOR="$(git diff --cached --name-only --diff-filter=ACMR | grep '^deployment_engine/' || true)"
+if [ -n "$FICHEROS_MOTOR" ]; then
+    echo "pre-commit: has tocado el motor. Esto lo documentan:"
+    for fichero in $FICHEROS_MOTOR; do
+        python3 "$CHECKS" refs "$fichero" 2>/dev/null || true
+    done
+    echo ""
+fi
+
+# --- 2. Bloquear: la región generada tiene que coincidir con su render --------
+if ! python3 "$CHECKS" docs; then
+    echo "" >&2
+    echo "pre-commit BLOQUEADO: la parte de datos de algún documento no coincide con" >&2
+    echo "lo que dice su declaración. Arréglalo con:" >&2
+    echo "    ./lab check docs --actualizar && git add -u" >&2
+    exit 1
+fi
+
+# --- 3. Avisar: prosa que ha dejado de estar revisada -------------------------
+python3 "$CHECKS" refs | grep '^AVISO' || true
+echo "pre-commit: ok (recuerda sellar la prosa que hayas revisado: ./lab check docs --sellar <doc>)"

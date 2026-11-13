@@ -1,0 +1,35 @@
+---
+# ===========================================================================
+# yamllint — el mismo trinquete que .ansible-lint, para los YAML que ansible-lint
+# no mira en modo "convención" (declaraciones de labs, variables del motor).
+#
+# Está relajado a propósito y sólo donde molesta:
+#   - line-length: fuera. Las declaraciones y las tareas llevan frases en castellano
+#     que lee una persona (y un agente) mucho más a menudo de lo que se lintean.
+#     Cortar una frase para llegar a 80 columnas la empeora.
+#   - truthy: las claves de la API de Proxmox se escriben LITERALES (`on`/`off`),
+#     no como lo que YAML 1.2 preferiría. El motor no normaliza a espaldas del
+#     usuario (regla §9).
+#   - document-start / comments-indentation: ruido de estilo, no de contenido.
+#
+# Lo que SÍ vigila: que el YAML se pueda leer (indentación, duplicados, sintaxis).
+# Se ejecuta desde la raíz:  yamllint -c .yamllint .
+#
+# Las cuatro reglas de abajo se dejan EXACTAMENTE como ansible-lint exige: si este
+# fichero no cumple sus mínimos, ansible-lint avisa y pierde el modo `--fix`. Un
+# fichero de configuración que incomoda a la otra herramienta es peor que no tenerlo.
+# ===========================================================================
+extends: default
+
+rules:
+  line-length: disable
+  truthy: disable
+  document-start: disable
+  comments-indentation: disable
+  comments:
+    min-spaces-from-content: 1
+  braces:
+    max-spaces-inside: 1
+  octal-values:
+    forbid-implicit-octal: true
+    forbid-explicit-octal: true

@@ -1,0 +1,36 @@
+---
+# ===========================================================================
+# ansible-lint — un trinquete, no una puerta.
+#
+# Qué es aquí: un seguro para que una tarea NUEVA no rompa en silencio una
+# convención del repo (una tarea sin `name:`, un `command` cuyo `changed` es una
+# suposición, un fichero escrito con el modo equivocado).
+#
+# Qué NO es: una comprobación de corrección. No ve dentro de un filtro Python, y
+# la clase de bug que de verdad cuesta una ejecución aquí (un nombre de campo mal
+# escrito contra la API de Proxmox, un mapa rol→vmid mal reconstruido) la cubren
+# el validador de la declaración y `./lab check`.
+#
+# Tiene que quedarse VERDE. Un linter con hallazgos permanentes enseña a
+# ignorarlo, lo que es peor que no ejecutarlo. Por eso las reglas que importan se
+# cumplen, y cada desviación deliberada está escrita aquí con su porqué.
+#
+# Se ejecuta desde la raíz del repo:  ansible-lint
+# ===========================================================================
+profile: basic
+
+skip_list:
+  # Las declaraciones de los labs y algunas tareas llevan líneas largas porque las
+  # lee una persona (y un agente) mucho más a menudo de lo que se lintean.
+  - yaml[line-length]
+
+  # Los nombres de las tareas son frases en castellano con acentos; la regla
+  # quiere Title Case en inglés. Renombrar 20 tareas para una mayúscula es
+  # exactamente el tipo de cambio cosmético que este repo evita.
+  - name[casing]
+
+warn_list:
+  # La puerta de la API usa `ansible.builtin.uri` con `failed_when: false` para
+  # poder DIARIZAR una respuesta de error antes de decidir. Es deliberado y está
+  # comentado en deployment_engine/tasks/pve_api.yml.
+  - ignore-errors

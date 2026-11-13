@@ -1,0 +1,16 @@
+# Credenciales en claro del MVP. NUNCA se commitea: el token de Proxmox equivale
+# a root y no caduca. El ejemplo versionado es secrets.yml.example.
+deployment_engine/secrets.yml
+
+# Artefactos de ejecucion de cada lab: diario de API, log humano de Ansible y
+# informes de verificacion. Son de ejecucion, rotan, y describen infraestructura
+# real: no se versionan. Lo que SI se versiona es la evidencia que se cita en la
+# prosa del lab, no el fichero entero.
+labs/*/logs/*
+!labs/*/logs/.gitkeep
+
+# Basura de Ansible y de Python.
+*.retry
+__pycache__/
+*.pyc
+.ansible/tmp/

@@ -1,0 +1,15 @@
+# Dependencias del REPOSITORIO: solo linters y comprobadores.
+#
+# El motor NO necesita colecciones de Ansible: usa exclusivamente `ansible.builtin`
+# (regla 4.2 del encargo). Tampoco necesita paquetes de Python: el wrapper `./lab`
+# y las herramientas de `deployment_engine/tools/` son stdlib pura.
+#
+# Se instalan AISLADOS, nunca con el pip que aparezca en el PATH (pertenece al
+# Python interno de Hermes y ensuciarlo rompe el agente):
+#
+#     uv tool install ansible-lint
+#     uv tool install yamllint
+#
+# Solo se usan para `ansible-lint` y `yamllint`, que son checks de desarrollo.
+ansible-lint
+yamllint

@@ -128,13 +128,23 @@ def orden_new(nombre):
         return fallo("falta labs/.plantilla/")
 
     os.makedirs(os.path.join(destino, "logs"), exist_ok=True)
+    # El bridge del esqueleto se DERIVA del nombre del lab, y no se copia tal cual:
+    # una interfaz del kernel no admite guiones ni pasa de 15 caracteres
+    # (IFNAMSIZ), y un nombre de lab como `mi-sitio-1` los lleva sin ningún
+    # problema. Si el esqueleto nace con un bridge que Proxmox rechazaría,
+    # `.plantilla/` está fuera de los checks (empieza por punto) y el fallo no se
+    # ve hasta que el humano rellena el YAML: por eso la derivación vive aquí y no
+    # en la plantilla.
+    bridge = ("vmb_" + nombre.replace("-", "_"))[:15].rstrip("_")
     for origen in sorted(os.listdir(PLANTILLA)):
         extension = os.path.splitext(origen)[1]
         destino_fichero = os.path.join(destino, f"{nombre}{extension}")
         with open(os.path.join(PLANTILLA, origen), encoding="utf-8") as fichero:
             contenido = fichero.read()
         with open(destino_fichero, "w", encoding="utf-8") as fichero:
-            fichero.write(contenido.replace("<NOMBRE>", nombre))
+            fichero.write(
+                contenido.replace("<NOMBRE_BRIDGE>", bridge).replace("<NOMBRE>", nombre)
+            )
     # `.gitkeep` para que la carpeta de logs exista en el clon, sin versionar los logs.
     with open(os.path.join(destino, "logs", ".gitkeep"), "w", encoding="utf-8") as fichero:
         fichero.write("")

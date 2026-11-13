@@ -1,0 +1,35 @@
+---
+# PROPÓSITO:   el esqueleto que `./lab new <nombre>` copia a `labs/<nombre>/`.
+#              Una declaración mínima, comentada, con los sitios a rellenar.
+# INVARIANTES: los marcadores `<NOMBRE>` los sustituye `./lab new` por el nombre
+#              del lab. Este directorio empieza por punto a propósito: los checks
+#              y `./lab list` lo ignoran, porque no es un lab.
+# LÍMITES:     es un esqueleto, no un ejemplo: no lleva valores de ningún lab real.
+# VER:         README.md §Cómo se usa; AGENTS.md §Mapa
+lab:
+  # Tiene que ser EXACTAMENTE el nombre de la carpeta: el pool de Proxmox se llama
+  # como la carpeta y es lo que distingue "esto es de este lab".
+  nombre: <NOMBRE>
+
+  # Orden de arranque: escalones. El motor arranca el 1, espera, y sigue con el 2.
+  escalones: [1]
+
+  # Los bridges que este lab necesita. Si ya existen en el nodo, no se tocan.
+  bridges:
+    - nombre: vmb-<NOMBRE>
+      direccion: 192.0.2.1/24
+
+# VMs (QEMU). Borra esta sección si el lab no tiene ninguna.
+vms: []
+
+# Contenedores (LXC).
+containers:
+  - rol: <rol-de-ejemplo>
+    escalon: 1
+    cores: 1
+    memoria: 256
+    disco: 4
+    bridge: vmb-<NOMBRE>
+    direccion: 192.0.2.11/24
+#     ↑ `rol`, recursos, bridge y dirección. NADA de `vmid` ni de `mac`:
+#       eso lo deriva el motor del estado real del clúster (regla 4.8).

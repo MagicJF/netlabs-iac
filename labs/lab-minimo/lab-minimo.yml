@@ -1,0 +1,35 @@
+---
+# PROPÓSITO:   declarar la topología más pequeña que el motor puede converger:
+#              un bridge y un contenedor.
+# INVARIANTES: usa el MISMO vocabulario de roles y las mismas secciones que
+#              cualquier otro lab -- el motor no tiene un camino especial para
+#              los labs pequeños. No declara vmid ni MAC (regla 4.8).
+# LÍMITES:     no tiene VM, así que no ejercita la rama QEMU del plan; para eso
+#              está el otro lab de ejemplo.
+# VER:         labs/lab-minimo/lab-minimo.md; README.md §Identidad
+#
+# POR QUÉ EXISTE: es la prueba de que el motor no conoce ningún lab. Los mismos
+# verbos, sin tocar una línea de `deployment_engine/`, producen otro plan; y los
+# conjuntos declarados por los dos labs de ejemplo son disjuntos, que es lo que
+# vigila `./lab check colisiones`.
+#
+# QUÉ SUSTITUIR para un Proxmox real: las direcciones, que están en 198.51.100.0/24
+# (rango reservado para documentación, RFC 5737, inexistente en la realidad).
+
+lab:
+  nombre: lab-minimo
+
+  escalones: [1]
+
+  bridges:
+    - nombre: vmb-lab-minimo
+      direccion: 198.51.100.1/24
+
+containers:
+  - rol: workstation-1
+    escalon: 1
+    cores: 1
+    memoria: 256
+    disco: 4
+    bridge: vmb-lab-minimo
+    direccion: 198.51.100.11/24

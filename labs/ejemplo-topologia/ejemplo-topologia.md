@@ -1,0 +1,155 @@
+<!-- PROPÓSITO:   el documento del lab `ejemplo-topologia`. Dos regiones: la
+     generada (datos derivados de la declaración) y la prosa (lo que el YAML no
+     puede decir).
+     INVARIANTES: dentro de los marcadores no se escribe a mano; `./lab check docs`
+     falla si difiere del render. Fuera, ningún check opina.
+     LÍMITES:     la prosa no repite valores que ya están en la tabla: los cita.
+     VER:         AGENTS.md §Documentación; README.md §Documentación -->
+# ejemplo-topologia
+
+La topología que pidió el encargo: **una VM que hace de conmutador y dos
+contenedores que hacen de puestos de trabajo**. Es el lab "grande" de los dos de
+ejemplo, y el único que ejercita las dos ramas del motor (QEMU y LXC).
+
+Sirve para leer el motor de una vez: aquí se ve un lab que declara dos escalones de
+arranque, un bridge propio, una VM con rol `switch` y dos contenedores que comparten
+escalón —sin vmid, sin MAC y sin ningún nombre de invitado escrito a mano—.
+
+<!-- generado:inicio -->
+_Datos derivados de `ejemplo-topologia.yml`. Los reescribe `./lab check docs --actualizar`;
+si los editas a mano, `./lab check docs` falla._
+
+## Invitados declarados
+
+| rol | tipo | escalón | cores | memoria (MB) | disco (GB) | bridge | dirección |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| switch | VM (qemu) | 1 | 2 | 512 | 8 | vmb-ejemplo-topologia | 192.0.2.2/24 |
+| workstation-1 | LXC | 2 | 1 | 256 | 4 | vmb-ejemplo-topologia | 192.0.2.11/24 |
+| workstation-2 | LXC | 2 | 1 | 256 | 4 | vmb-ejemplo-topologia | 192.0.2.12/24 |
+
+## Bridges del lab
+
+| bridge | dirección del bridge |
+| --- | --- |
+| vmb-ejemplo-topologia | 192.0.2.1/24 |
+
+## Orden de arranque (escalones)
+
+| escalón | roles |
+| --- | --- |
+| 1 | switch |
+| 2 | workstation-1, workstation-2 |
+
+## Identidad: la deriva el motor, no la declara el lab
+
+| rol | tipo | nombre canónico | vmid | MAC |
+| --- | --- | --- | --- | --- |
+| switch | VM (qemu) | ejemplo-topologia-switch | — | — |
+| workstation-1 | LXC | ejemplo-topologia-workstation-1 | — | — |
+| workstation-2 | LXC | ejemplo-topologia-workstation-2 | — | — |
+
+El **vmid** (el menor libre de *todo* el clúster) y la **MAC** (`BC:24:11` + los
+bytes del vmid) los asigna `apply` leyendo el estado de Proxmox: no se declaran aquí y
+no se guardan en ningún fichero del repositorio. Por eso estas dos columnas son un
+guion hasta que exista un despliegue real.
+<!-- generado:fin -->
+
+## Cómo llevarlo a un Proxmox real
+
+Los pasos exactos, en orden. Nada de esto se ha ejecutado contra un Proxmox real en
+este repositorio: las credenciales de aquí son relleno.
+
+1. **Rellena las credenciales** (no se versionan):
+   ```
+   cp deployment_engine/secrets.yml.example deployment_engine/secrets.yml
+   chmod 600 deployment_engine/secrets.yml
+   $EDITOR deployment_engine/secrets.yml
+   ```
+   Hay que sustituir `pve_nodo`, `pve_token_id` y `pve_token_secreto`. El puerto por
+   defecto de Proxmox es 8006.
+
+2. **Sustituye las direcciones del lab.** Este lab declara direcciones en
+   `192.0.2.0/24`, que es un rango reservado para documentación (RFC 5737) y no
+   existe en ninguna red real. Edita `ejemplo-topologia.yml` y pon las tuyas.
+
+3. **Mira el plan** (no toca nada):
+   ```
+   ./lab --lab ejemplo-topologia plan --api
+   ```
+   Sin `--api`, `plan` usa un clúster vacío simulado y sirve igual para revisar el
+   orden de las llamadas.
+
+4. **Pregunta qué hay y qué falta**, sólo lectura:
+   ```
+   ./lab --lab ejemplo-topologia preflight
+   ```
+
+5. **Converge**:
+   ```
+   ./lab --lab ejemplo-topologia apply
+   ```
+   `apply` ejecuta exactamente el plan que acabas de ver: crea el pool, crea el
+   bridge si falta, crea o ajusta cada invitado y los arranca por escalones.
+
+6. **Verifica** contra la API, que es el único test que no se cree a sí mismo:
+   ```
+   ./lab --lab ejemplo-topologia verify
+   ```
+
+7. **Destruye** cuando ya no lo quieras (borra los invitados del lab y, al final,
+   su pool si ha quedado vacío):
+   ```
+   ./lab --lab ejemplo-topologia destroy
+   ```
+
+## Por qué así
+
+### Dos escalones y no uno
+
+El conmutador tiene que estar en marcha antes que los puestos: si los dos
+contenedores arrancan a la vez que la VM que les da red, se pasan un rato con la
+interfaz sin salida. Los escalones son parte de la **declaración**, no del código
+del motor: un lab que no necesite orden pone un solo escalón y ya está. El motor
+sólo sabe "arranca el escalón 1, luego el 2": no hay ningún nombre de rol dentro de
+`deployment_engine/`.
+
+### La VM del conmutador no se configura
+
+Su interior no se toca: el motor la despliega, la arranca y comprueba que existe y
+tiene los recursos declarados. Configurar el reenvío dentro del invitado es la
+**capa 2** y está fuera de alcance a propósito. La declaración sólo dice que este
+rol es una VM con su interfaz en el bridge del lab.
+
+### Lo que el YAML no dice, y se aprende al usarlo
+
+*(Sección de archivo de lo aprendido: se rellena al ejecutar de verdad. Con
+credenciales de relleno, lo único que se ha podido comprobar es el plan y que la
+verificación falla limpiamente.)*
+
+- **Lo verificado aquí:** `./lab --lab ejemplo-topologia plan` produce el orden
+  esperado (pool → bridge → invitados → arrancada por escalones) y
+  `./lab --lab ejemplo-topologia verify` alcanza la API, no encuentra nada de lo
+  declarado y lo dice sin traceback, dejando el informe en `logs/`.
+- **Lo no verificado:** todo lo que exige un Proxmox alcanzable. La disjunción de
+  vmids con otros labs no se puede comprobar sin credenciales; el pool sí se
+  comprobaría al aplicar.
+
+### Un límite que conviene saber antes de tocar nada
+
+La **dirección IP** declarada de cada rol no la puede verificar el motor: la IP vive
+dentro del invitado y la configuración del hipervisor no la guarda. `verify` compara
+el **bridge** y la **MAC** (que sí están en la config) y dice en voz alta que la
+dirección no es comprobable, en vez de dar por bueno lo que no ha mirado.
+
+## Ver también (punteros al código)
+
+- La puerta única a la API y el diario de cada llamada:
+  [deployment_engine/tasks/pve_api.yml](../../deployment_engine/tasks/pve_api.yml)
+- El asignador de identidad (vmid, nombre canónico, MAC):
+  [deployment_engine/filter_plugins/identidad.py](../../deployment_engine/filter_plugins/identidad.py)
+- El cálculo del plan ordenado:
+  [deployment_engine/tools/plan.py](../../deployment_engine/tools/plan.py)
+- Los checks del motor, incluido `colisiones`:
+  [deployment_engine/tools/framework_check.py](../../deployment_engine/tools/framework_check.py)
+- Por qué el pool es la frontera de propiedad:
+  [docs/decisiones/0002-el-pool-como-frontera-de-propiedad.md](../../docs/decisiones/0002-el-pool-como-frontera-de-propiedad.md)

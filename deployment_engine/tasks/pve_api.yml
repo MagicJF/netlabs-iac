@@ -1,0 +1,130 @@
+---
+# PROPÓSITO:   LA PUERTA. Es el único sitio del repositorio que llama a la API de
+#              Proxmox, y es a la vez el que escribe la línea del diario. Hacer la
+#              petición y diarizarla son UNA sola cosa: por eso viven en el mismo
+#              fichero y no se puede hacer lo uno sin lo otro.
+# INVARIANTES: una línea JSON por petición, SIEMPRE, salga bien o mal (regla 4.6:
+#              "si una ejecución no dejó diario, no ocurrió"). La cabecera
+#              Authorization NO se escribe nunca en el diario ni en ningún log.
+#              El diario es un log: crezca lo que crezca, no es "cambiar el mundo"
+#              (de ahí el `changed_when: false` de la escritura).
+# LÍMITES:     esta tarea sólo sabe hacer UNA llamada. No decide qué llamar ni en
+#              qué orden (eso es el plan) y no interpreta el resultado (eso son los
+#              filtros de estado). Si la API no está, no lo arregla: lo diariza y lo
+#              dice en claro.
+# VER:         README.md §Una sola puerta hacia la API; ./lab check puerta
+#
+# Variables que espera:
+#   pve_api_metodo   GET | POST | PUT | DELETE
+#   pve_api_ruta     ruta relativa a /api2/json, sin el prefijo
+#   pve_api_cuerpo   (opcional) parámetros de la llamada
+#   pve_api_etiqueta (opcional) para qué era esta llamada, en el diario
+#   pve_api_vmid pve_api_acumular_configs  (opcional) acumula pve_configs[vmid]
+#   pve_api_tolerar_error  (opcional) no fallar en error: el llamante decide
+# Y deja en `pve_api_ultimo_*` el status, el cuerpo, los datos y el error legible.
+
+- name: "PUERTA · cronometrar {{ pve_api_metodo }} {{ pve_api_ruta }}"
+  ansible.builtin.set_fact:
+    pve_api_t0: "{{ now() }}"
+
+# `no_log` aquí: el resultado registrado contiene las cabeceras con el token.
+# `failed_when: false`: un error de la API (o la API caída) NO se trata como un
+# fallo de Ansible todavía. Primero hay que DIARIZARLO; después se decide.
+- name: "API {{ pve_api_metodo }} {{ pve_api_ruta }}"
+  ansible.builtin.uri:
+    url: "https://{{ pve_nodo }}:{{ pve_puerto }}/api2/json{{ pve_api_ruta }}"
+    method: "{{ pve_api_metodo }}"
+    headers:
+      Authorization: "PVEAPIToken={{ pve_token_id }}={{ pve_token_secreto }}"
+    body_format: form-urlencoded
+    body: "{{ pve_api_cuerpo | default({}) }}"
+    validate_certs: "{{ pve_verificar_tls | bool }}"
+    timeout: "{{ engine_timeout_api }}"
+    return_content: true
+    # Una lista: los 4xx y 5xx NO hacen fallar la tarea, porque un 401 o un 404
+    # son respuestas que el motor necesita leer (y diarizar), no accidentes.
+    status_code: [200, 201, 400, 401, 403, 404, 500, 501, 595]
+  register: pve_api_respuesta
+  no_log: true
+  failed_when: false
+  # Una lectura (GET) no cambia nada; una escritura (POST/PUT/DELETE) sí. Es lo que
+  # hace VERDADERA la promesa de idempotencia (regla 4.9): la segunda ejecución de un
+  # verbo ya convergido no contiene más que GET, así que su recuento es changed=0.
+  # El módulo `uri` no lo sabe por su cuenta (informa changed=False siempre que no
+  # escriba un fichero), así que se declara aquí, que es donde se sabe el método.
+  changed_when: "{{ pve_api_metodo | upper not in ['GET', 'HEAD'] }}"
+
+- name: "PUERTA · clasificar la respuesta de {{ pve_api_ruta }}"
+  ansible.builtin.set_fact:
+    # Sin conexión no hay `status`: -1 lo representa y es legible en el diario.
+    pve_api_ultimo_status: "{{ pve_api_respuesta.status | default(-1) | int }}"
+    pve_api_ultimo_cuerpo: "{{ pve_api_respuesta.content | default('') }}"
+    pve_api_ultimo_json: "{{ pve_api_respuesta.json | default({}, true) }}"
+    pve_api_duracion_ms: "{{ ((now() - pve_api_t0).total_seconds() * 1000) | round(0) | int }}"
+  no_log: false
+
+- name: "PUERTA · extraer los datos de {{ pve_api_ruta }}"
+  ansible.builtin.set_fact:
+    pve_api_ultimo_datos: "{{ (pve_api_ultimo_json.get('data') if pve_api_ultimo_json is mapping else {}) or {} }}"
+    # El error legible sale de una TABLA, no de una cadena de if/elif: se lee de un
+    # vistazo y no hay que descifrar el formato de un bloque de Jinja.
+    pve_api_ultimo_error: "{{ errores_conocidos.get(pve_api_ultimo_status, error_generico) }}"
+  vars:
+    errores_conocidos:
+      -1: >-
+        no se pudo conectar con https://{{ pve_nodo }}:{{ pve_puerto }} -- revisa el
+        nodo, el puerto, que el nombre resuelva y que `pve_verificar_tls` valga false
+        si el certificado es autofirmado
+      401: >-
+        la API rechazó el token (401): revisa `pve_token_id` y `pve_token_secreto`
+        en deployment_engine/secrets.yml
+      403: >-
+        el token no tiene permiso para esta llamada (403): revisa los permisos en
+        Proxmox para este token
+    error_generico: >-
+      {{ 'la API respondió ' ~ pve_api_ultimo_status ~ ' a ' ~ pve_api_metodo ~ ' ' ~ pve_api_ruta
+         if pve_api_ultimo_status >= 400 else '' }}
+
+# El diario va SIEMPRE, antes de decidir nada: con esto, un 401 o un nodo apagado
+# quedan registrados con la misma fidelidad que un 200.
+- name: "DIARIO · {{ pve_api_metodo }} {{ pve_api_ruta }}"
+  ansible.builtin.lineinfile:
+    path: "{{ pve_carpeta_logs }}/api.jsonl"
+    line: "{{ diario | to_json }}"
+    create: true
+    mode: '0640'
+    insertafter: EOF
+  vars:
+    diario:
+      ts: "{{ pve_api_t0.isoformat() }}"
+      verb: "{{ pve_verb }}"
+      lab: "{{ pve_lab }}"
+      method: "{{ pve_api_metodo }}"
+      path: "{{ pve_api_ruta }}"
+      params: "{{ pve_api_cuerpo | default({}) }}"
+      status: "{{ pve_api_ultimo_status }}"
+      duration_ms: "{{ pve_api_duracion_ms }}"
+      etiqueta: "{{ pve_api_etiqueta | default('') }}"
+      response: "{{ (pve_api_ultimo_json | to_json)[: engine_diario_max_cuerpo | int] }}"
+  changed_when: false
+
+# Acumulación opcional: la lectura de la config de cada invitado se hace en bucle,
+# así que el llamante pide aquí que la respuesta se guarde bajo su vmid. Es un
+# gancho explícito y con nombre, no un efecto colateral.
+- name: "PUERTA · acumular la config del vmid {{ pve_api_vmid | default('?') }}"
+  ansible.builtin.set_fact:
+    pve_configs: "{{ (pve_configs | default({})) | combine({(pve_api_vmid | string): pve_api_ultimo_datos}) }}"
+  when: pve_api_acumular_configs | default(false) | bool
+
+# Salvo que el llamante pida tolerar errores (para poder explicar por su cuenta qué
+# pasa), una respuesta de error PARA el verbo. El mensaje es legible y lleva el
+# camino de vuelta: nunca un traceback.
+- name: "PUERTA · parar si la API respondió con error"
+  ansible.builtin.fail:
+    msg: |-
+      La llamada a la API de Proxmox ha fallado: {{ pve_api_metodo }} {{ pve_api_ruta }}
+        {{ pve_api_ultimo_error | default('error desconocido') }}
+      El diario de esta ejecución está en {{ pve_carpeta_logs }}/api.jsonl
+  when:
+    - not (pve_api_tolerar_error | default(false) | bool)
+    - (pve_api_ultimo_error | default('') | length) > 0

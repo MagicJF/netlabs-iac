@@ -1,0 +1,132 @@
+---
+# PROPÓSITO:   leer el estado del mundo y asignar la identidad. Es lo que convierte
+#              "hay estos invitados, con estos vmids y estas descripciones" en el
+#              mapa rol->vmid que necesitan `preflight`, `apply` y `verify`.
+# INVARIANTES: el estado sale de la API (o de un fixture, en `plan` sin
+#              credenciales) y NUNCA de un fichero de asignaciones propio: no hay
+#              estado en disco (regla 4.8). La identidad se RE-DERIVA en cada
+#              ejecución con la misma función pura.
+# LÍMITES:     si la API no responde, aquí no se inventa nada: se deja
+#              `pve_mundo_error` puesto y el verbo que llama decide qué decir.
+# VER:         README.md §Identidad; AGENTS.md §Identidad
+#
+# Necesita `declaracion` (normalizada por validar.yml). Deja: `estado`, `identidad`,
+# `pve_mundo_origen` y, si algo fue mal, `pve_mundo_error`.
+
+# --- Camino sin credenciales: el estado del mundo es un fixture --------------
+# Es lo que hace demostrable `plan` sin ningún Proxmox: la declaración es la misma,
+# sólo cambia de dónde sale "qué hay".
+- name: "MUNDO · leer el estado de un fixture (sin tocar la API)"
+  ansible.builtin.set_fact:
+    estado: "{{ (lookup('file', pve_estado_fixture) | from_json) | estado_normalizar }}"
+    pve_mundo_origen: "fixture {{ pve_estado_fixture }}"
+    pve_mundo_error: ""
+  when: (pve_estado_fixture | default('') | length) > 0
+
+# --- Camino real: el estado del mundo sale de la API ------------------------
+# La primera llamada tolera el error a propósito: queremos poder explicar qué pasa
+# (nodo apagado, token rechazado) en vez de que reviente la puerta.
+- name: "MUNDO · leer los recursos de todo el clúster"
+  ansible.builtin.include_tasks: pve_api.yml
+  vars:
+    pve_api_metodo: GET
+    pve_api_ruta: "/cluster/resources"
+    pve_api_etiqueta: "todos los invitados del clúster, con su pool"
+    pve_api_tolerar_error: true
+  when: (pve_estado_fixture | default('') | length) == 0
+
+- name: "MUNDO · decidir si el mundo está al alcance"
+  ansible.builtin.set_fact:
+    pve_cluster_recursos: "{{ pve_api_ultimo_datos }}"
+    pve_mundo_origen: "API https://{{ pve_nodo }}:{{ pve_puerto }}"
+    pve_mundo_error: "{{ pve_api_ultimo_error | default('') }}"
+  when: (pve_estado_fixture | default('') | length) == 0
+
+# Un pool por lab: la frontera de propiedad. Lo que está en el pool es de este lab.
+# Se piden TODOS los pools (una llamada) en vez de interrogar uno a uno: así se sabe
+# a la vez si el nuestro existe y qué pools están en uso.
+- name: "MUNDO · leer los pools del clúster"
+  ansible.builtin.include_tasks: pve_api.yml
+  vars:
+    pve_api_metodo: GET
+    pve_api_ruta: "/pools"
+    pve_api_etiqueta: "todos los pools (fronteras de propiedad de todos los labs)"
+    pve_api_tolerar_error: true
+  when:
+    - (pve_estado_fixture | default('') | length) == 0
+    - (pve_mundo_error | default('') | length) == 0
+
+- name: "MUNDO · guardar los pools del clúster"
+  ansible.builtin.set_fact:
+    pve_pools_lista: "{{ pve_api_ultimo_datos }}"
+  when:
+    - (pve_estado_fixture | default('') | length) == 0
+    - (pve_mundo_error | default('') | length) == 0
+
+- name: "MUNDO · leer la red del nodo (qué bridges faltan)"
+  ansible.builtin.include_tasks: pve_api.yml
+  vars:
+    pve_api_metodo: GET
+    pve_api_ruta: "/nodes/{{ pve_nodo }}/network"
+    pve_api_etiqueta: "interfaces del nodo: bridges que ya existen"
+    pve_api_tolerar_error: true
+  when:
+    - (pve_estado_fixture | default('') | length) == 0
+    - (pve_mundo_error | default('') | length) == 0
+
+- name: "MUNDO · guardar la red del nodo"
+  ansible.builtin.set_fact:
+    pve_red_nodo: "{{ pve_api_ultimo_datos }}"
+  when:
+    - (pve_estado_fixture | default('') | length) == 0
+    - (pve_mundo_error | default('') | length) == 0
+
+# La descripción de cada invitado lleva su rol: es la mitad de la frontera de
+# propiedad que permite reconstruir rol->vmid sin guardar nada. Por eso hay que
+# leer la config de cada invitado DEL LAB, y no sólo la lista del clúster.
+- name: "MUNDO · leer la configuración de cada invitado del lab"
+  ansible.builtin.include_tasks: pve_api.yml
+  vars:
+    pve_api_metodo: GET
+    pve_api_ruta: "/nodes/{{ item.nodo }}/{{ item.tipo }}/{{ item.vmid }}/config"
+    pve_api_etiqueta: "config del invitado {{ item.vmid }} ({{ item.rol_o_nombre }})"
+    pve_api_tolerar_error: true
+    pve_api_acumular_configs: true
+    pve_api_vmid: "{{ item.vmid }}"
+  loop: "{{ pve_cluster_recursos | pve_invitados_del_pool(pve_lab) if (pve_estado_fixture | default('') | length) == 0 and (pve_mundo_error | default('') | length) == 0 else [] }}"
+  loop_control:
+    label: "{{ item.vmid }} {{ item.rol_o_nombre }}"
+
+- name: "MUNDO · componer el estado del mundo"
+  ansible.builtin.set_fact:
+    estado: >-
+      {{ {'nodo': pve_nodo,
+          'lab': pve_lab,
+          'cluster_recursos': pve_cluster_recursos,
+          'pools_lista': pve_pools_lista | default([]),
+          'red_nodo': pve_red_nodo | default([]),
+          'configs': pve_configs | default({})} | estado_desde_api }}
+  when:
+    - (pve_estado_fixture | default('') | length) == 0
+    - (pve_mundo_error | default('') | length) == 0
+
+# --- Identidad: siempre, salga el estado de donde salga ---------------------
+- name: "IDENTIDAD · asignar el vmid, el nombre y la MAC de cada rol"
+  ansible.builtin.set_fact:
+    identidad: >-
+      {{ declaracion | identidad_asignar(estado,
+           engine_plantilla_descripcion, engine_plantilla_nombre,
+           engine_prefijo_mac, engine_vmid_minimo, engine_vmid_maximo) }}
+  when: (pve_mundo_error | default('') | length) == 0
+
+- name: "IDENTIDAD · parar si el asignador no pudo asignar identidad"
+  ansible.builtin.fail:
+    msg: |-
+      El motor no ha podido asignar identidad a todos los roles de '{{ pve_lab }}':
+      {% for error in identidad.errores %}
+        - {{ error }}
+      {% endfor %}
+      No se aplica nada: una identidad a medias es peor que ninguna.
+  when:
+    - (pve_mundo_error | default('') | length) == 0
+    - (identidad.errores | length) > 0

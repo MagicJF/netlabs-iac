@@ -1,0 +1,34 @@
+---
+# PROPÓSITO:   validar la COHERENCIA del estado deseado antes de mirar el mundo.
+#              Es la validación que comparten `plan`, `preflight` y `apply`: si la
+#              declaración se contradice a sí misma (un rol en dos listas, un bridge
+#              citado que no existe, dos roles con la misma dirección, un vmid
+#              declarado a mano), el verbo PARA antes de tocar la API.
+# INVARIANTES: falla con TODAS las incoherencias de una vez, no con la primera: ver
+#              diez errores de golpe ahorra diez ejecuciones. El mensaje nombra el
+#              fichero y lo que hay que arreglar.
+# LÍMITES:     sólo mira el YAML. Que un bridge exista en el NODO no se comprueba
+#              aquí: eso exige leer la API y lo hace `preflight`.
+# VER:         README.md §Verificación; ./lab check declaracion; labs/<lab>/<lab>.yml
+
+- name: "VALIDAR · comprobar la coherencia de {{ pve_archivo_lab }}"
+  ansible.builtin.set_fact:
+    errores_declaracion: "{{ declaracion_cruda | declaracion_validar(pve_lab) }}"
+
+- name: "VALIDAR · parar si la declaración se contradice"
+  ansible.builtin.fail:
+    msg: |-
+      La declaración del lab '{{ pve_lab }}' es incoherente. No se toca la API.
+      {% for error in errores_declaracion %}
+        - {{ error }}
+      {% endfor %}
+      Arréglalo en {{ pve_archivo_lab }} y vuelve a empezar. Lo mismo comprueba
+      `./lab check declaracion` sin credenciales.
+  when: (errores_declaracion | length) > 0
+
+# Normalizar = una sola forma de leer la declaración para todos los verbos: la lista
+# de invitados en orden de arranque, con el tipo ya resuelto. Nadie vuelve a
+# interpretar el YAML por su cuenta.
+- name: "VALIDAR · normalizar la declaración"
+  ansible.builtin.set_fact:
+    declaracion: "{{ declaracion_cruda | declaracion_normalizar(pve_lab) }}"

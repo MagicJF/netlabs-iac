@@ -380,15 +380,28 @@ def _conjuntos_declarados(lab):
 
     Los nombres canónicos también son disjuntos por construcción (llevan el nombre
     del lab delante), pero se comprueban igual: si algún día dejan de llevarlo, este
-    check es el que se entera.
+    check es el que se entera. Los VMIDS no están aquí a propósito: los asigna el
+    motor al aplicar y su disjunción no es comprobable sin credenciales (se dice en
+    el README, no se maquilla).
     """
     declaracion = declaracion_de(lab)
     bridges = {b["nombre"] for b in declaracion["lab"]["bridges"]}
     direcciones = set()
+    nombres = set()
     for seccion in ("vms", "containers"):
         for invitado in declaracion.get(seccion) or []:
             direcciones.add(str(invitado["direccion"]).split("/", 1)[0])
-    return {"bridges": bridges, "direcciones": direcciones}
+            nombres.add(f"{lab}-{invitado['rol']}")
+    return {"bridges": bridges, "direcciones": direcciones, "nombres": nombres}
+
+
+# Cómo se nombra cada conjunto al informar de una colisión (no `clave[:-1]`: eso
+# escribiría "direccione").
+ETIQUETA_DE_CONJUNTO = {
+    "bridges": "el bridge",
+    "direcciones": "la dirección",
+    "nombres": "el nombre canónico",
+}
 
 
 def check_colisiones():
@@ -397,16 +410,17 @@ def check_colisiones():
     fallos = []
     for indice, lab_a in enumerate(labs):
         for lab_b in labs[indice + 1:]:
-            for clave in ("bridges", "direcciones"):
+            for clave, etiqueta in ETIQUETA_DE_CONJUNTO.items():
                 repetidos = conjuntos[lab_a][clave] & conjuntos[lab_b][clave]
                 for repetido in sorted(repetidos):
-                    fallos.append(f"'{lab_a}' y '{lab_b}' comparten {clave[:-1]}: {repetido}")
+                    fallos.append(f"'{lab_a}' y '{lab_b}' comparten {etiqueta}: {repetido}")
     if fallos:
         print("FALLA colisiones: dos labs declaran lo mismo (no pueden convivir):")
         for fallo in fallos:
             print(f"  - {fallo}")
         return 1
-    print(f"OK    colisiones: los conjuntos declarados de {len(labs)} lab(s) son disjuntos dos a dos")
+    print(f"OK    colisiones: los conjuntos declarados de {len(labs)} lab(s) "
+          "(bridges, direcciones, nombres canónicos) son disjuntos dos a dos")
     print("      (la disjunción de VMIDS no se puede comprobar sin credenciales: los asigna el motor al aplicar)")
     return 0
 
@@ -461,30 +475,15 @@ def check_pureza_lab():
 # check readme — el README habla del motor, no de un lab
 # ---------------------------------------------------------------------------
 
-def _sin_bloques_de_codigo(texto):
-    """Quita el contenido de los bloques cercados por ``` (evidencia literal citada).
-
-    Lo que queda es la prosa: lo que el documento afirma por su cuenta.
-    """
-    fuera = []
-    dentro = False
-    for linea in texto.splitlines():
-        if linea.lstrip().startswith("```"):
-            dentro = not dentro
-            continue
-        if not dentro:
-            fuera.append(linea)
-    return "\n".join(fuera)
-
-
 def check_readme():
     ruta = os.path.join(RAIZ, "README.md")
-    # La prosa del README no puede llevar valores de ningún lab; pero Sí puede
+    # La prosa del README no puede llevar valores de ningún lab; pero SÍ puede
     # CITAR literalmente la salida de un check (dentro de un bloque de código
     # cercado), porque esa salida ES la evidencia del ejercicio de romper a
     # propósito, y reescribirla sería mentir. Se quitan los bloques cercados antes
-    # de buscar: lo que queda es lo que el README afirma por su cuenta.
-    texto = _sin_bloques_de_codigo(_leer(ruta))
+    # de buscar (misma función que usa `check links`): lo que queda es la prosa, lo
+    # que el README afirma por su cuenta.
+    texto = _fuera_de_bloques_de_codigo(_leer(ruta))
     fallos = []
     for lab in directorios_de_labs():
         declaracion = declaracion_de(lab)

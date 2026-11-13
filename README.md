@@ -270,8 +270,9 @@ Esta sección no lleva adjetivos.
 
 **Verificado dentro de este repositorio, con la salida real del comando:**
 
-- `./lab check` en verde con los ocho checks, **y cada uno se ha visto fallar** al
-  romper a propósito lo que vigila (el ejercicio está escrito abajo).
+- `./lab check` en verde con los ocho checks, **y los ocho se han visto fallar** al
+  romper a propósito lo que vigilan (seis están en el ejercicio de abajo, con su
+  salida literal; `refs` y `readme` se vieron fallar al construir el repositorio).
 - `ansible-lint` sin hallazgos y `--syntax-check` correcto en todos los playbooks.
 - `./lab list` y `./lab --lab <lab> plan` de las dos topologías: planes **distintos**,
   coherentes y ordenados, derivados de la declaración.
@@ -322,7 +323,15 @@ FALLA pureza-lab: el motor contiene valores de un lab (el motor no conoce topolo
 
 ```
 FALLA colisiones: dos labs declaran lo mismo (no pueden convivir):
-  - 'ejemplo-topologia' y 'lab-minimo' comparten bridge: vmb-ejemplo-topologia
+  - 'ejemplo-topologia' y 'lab-minimo' comparten el bridge: vmb-ejemplo-topologia
+```
+
+**4b. Un lab nuevo scaffoldeado sin sustituir el relleno** (`./lab new` copia la
+plantilla, y la plantilla lleva direcciones de ejemplo):
+
+```
+FALLA colisiones: dos labs declaran lo mismo (no pueden convivir):
+  - 'ejemplo-topologia' y 'prueba-temporal' comparten la dirección: 192.0.2.11
 ```
 
 **5. Una llamada a la API fuera de la puerta** (en `deployment_engine/playbooks/plan.yml`):
@@ -332,8 +341,17 @@ FALLA puerta: alguien llama a la API fuera de deployment_engine/tasks/pve_api.ym
   - deployment_engine/playbooks/plan.yml
 ```
 
-Y la guarda de caducidad no grita: **avisa**. Al tocar un fichero del motor, el
-siguiente `./lab check` dice qué documentos han dejado de estar revisados:
+**6. El mismo rol en dos listas del estado deseado** (`vms` y `containers`):
+
+```
+FALLA declaracion: el estado deseado es incoherente:
+  - labs/lab-minimo/lab-minimo.yml: roles repetidos: ['workstation-1']. Un rol identifica a un invitado y sólo a uno: el nombre canónico y la descripción se derivan de él.
+```
+
+**7 y 8. `readme` y `refs`** se vieron fallar al construir el repositorio: el primero,
+cuando el README afirmaba por su cuenta el nombre de un bridge de un lab; el segundo,
+cuando un documento citaba el motor y no estaba sellado. El aviso de caducidad de
+`refs`, además, sale en cada edición del motor:
 
 ```
 AVISO refs: README.md cita `deployment_engine/tools/framework_check.py`, que ha cambiado desde que se revisó

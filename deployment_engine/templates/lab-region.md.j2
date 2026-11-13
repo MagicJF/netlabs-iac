@@ -1,0 +1,42 @@
+<!-- PROPÓSITO:   el esqueleto de la REGIÓN GENERADA del documento de un lab: la
+     parte que se deriva de la declaración y que ningún humano escribe a mano.
+     INVARIANTES: es rígido (marcadores, títulos, columnas) y lo rellena
+     `deployment_engine/tools/documentos.py`. Dentro no hay ni una frase de prosa:
+     la narrativa vive FUERA de los marcadores, y ahí no opina ningún check.
+     LÍMITES:     usa sustitución simple `{{ clave }}` (stdlib), no Jinja: las
+     expresiones con lógica van a Python, que sí se puede comentar y probar.
+     VER:         AGENTS.md §Documentación; README.md §Documentación
+-->
+<!-- generado:inicio -->
+_Datos derivados de `{{ archivo_declaracion }}`. Los reescribe `./lab check docs --actualizar`;
+si los editas a mano, `./lab check docs` falla._
+
+## Invitados declarados
+
+| rol | tipo | escalón | cores | memoria (MB) | disco (GB) | bridge | dirección |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+{{ tabla_invitados }}
+
+## Bridges del lab
+
+| bridge | dirección del bridge |
+| --- | --- |
+{{ tabla_bridges }}
+
+## Orden de arranque (escalones)
+
+| escalón | roles |
+| --- | --- |
+{{ tabla_escalones }}
+
+## Identidad: la deriva el motor, no la declara el lab
+
+| rol | tipo | nombre canónico | vmid | MAC |
+| --- | --- | --- | --- | --- |
+{{ tabla_identidad }}
+
+El **vmid** (el menor libre de *todo* el clúster) y la **MAC** (`{{ prefijo_mac }}` + los
+bytes del vmid) los asigna `apply` leyendo el estado de Proxmox: no se declaran aquí y
+no se guardan en ningún fichero del repositorio. Por eso estas dos columnas son un
+guion hasta que exista un despliegue real.
+<!-- generado:fin -->

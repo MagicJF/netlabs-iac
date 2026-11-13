@@ -1,0 +1,8 @@
+{
+  "nodo": "pve-simulado",
+  "vmids_usados": [],
+  "bridges_nodo": ["vmbr0"],
+  "pools": {},
+  "invitados": {},
+  "invitados_otros": {}
+}

@@ -1,0 +1,43 @@
+---
+# PROPÓSITO:   una declaración que DEBE fallar. Es el fixture negativo de los tests:
+#              si el validador no la rechaza, el validador no sirve.
+# INVARIANTES: acumula incoherencias a propósito, para comprobar que el informe las
+#              da TODAS de una vez y no sólo la primera:
+#                - rol `puesto-1` en las dos listas (VMs y contenedores)
+#                - `puesto-2` cita un bridge que el lab no declara
+#                - `puesto-2` está en un escalón que no existe
+#                - `puesto-2` comparte dirección con `puesto-1`
+#                - `puesto-1` intenta declarar un vmid a mano (lo deriva el motor)
+#                - `nombre` no coincide con la carpeta del lab
+# LÍMITES:     no es un lab: vive en test/fixtures/.
+# VER:         test/test_identidad.py; README.md §Verificación
+lab:
+  nombre: incoherente
+  escalones: [1]
+  bridges:
+    - nombre: vmb-uno
+      direccion: 192.0.2.1/24
+vms:
+  - rol: puesto-1
+    vmid: 4242
+    escalon: 1
+    cores: 1
+    memoria: 256
+    disco: 4
+    bridge: vmb-uno
+    direccion: 192.0.2.11/24
+containers:
+  - rol: puesto-1
+    escalon: 1
+    cores: 1
+    memoria: 256
+    disco: 4
+    bridge: vmb-uno
+    direccion: 192.0.2.11/24
+  - rol: puesto-2
+    escalon: 9
+    cores: 0
+    memoria: 256
+    disco: 4
+    bridge: vmb-que-no-existe
+    direccion: 192.0.2.11/24

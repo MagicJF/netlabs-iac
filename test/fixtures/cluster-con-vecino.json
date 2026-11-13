@@ -1,0 +1,31 @@
+{
+  "nodo": "pve-simulado",
+  "vmids_usados": [100, 101, 500],
+  "bridges_nodo": ["vmbr0", "vmb-ejemplo-topologia"],
+  "pools": {
+    "ejemplo-topologia": {"comment": "topología gestionada por netlabs_v4_b"},
+    "otro-lab": {"comment": "otro lab del mismo nodo"}
+  },
+  "invitados": {
+    "101": {
+      "vmid": 101,
+      "nombre": "ejemplo-topologia-switch",
+      "tipo": "qemu",
+      "descripcion": "lab=ejemplo-topologia rol=switch gestionado por netlabs_v4_b",
+      "cores": 2,
+      "memoria": 512,
+      "bridge": "vmb-ejemplo-topologia",
+      "mac": "BC:24:11:00:00:65",
+      "arrancado": true,
+      "pool": "ejemplo-topologia",
+      "nodo": "pve-simulado"
+    }
+  },
+  "invitados_otros": {
+    "otro-lab-a": {
+      "vmid": 500,
+      "pool": "otro-lab",
+      "descripcion": "lab=otro-lab rol=a gestionado por netlabs_v4_b"
+    }
+  }
+}

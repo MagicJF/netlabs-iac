@@ -1,0 +1,23 @@
+---
+# PROPÓSITO:   la segunda declaración de juguete de los tests: es la prueba de que
+#              dos labs distintos reciben identidades DISJUNTAS partiendo del mismo
+#              estado del mundo.
+# INVARIANTES: declara un rol con el MISMO nombre que el otro fixture a propósito:
+#              el nombre canónico lo desambigua el motor (`<lab>-<rol>`), y el vmid
+#              no se puede compartir. Eso es exactamente lo que hay que demostrar.
+# LÍMITES:     direcciones de documentación (RFC 5737).
+# VER:         test/test_identidad.py
+lab:
+  nombre: beta
+  escalones: [1]
+  bridges:
+    - nombre: vmb-beta
+      direccion: 198.51.100.1/24
+containers:
+  - rol: nucleo
+    escalon: 1
+    cores: 1
+    memoria: 256
+    disco: 4
+    bridge: vmb-beta
+    direccion: 198.51.100.11/24

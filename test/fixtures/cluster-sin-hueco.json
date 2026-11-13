@@ -1,0 +1,15 @@
+{
+  "nodo": "pve-simulado",
+  "vmids_usados": [100, 101, 102, 103, 104, 105],
+  "bridges_nodo": ["vmbr0"],
+  "pools": {"otro-lab": {"comment": "otro lab del mismo nodo"}},
+  "invitados": {},
+  "invitados_otros": {
+    "otro-lab-a": {"vmid": 100, "pool": "otro-lab", "descripcion": "lab=otro-lab rol=a gestionado por netlabs_v4_b"},
+    "otro-lab-b": {"vmid": 101, "pool": "otro-lab", "descripcion": "lab=otro-lab rol=b gestionado por netlabs_v4_b"},
+    "otro-lab-c": {"vmid": 102, "pool": "otro-lab", "descripcion": "lab=otro-lab rol=c gestionado por netlabs_v4_b"},
+    "otro-lab-d": {"vmid": 103, "pool": "otro-lab", "descripcion": "lab=otro-lab rol=d gestionado por netlabs_v4_b"},
+    "otro-lab-e": {"vmid": 104, "pool": "otro-lab", "descripcion": "lab=otro-lab rol=e gestionado por netlabs_v4_b"},
+    "otro-lab-f": {"vmid": 105, "pool": "otro-lab", "descripcion": "lab=otro-lab rol=f gestionado por netlabs_v4_b"}
+  }
+}

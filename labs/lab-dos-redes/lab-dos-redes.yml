@@ -1,0 +1,103 @@
+---
+# PROPÓSITO:   declarar la topología del lab `lab-dos-redes`: DOS redes separadas
+#              (perímetro y núcleo), con un borde y un conmutador de núcleo como
+#              VMs y tres contenedores de servicio/puesto repartidos entre las dos.
+#              Es el lab de complejidad media del repositorio: más ancho que el de
+#              tres dispositivos (dos bridges, tres escalones, cinco invitados),
+#              pero sin salirse de lo que el motor sabe converger.
+# INVARIANTES: esta es la FUENTE DE VERDAD del lab. Aquí NO hay ningún vmid ni
+#              ninguna MAC: los deriva el motor (regla 4.8). El nombre tiene que
+#              coincidir con el de la carpeta, porque el pool de Proxmox se llama
+#              como la carpeta y es la frontera de propiedad.
+# LÍMITES:     cada invitado declara UN bridge y UNA dirección, así que este lab NO
+#              puede declarar un cortafuegos con una pata en cada red: la
+#              interconexión entre las dos redes no se declara (ver «Un límite que
+#              se ve al leer la topología» en el documento del lab). Y el interior
+#              de los invitados (sistema operativo, direccionamiento estático,
+#              DHCP) está fuera de alcance: este motor despliega, no configura.
+#              `disco` se declara y se valida, pero la API no recibe todavía
+#              ninguna orden de disco (límite escrito en tools/plan.py).
+# VER:         labs/lab-dos-redes/lab-dos-redes.md; README.md §Identidad
+#
+# QUÉ HAY QUE SUSTITUIR PARA LLEVARLO A UN PROXMOX REAL
+#
+#   1. `direccion` de `lab.bridges` y de cada invitado: están en 203.0.113.0/24,
+#      que es un rango reservado para documentación (RFC 5737) y NO existe en
+#      ninguna red real. Sustitúyelas por direcciones de tu red de laboratorio.
+#   2. `bridge` (el nombre): el motor creará los bridges en el nodo si no existen
+#      (y recargará la red del nodo UNA vez, al final, no una por bridge). Los
+#      nombres tienen que ser unos que el núcleo acepte (empezar por letra, sólo
+#      letras/dígitos/guion_bajo, 2 a 15 caracteres, SIN guiones): aquí están sin
+#      guiones y cortos a propósito, porque el motor los rechaza antes de tocar la
+#      API.
+#   3. El resto (credenciales, nodo, plantilla de contenedor) NO está aquí: va en
+#      `deployment_engine/secrets.yml` y `deployment_engine/vars/engine.yml`.
+
+lab:
+  nombre: lab-dos-redes
+
+  # Tres escalones, cada uno con un motivo distinto: primero el borde (es la
+  # puerta), después el conmutador del núcleo (da red a la segunda red) y sólo
+  # entonces los servicios y los puestos. El plan y `apply` arrancan escalón a
+  # escalón, nunca todo a la vez.
+  escalones: [1, 2, 3]
+
+  # Los bridges son del NODO, no del lab (Proxmox no los mete en pools). El motor
+  # sólo crea los que falten, y se declaran aquí para saber cuáles necesita y para
+  # que `check colisiones` pueda exigir que dos labs no compartan nombre.
+  # Son DOS: es lo que convierte a este lab en «de dos redes» y no en una variante
+  # del de tres dispositivos.
+  bridges:
+    - nombre: vmb_perimetro
+      direccion: 203.0.113.1/24
+    - nombre: vmb_nucleo
+      direccion: 203.0.113.129/24
+
+vms:
+  # El borde: una VM que hace de cortafuegos y puerta de la red de perímetro. Su
+  # interior no se configura; aquí sólo se despliega y se arranca.
+  - rol: borde
+    escalon: 1
+    cores: 2
+    memoria: 512
+    disco: 8
+    bridge: vmb_perimetro
+    direccion: 203.0.113.2/24
+
+  # El conmutador del núcleo: la segunda VM, y la única QEMU en la red de núcleo.
+  # Ejercita la rama QEMU del plan más de una vez, y en un escalón distinto.
+  - rol: nucleo
+    escalon: 2
+    cores: 2
+    memoria: 1024
+    disco: 8
+    bridge: vmb_nucleo
+    direccion: 203.0.113.130/24
+#     ↑ sin `vmid` y sin `mac`: eso lo deriva el motor del estado del clúster.
+
+containers:
+  # Un servidor en el perímetro: lo que se publica de cara afuera.
+  - rol: servidor
+    escalon: 3
+    cores: 1
+    memoria: 512
+    disco: 6
+    bridge: vmb_perimetro
+    direccion: 203.0.113.21/24
+
+  # Dos puestos en el núcleo. Comparten escalón: no dependen el uno del otro.
+  - rol: puesto-1
+    escalon: 3
+    cores: 1
+    memoria: 512
+    disco: 4
+    bridge: vmb_nucleo
+    direccion: 203.0.113.131/24
+
+  - rol: puesto-2
+    escalon: 3
+    cores: 1
+    memoria: 512
+    disco: 4
+    bridge: vmb_nucleo
+    direccion: 203.0.113.132/24

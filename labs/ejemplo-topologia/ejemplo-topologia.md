@@ -60,15 +60,16 @@ Los pasos exactos, en orden. Este repositorio **se ha ejecutado ya contra un
 Proxmox real** siguiendo estos pasos; abajo quedan anotadas las dos trampas que
 aparecieron (nombre del nodo y nombre del bridge).
 
-1. **Rellena las credenciales** (no se versionan):
+1. **Rellena las credenciales** (no se versionan; se escriben a mano, ya no hay
+   `.example` que copiar):
    ```
-   cp deployment_engine/secrets.yml.example deployment_engine/secrets.yml
-   chmod 600 deployment_engine/secrets.yml
    $EDITOR deployment_engine/secrets.yml
+   chmod 600 deployment_engine/secrets.yml
    ```
-   Hay que sustituir `pve_nodo` (el host de la API), `pve_nombre_nodo` (el nombre
-   con el que Proxmox conoce al nodo, el de `/nodes/<nombre>/...`), `pve_token_id` y
-   `pve_token_secreto`. El puerto por defecto de Proxmox es 8006.
+   Las claves y qué significa cada una están en el README, §«Las credenciales se
+   escriben a mano». En corto: `pve_nodo` (el host de la API), `pve_nombre_nodo`
+   (el nombre con el que Proxmox conoce al nodo, el de `/nodes/<nombre>/...`),
+   `pve_puerto` (8006 por defecto), `pve_token_id` y `pve_token_secreto`.
 
    > Ejecutado contra un Proxmox real: si el nodo se llama `Proxmox` y se alcanza
    > por su IP, `pve_nodo` y `pve_nombre_nodo` son distintos. Poner el host en los

@@ -38,8 +38,7 @@ netlabs_v4_b/
 ├── requirements.txt     sólo linters. El motor no necesita colecciones.
 ├── .githooks/pre-commit guardas docs↔código (se activa una vez por clon).
 ├── deployment_engine/
-│   ├── secrets.yml.example   credenciales de relleno (versionado)
-│   ├── secrets.yml           credenciales reales (gitignored, 0600)
+│   ├── secrets.yml           credenciales reales (gitignored, 0600; a mano)
 │   ├── inventory/hosts.yml   el nodo Proxmox como host local de la API
 │   ├── vars/engine.yml       defaults del motor (timeouts, MAC, retención…)
 │   ├── playbooks/            un fichero por verbo: plan, preflight, apply,
@@ -86,6 +85,114 @@ comparten tareas por `deployment_engine/tasks/`; nunca se copia un verbo para un
 lab. El wrapper resuelve el lab, comprueba que existan declaración y `logs/`,
 verifica el entorno **antes** de empezar y captura la salida humana de Ansible en
 `labs/<lab>/logs/ansible.log` (por redirección desde el propio wrapper).
+
+### Dónde se dice QUÉ se despliega
+
+La entrada del motor son **dos ficheros, y ninguno de los dos es código**:
+
+| Qué | Dónde | Versionado |
+| --- | --- | --- |
+| **la topología**: qué se despliega | `labs/<lab>/<lab>.yml` | sí |
+| **las credenciales**: dónde se despliega | `deployment_engine/secrets.yml` | no (gitignored, 0600) |
+
+Y nada más. `deployment_engine/vars/engine.yml` son los **defaults del motor**
+(timeouts, prefijo de MAC, retención del diario), no topología: ahí no hay ni un
+invitado, ni un bridge, ni una dirección. Tampoco hay fichero de estado ni
+inventario que mantener: lo que se despliega es **exactamente lo declarado**, y el
+resto (vmid, MAC, nombre canónico, pool) lo deriva el motor leyendo el clúster.
+
+**Cómo se declara un lab.** `./lab new <nombre>` scaffoldea la carpeta desde
+`labs/.plantilla/` y se rellena el YAML:
+
+```yaml
+lab:
+  nombre: <lab>            # EXACTAMENTE el nombre de la carpeta: es el pool
+  escalones: [1, 2]        # orden de arranque: primero el 1, después el 2
+  bridges:                 # los crea el motor si faltan (los bridges son del nodo)
+    - nombre: vmb_algo     # nombre de interfaz válido: sin guiones, ≤15 caracteres
+      direccion: 192.0.2.1/24
+vms:                       # invitados QEMU
+  - rol: <rol>             # el rol identifica a un invitado y sólo a uno
+    escalon: 1
+    cores: 2
+    memoria: 512
+    disco: 8
+    bridge: vmb_algo
+    direccion: 192.0.2.2/24
+containers:                # invitados LXC
+  - rol: <otro-rol>
+    escalon: 2
+    cores: 1
+    memoria: 256
+    disco: 4
+    bridge: vmb_algo
+    direccion: 192.0.2.11/24
+```
+
+Lo que **no** se declara, y es a propósito: ni `vmid`, ni MAC, ni el nombre
+canónico, ni a qué pool va cada invitado. Eso lo **deriva** el motor (§Identidad).
+El YAML dice *qué* y *en qué orden*; nunca dice *con qué número*.
+
+**Qué se despliega se dice al llamar al verbo**: el nombre del lab es el único
+parámetro que el motor necesita, y el nombre del pool sale de él.
+
+```
+./lab list                     # las topologías declaradas en labs/
+./lab --lab <lab> plan         # qué llamadas REST haría (offline, sin credenciales)
+./lab --lab <lab> preflight    # qué hay, qué falta, qué difiere (sólo lectura)
+./lab --lab <lab> apply        # converge lo declarado y verifica
+./lab --lab <lab> verify       # test final: ¿existe de verdad lo declarado?
+./lab --lab <lab> destroy      # único verbo que destruye (pide confirmación)
+```
+
+Si el nombre no coincide con la carpeta, el motor se niega **antes de tocar la
+API**: el pool se llama como la carpeta, y es lo que distingue «esto es de este
+lab».
+
+### Las credenciales se escriben a mano: `deployment_engine/secrets.yml`
+
+El motor **no lee variables de entorno** ni ningún fichero externo: las
+credenciales salen de `deployment_engine/secrets.yml`, que está gitignored y tiene
+que quedar en **0600**. Se crea a mano —ya no se versiona ningún `.example`: el
+repositorio se considera lo bastante maduro como para no mantener un fichero de
+relleno que hay que borrar antes de usarlo—:
+
+```yaml
+pve_nodo: "<host o IP del nodo>"              # lo que va en la URL
+pve_nombre_nodo: "<nombre del nodo>"          # lo que va en /nodes/<nombre>/...
+pve_puerto: "8006"
+pve_token_id: "<usuario>@pve!<nombre-del-token>"
+pve_token_secreto: "<secreto del token>"
+pve_verificar_tls: false                      # true con certificado de verdad
+pve_ssh_usuario: "<usuario>"                  # SÓLO diagnóstico manual
+pve_ssh_password: "<clave>"                   # el motor no usa SSH nunca
+```
+
+Los avisos que ya estaban escritos siguen valiendo: el token de Proxmox
+**equivale a root y no caduca** —trátalo como una contraseña de root—, y
+`pve_nodo` y `pve_nombre_nodo` son **dos valores distintos**: el host de la URL y
+el nombre con el que la API conoce al nodo. Usar el host como nombre de nodo hace
+que la API conteste `596 no such node`.
+
+`./lab` comprueba que el fichero exista **antes de lanzar nada** cuando el verbo
+necesita la API, y lo dice en claro si falta. `plan` sin `--api` no lo necesita:
+usa un fixture.
+
+### Lo que `destroy` no borra
+
+`destroy` borra los invitados del lab y su pool, y **nada más**. Los **bridges son
+del nodo, no del lab**: el motor los crea si faltan, pero no los borra nunca,
+porque puede haber otra cosa usándolos. Un nodo donde los labs van y vienen
+acumula interfaces huérfanas; se quitan a mano, por la API y sólo cuando nadie las
+use:
+
+```
+DELETE /nodes/<nodo>/network/<bridge>    # una por bridge huérfano
+PUT    /nodes/<nodo>/network             # UNA recarga al final, no una por bridge
+```
+
+Es el único trozo del ciclo de vida que **no** tiene verbo: borrar un bridge es
+cirugía del nodo, no del despliegue. El pool, en cambio, sí se va con el lab.
 
 ### `plan` no necesita credenciales
 
@@ -291,8 +398,8 @@ Esta sección no lleva adjetivos.
   romper a propósito lo que vigilan (seis están en el ejercicio de abajo, con su
   salida literal; `refs` y `readme` se vieron fallar al construir el repositorio).
 - `ansible-lint` sin hallazgos y `--syntax-check` correcto en todos los playbooks.
-- `./lab list` y `./lab --lab <lab> plan` de las dos topologías: planes **distintos**,
-  coherentes y ordenados, derivados de la declaración.
+- `./lab list` y `./lab --lab <lab> plan` de las **tres topologías declaradas**:
+  planes **distintos**, coherentes y ordenados, derivados de la declaración.
 - El asignador de identidad probado con fixtures (`test/`), incluido el caso que
   **debe** fallar.
 - `./lab --lab <lab> verify` **alcanza la API y falla limpiamente** (sin traceback)
@@ -300,11 +407,16 @@ Esta sección no lleva adjetivos.
 
 **Desplegado contra un Proxmox real (VE 9.2.21), con la evidencia en `logs/`:**
 
-- Los dos labs, **desplegados y verificados**: `apply` converge y `verify` da
-  CORRECTO con los invitados existiendo, coincidiendo y arrancados
+- **Tres topologías** (dos de ejemplo y una de complejidad media) desplegadas y
+  verificadas **una tras otra**: `apply` converge y `verify` da CORRECTO con los
+  invitados existiendo, coincidiendo y arrancados
   (`labs/<lab>/logs/verify-<ts>.json`).
 - **Idempotencia**: una segunda ejecución seguida de `apply` sale `changed=0` y su
   diario sólo tiene `GET` (regla 6).
+- **El ciclo entero, con vuelta**: las tres se han destruido con `destroy` y el
+  nodo se ha quedado **sin ningún pool de ningún lab**. Lo único que `destroy` no
+  se lleva son los bridges (§Lo que `destroy` no borra); los que quedaron huérfanos
+  se quitaron a mano por la API, con su recarga de red, y el nodo quedó limpio.
 
 **No verificado, y por qué:**
 
@@ -395,9 +507,10 @@ for p in deployment_engine/playbooks/*.yml; do ansible-playbook --syntax-check "
 ## Decisiones conscientes
 
 - **Las credenciales van en claro** en `deployment_engine/secrets.yml`
-  (gitignored, 0600). En este MVP, funcionalidad y simplicidad por encima de
-  seguridad; no hay cifrado de secretos. El aviso está en la cabecera del
-  `.example`.
+  (gitignored, 0600, escrito a mano: no se versiona ningún `.example`). En este
+  MVP, funcionalidad y simplicidad por encima de seguridad; no hay cifrado de
+  secretos ni lectura de variables de entorno. El aviso está en la cabecera de
+  `AGENTS.md` §Reglas duras.
 - **No hay variables de entorno, by design.** Ningún valor de configuración se lee
   de `os.environ`: sale de `secrets.yml`, `vars/engine.yml` y la declaración del
   lab. El wrapper `./lab` no exporta nada.

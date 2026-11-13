@@ -1,5 +1,7 @@
 # Credenciales en claro del MVP. NUNCA se commitea: el token de Proxmox equivale
-# a root y no caduca. El ejemplo versionado es secrets.yml.example.
+# a root y no caduca. Se escribe a mano y en modo 0600; no se versiona ningún
+# ejemplo de relleno. Las claves están en el README, §Las credenciales se escriben
+# a mano.
 deployment_engine/secrets.yml
 
 # Artefactos de ejecucion de cada lab: diario de API, log humano de Ansible y

@@ -176,8 +176,9 @@ def ejecutar_verbo(lab, verbo, opciones):
     usa_api = verbo in VERBOS_CON_API or "--api" in opciones
     if usa_api and not os.path.exists(SECRETS):
         return fallo(
-            "faltan las credenciales: copia deployment_engine/secrets.yml.example a "
-            "deployment_engine/secrets.yml, dale modo 0600 y rellénalo.\n"
+            "faltan las credenciales: crea deployment_engine/secrets.yml a mano, dale "
+            "modo 0600 y rellénalo (las claves están en el README, §«Las credenciales "
+            "se escriben a mano»).\n"
             "            (El verbo 'plan' sin --api no las necesita: usa un fixture.)"
         )
 

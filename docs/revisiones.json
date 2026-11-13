@@ -38,7 +38,6 @@
   "labs/ejemplo-topologia/ejemplo-topologia.md": {
     "citados": {
       "deployment_engine/filter_plugins/identidad.py": "3ef9444591e0850c8427da35ac8b334976589c73a39ec54437ea4935506faad8",
-      "deployment_engine/secrets.yml.example": "b21d97b65c87e871737a8bf5bfe5bf9a5bd9e970e841a417cdf310ef52c98eb1",
       "deployment_engine/tasks/pve_api.yml": "e1eb624ceb25d8d9e5b0e1d6d7b5b2b3ec014c63e3949d6e85cc6de398771dd8",
       "deployment_engine/tools/framework_check.py": "f5c5045ade258b4aa0b5364b161346b44172ffccbea666759072c139f82223b6",
       "deployment_engine/tools/plan.py": "06b4bd6d832c6d2446cc9a8196673fb1958eafa2f4c669b68b22071a5ac098b9"
@@ -47,7 +46,6 @@
   "labs/lab-dos-redes/lab-dos-redes.md": {
     "citados": {
       "deployment_engine/filter_plugins/identidad.py": "3ef9444591e0850c8427da35ac8b334976589c73a39ec54437ea4935506faad8",
-      "deployment_engine/secrets.yml.example": "631343a1613c0cccbbdd58686f7545ced664b57819482fb65faad7565503e5ab",
       "deployment_engine/tasks/pve_api.yml": "e1eb624ceb25d8d9e5b0e1d6d7b5b2b3ec014c63e3949d6e85cc6de398771dd8",
       "deployment_engine/tools/framework_check.py": "f5c5045ade258b4aa0b5364b161346b44172ffccbea666759072c139f82223b6",
       "deployment_engine/tools/plan.py": "06b4bd6d832c6d2446cc9a8196673fb1958eafa2f4c669b68b22071a5ac098b9"

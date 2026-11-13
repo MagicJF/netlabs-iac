@@ -68,15 +68,16 @@ guion hasta que exista un despliegue real.
 Los pasos, en orden. Este lab **se ha desplegado y verificado contra un Proxmox
 real**; más abajo queda anotado lo que se aprendió al hacerlo.
 
-1. **Rellena las credenciales** (no se versionan):
+1. **Rellena las credenciales** (no se versionan; se escriben a mano, ya no hay
+   `.example` que copiar):
    ```
-   cp deployment_engine/secrets.yml.example deployment_engine/secrets.yml
-   chmod 600 deployment_engine/secrets.yml
    $EDITOR deployment_engine/secrets.yml
+   chmod 600 deployment_engine/secrets.yml
    ```
-   Hay que sustituir `pve_nodo` (el host de la API), `pve_nombre_nodo` (el nombre
-   con el que Proxmox conoce al nodo, el de `/nodes/<nombre>/...`), `pve_token_id` y
-   `pve_token_secreto`. El puerto por defecto de Proxmox es 8006.
+   Las claves y qué significa cada una están en el README, §«Las credenciales se
+   escriben a mano». En corto: `pve_nodo` (el host de la API), `pve_nombre_nodo`
+   (el nombre con el que Proxmox conoce al nodo, el de `/nodes/<nombre>/...`),
+   `pve_puerto` (8006 por defecto), `pve_token_id` y `pve_token_secreto`.
 
 2. **Sustituye las direcciones del lab.** Este lab declara direcciones en
    `203.0.113.0/24`, que es un rango reservado para documentación (RFC 5737) y no

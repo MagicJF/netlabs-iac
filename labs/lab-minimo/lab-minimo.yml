@@ -14,7 +14,8 @@
 # vigila `./lab check colisiones`.
 #
 # QUÉ SUSTITUIR para un Proxmox real: las direcciones, que están en 198.51.100.0/24
-# (rango reservado para documentación, RFC 5737, inexistente en la realidad).
+# (rango reservado para documentación, RFC 5737, inexistente en la realidad). El
+# nombre del bridge ya es uno que el núcleo acepta (sin guiones, ≤15 caracteres).
 
 lab:
   nombre: lab-minimo
@@ -22,7 +23,7 @@ lab:
   escalones: [1]
 
   bridges:
-    - nombre: vmb-lab-minimo
+    - nombre: vmb_lab_minimo
       direccion: 198.51.100.1/24
 
 containers:
@@ -31,5 +32,5 @@ containers:
     cores: 1
     memoria: 256
     disco: 4
-    bridge: vmb-lab-minimo
+    bridge: vmb_lab_minimo
     direccion: 198.51.100.11/24

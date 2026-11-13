@@ -11,7 +11,7 @@ lab:
   nombre: beta
   escalones: [1]
   bridges:
-    - nombre: vmb-beta
+    - nombre: vmb_beta
       direccion: 198.51.100.1/24
 containers:
   - rol: nucleo
@@ -19,5 +19,5 @@ containers:
     cores: 1
     memoria: 256
     disco: 4
-    bridge: vmb-beta
+    bridge: vmb_beta
     direccion: 198.51.100.11/24

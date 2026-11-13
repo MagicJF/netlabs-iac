@@ -6,8 +6,10 @@
 #              NIEGA y lo dice. Borrar es irreversible; equivocarse no tiene vuelta.
 #              El pool se borra el último y sólo si ha quedado vacío, para que un
 #              fallo a medias no deje invitados huérfanos sin su frontera de propiedad.
-# LÍMITES:     la API borra de forma asíncrona. El MVP espera un momento fijo entre
-#              el borrado de los invitados y el del pool, en vez de sondear.
+# LÍMITES:     borrar un invitado ARRANCADO no se puede: primero hay que pararlo.
+#              Parar y borrar son asíncronos, y el motor ESPERA cada tarea sondeando
+#              la API (tasks/esperar_tarea.yml) antes de seguir; el pool sólo cae
+#              cuando de verdad ha quedado vacío.
 # VER:         README.md §Cómo se usa; AGENTS.md §Reglas duras (regla 9)
 
 - name: "DESTROY · borrar los invitados del lab y su pool"
@@ -61,26 +63,34 @@
 
     # Sólo se borra lo que está EN EL POOL del lab (la frontera de propiedad): un
     # invitado de otro lab jamás entra en esta lista.
-    - name: "DESTROY · borrar cada invitado del lab"
-      ansible.builtin.include_tasks: ../tasks/pve_api.yml
+    # Cada borrado es asíncrono: el envoltorio espera a que Proxmox confirme la
+    # tarea antes de pasar al siguiente. Así el pool se borra cuando de verdad ha
+    # quedado vacío, sin una espera fija a ojo.
+    # Un invitado ARRANCADO no se puede borrar: Proxmox responde 500 ("container is
+    # running"). Se PARA primero -- y parar también es asíncrono, así que se espera.
+    # Se filtra por `arrancado` en la propia LISTA, no con un `when` sobre el bucle:
+    # un `when` sobre un `include_tasks` con `loop` no se evalúa por elemento.
+    - name: "DESTROY · parar cada invitado arrancado (esperando a cada paro)"
+      ansible.builtin.include_tasks: ../tasks/pve_api_y_esperar.yml
+      vars:
+        pve_api_metodo: POST
+        pve_api_ruta: "/nodes/{{ item.nodo }}/{{ item.tipo }}/{{ item.vmid }}/status/stop"
+        pve_api_etiqueta: "paro del invitado {{ item.vmid }} ({{ item.nombre }})"
+      loop: "{{ estado.invitados | dict2items | map(attribute='value') | selectattr('arrancado') | list }}"
+      loop_control:
+        label: "{{ item.tipo }}/{{ item.vmid }} {{ item.nombre }}"
+
+    - name: "DESTROY · borrar cada invitado del lab (esperando a cada borrado)"
+      ansible.builtin.include_tasks: ../tasks/pve_api_y_esperar.yml
       vars:
         pve_api_metodo: DELETE
-        pve_api_ruta: "/nodes/{{ item.nodo }}/{{ item.tipo }}/{{ item.vmid }}"
-        pve_api_etiqueta: "borrado del invitado {{ item.vmid }} ({{ item.rol_o_nombre }})"
-        pve_api_cuerpo:
-          purge: 1
+        # `purge` va en la RUTA (query), no en el cuerpo: Proxmox rechaza un DELETE
+        # con cuerpo ("Unexpected content for method 'DELETE'", 501).
+        pve_api_ruta: "/nodes/{{ item.nodo }}/{{ item.tipo }}/{{ item.vmid }}?purge=1"
+        pve_api_etiqueta: "borrado del invitado {{ item.vmid }} ({{ item.nombre }})"
       loop: "{{ estado.invitados | dict2items | map(attribute='value') | list }}"
       loop_control:
         label: "{{ item.tipo }}/{{ item.vmid }} {{ item.nombre }}"
-      when: (estado.invitados | length) > 0
-
-    # La API borra en segundo plano; sin esta espera, borrar el pool fallaría porque
-    # todavía tendría miembros. Se prefiere una espera fija a sondear: es un MVP y el
-    # caso de un borrado lento no cambia la decisión.
-    - name: "DESTROY · esperar a que Proxmox termine de borrar"
-      ansible.builtin.pause:
-        seconds: 3
-      when: (estado.invitados | length) > 0
 
     - name: "DESTROY · borrar el pool del lab (frontera de propiedad)"
       ansible.builtin.include_tasks: ../tasks/pve_api.yml

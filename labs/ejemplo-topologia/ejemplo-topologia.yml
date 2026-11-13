@@ -17,7 +17,10 @@
 #      que es un rango reservado para documentación (RFC 5737) y NO existe en
 #      ninguna red real. Sustitúyelas por direcciones de tu red de laboratorio.
 #   2. `bridge` (el nombre): el motor creará el bridge en el nodo si no existe.
-#      Si tu nodo ya tiene uno que quieras reutilizar, pon aquí su nombre.
+#      Si tu nodo ya tiene uno que quieras reutilizar, pon aquí su nombre. El
+#      nombre tiene que ser uno que el núcleo acepte (empezar por letra, sólo
+#      letras/dígitos/guion_bajo, 2 a 15 caracteres, SIN guiones): aquí está sin
+#      guiones y corto a propósito, porque el motor lo rechaza antes de tocar la API.
 #   3. El resto (credenciales, nodo, plantilla de contenedor) NO está aquí: va en
 #      `deployment_engine/secrets.yml` y `deployment_engine/vars/engine.yml`.
 # ---------------------------------------------------------------------------
@@ -33,7 +36,7 @@ lab:
   # sólo crea los que falten, y se los declara aquí para saber cuáles necesita y
   # para que `check colisiones` pueda exigir que dos labs no compartan nombre.
   bridges:
-    - nombre: vmb-ejemplo-topologia
+    - nombre: vmb_ejemplo
       direccion: 192.0.2.1/24
 
 vms:
@@ -44,7 +47,7 @@ vms:
     cores: 2
     memoria: 512
     disco: 8
-    bridge: vmb-ejemplo-topologia
+    bridge: vmb_ejemplo
     direccion: 192.0.2.2/24
 #     ↑ sin `vmid` y sin `mac`: eso lo deriva el motor del estado del clúster.
 
@@ -55,7 +58,7 @@ containers:
     cores: 1
     memoria: 256
     disco: 4
-    bridge: vmb-ejemplo-topologia
+    bridge: vmb_ejemplo
     direccion: 192.0.2.11/24
 
   - rol: workstation-2
@@ -63,5 +66,5 @@ containers:
     cores: 1
     memoria: 256
     disco: 4
-    bridge: vmb-ejemplo-topologia
+    bridge: vmb_ejemplo
     direccion: 192.0.2.12/24

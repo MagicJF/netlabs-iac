@@ -9,6 +9,7 @@
 #                - `puesto-2` comparte dirección con `puesto-1`
 #                - `puesto-1` intenta declarar un vmid a mano (lo deriva el motor)
 #                - `nombre` no coincide con la carpeta del lab
+#                - el bridge `vmb-uno` lleva un guión: Proxmox no acepta ese nombre
 # LÍMITES:     no es un lab: vive en test/fixtures/.
 # VER:         test/test_identidad.py; README.md §Verificación
 lab:

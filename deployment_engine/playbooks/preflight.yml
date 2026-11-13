@@ -40,7 +40,7 @@
     - name: "PREFLIGHT · parámetros del entorno"
       ansible.builtin.set_fact:
         parametros_motor:
-          nodo: "{{ pve_nodo }}"
+          nodo: "{{ pve_nombre_nodo | default(pve_nodo) }}"
           ostemplate_lxc: "{{ engine_ostemplate_lxc }}"
           comentario_pool: "topología gestionada por netlabs_v4_b (motor por API)"
 

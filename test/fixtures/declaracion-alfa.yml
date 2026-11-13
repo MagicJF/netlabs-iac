@@ -10,7 +10,7 @@ lab:
   nombre: alfa
   escalones: [1, 2]
   bridges:
-    - nombre: vmb-alfa
+    - nombre: vmb_alfa
       direccion: 192.0.2.1/24
 vms:
   - rol: nucleo
@@ -18,7 +18,7 @@ vms:
     cores: 2
     memoria: 512
     disco: 8
-    bridge: vmb-alfa
+    bridge: vmb_alfa
     direccion: 192.0.2.2/24
 containers:
   - rol: puesto-1
@@ -26,12 +26,12 @@ containers:
     cores: 1
     memoria: 256
     disco: 4
-    bridge: vmb-alfa
+    bridge: vmb_alfa
     direccion: 192.0.2.11/24
   - rol: puesto-2
     escalon: 2
     cores: 1
     memoria: 256
     disco: 4
-    bridge: vmb-alfa
+    bridge: vmb_alfa
     direccion: 192.0.2.12/24

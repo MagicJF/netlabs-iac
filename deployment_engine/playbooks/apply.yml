@@ -6,9 +6,10 @@
 #              Es idempotente: lo que ya coincide NO genera llamada, así que una
 #              segunda ejecución seguida no cambia nada (regla 4.9).
 #              Nunca borra un invitado que no esté en la declaración.
-# LÍMITES:     la API de Proxmox crea y borra de forma asíncrona. El MVP no sondea:
-#              confía en que el plan va en orden y deja la comprobación a la
-#              verificación final, que sí lee el resultado.
+# LÍMITES:     la API de Proxmox crea, borra y recarga la red de forma asíncrona;
+#              el motor ESPERA cada tarea sondeando la API (tasks/esperar_tarea.yml)
+#              antes de dar el paso por hecho. Lo que NO hace es reintentar una
+#              operación que haya fallado: la deja fallar y lo dice.
 # VER:         README.md §Cómo se usa; AGENTS.md §Qué correr y cuándo
 
 - name: "APPLY · converger lo declarado"
@@ -40,7 +41,7 @@
     - name: "APPLY · parámetros del entorno"
       ansible.builtin.set_fact:
         parametros_motor:
-          nodo: "{{ pve_nodo }}"
+          nodo: "{{ pve_nombre_nodo | default(pve_nodo) }}"
           ostemplate_lxc: "{{ engine_ostemplate_lxc }}"
           comentario_pool: "topología gestionada por netlabs_v4_b (motor por API)"
 
@@ -67,7 +68,7 @@
     # Cada paso del plan es una llamada a la PUERTA: mismo diario, mismas reglas.
     # Una respuesta de error aquí para el verbo con un mensaje legible.
     - name: "APPLY · ejecutar el plan, paso a paso"
-      ansible.builtin.include_tasks: ../tasks/pve_api.yml
+      ansible.builtin.include_tasks: ../tasks/pve_api_y_esperar.yml
       vars:
         pve_api_metodo: "{{ item.metodo }}"
         pve_api_ruta: "{{ item.ruta }}"

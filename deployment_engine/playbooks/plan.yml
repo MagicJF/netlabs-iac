@@ -48,8 +48,9 @@
       ansible.builtin.set_fact:
         parametros_motor:
           # Sin credenciales no hay nodo que preguntar: se usa el nombre del mundo
-          # simulado, y el texto del plan dice de dónde salió el estado.
-          nodo: "{{ pve_nodo | default(engine_nodo_simulado) }}"
+          # simulado, y el texto del plan dice de dónde salió el estado. Con la API,
+          # el nodo es `pve_nombre_nodo` (el nombre en Proxmox, no el host de la URL).
+          nodo: "{{ pve_nombre_nodo | default(engine_nodo_simulado) }}"
           ostemplate_lxc: "{{ engine_ostemplate_lxc }}"
           comentario_pool: "topología gestionada por netlabs_v4_b (motor por API)"
 

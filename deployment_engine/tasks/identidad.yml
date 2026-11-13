@@ -67,7 +67,7 @@
   ansible.builtin.include_tasks: pve_api.yml
   vars:
     pve_api_metodo: GET
-    pve_api_ruta: "/nodes/{{ pve_nodo }}/network"
+    pve_api_ruta: "/nodes/{{ pve_nombre_nodo | default(pve_nodo) }}/network"
     pve_api_etiqueta: "interfaces del nodo: bridges que ya existen"
     pve_api_tolerar_error: true
   when:
@@ -100,7 +100,7 @@
 - name: "MUNDO · componer el estado del mundo"
   ansible.builtin.set_fact:
     estado: >-
-      {{ {'nodo': pve_nodo,
+      {{ {'nodo': pve_nombre_nodo | default(pve_nodo),
           'lab': pve_lab,
           'cluster_recursos': pve_cluster_recursos,
           'pools_lista': pve_pools_lista | default([]),

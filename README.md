@@ -45,7 +45,8 @@ netlabs_v4_b/
 │   ├── playbooks/            un fichero por verbo: plan, preflight, apply,
 │   │                         verify, destroy
 │   ├── tasks/                tareas compartidas: pve_api.yml (la puerta + el
-│   │                         diario), identidad.yml, validar.yml
+│   │                         diario), pve_api_y_esperar.yml (la espera de las
+│   │                         tareas asíncronas), identidad.yml, validar.yml
 │   ├── filter_plugins/       lo que Ansible calcula en Jinja: declaracion.py,
 │   │                         identidad.py, estado.py
 │   ├── tools/                capa Python stdlib: plan.py, documentos.py,
@@ -115,6 +116,22 @@ ocurrió.** Nunca se escribe la cabecera `Authorization`.
 Los logs son **del lab** y van gitignored: son artefactos de ejecución que rotan,
 y lo que se versiona es la evidencia que se cita en la prosa del lab, no el
 fichero entero.
+
+### Lo asíncrono se espera, y se espera por la puerta
+
+Proxmox crea, borra y recarga la red **en segundo plano**: la llamada responde un
+`UPID` y el trabajo continúa. Un paso que arranca un invitado no puede correr
+contra algo que aún se está creando. Por eso cada paso del plan pasa por
+`deployment_engine/tasks/pve_api_y_esperar.yml`, que ejecuta la llamada por la
+puerta y, **si la respuesta es un `UPID`**, espera sondeando
+`GET /nodes/<nodo>/tasks/<upid>/status` hasta que la tarea deja de estar `running`.
+
+La espera es **una regla, no una lista**: cualquier paso asíncrono (crear, borrar,
+recargar la red) queda cubierto sin enumerarlo. Y **cada sondeo pasa por la misma
+puerta**, así que cada uno deja su línea en el diario: la espera no es una llamada
+a espaldas del diario. El bucle es finito (`engine_tarea_intentos` ×
+`engine_tarea_intervalo`, por defecto 150 × 2 s = 5 min); si se agota, o si la
+tarea termina con `exitstatus` distinto de `OK`, el verbo **falla** y lo dice.
 
 ---
 
@@ -244,7 +261,7 @@ credenciales y sin Proxmox**:
 | `docs` | la región generada de cada `.md` es **idéntica** a su render |
 | `refs` | qué documentos citan un fichero, y cuáles están caducados desde su sellado |
 | `puerta` | ni un `/api2/json` fuera de `tasks/pve_api.yml` |
-| `declaracion` | coherencia del estado deseado: un rol en dos listas, un bridge citado que no existe, dos roles con la misma dirección… |
+| `declaracion` | coherencia del estado deseado: un rol en dos listas, un bridge citado que no existe, dos roles con la misma dirección, un bridge con un nombre que el núcleo rechazaría (guiones, >15 caracteres)… |
 | `colisiones` | los labs declarados no comparten bridges, direcciones ni nombres |
 | `pureza-lab` | ni un valor de lab (ni su nombre) dentro de `deployment_engine/` |
 | `readme` | el README no lleva ningún valor de lab |
@@ -281,14 +298,18 @@ Esta sección no lleva adjetivos.
 - `./lab --lab <lab> verify` **alcanza la API y falla limpiamente** (sin traceback)
   cuando las credenciales no son válidas, dejando su informe en `logs/`.
 
+**Desplegado contra un Proxmox real (VE 9.2.21), con la evidencia en `logs/`:**
+
+- Los dos labs, **desplegados y verificados**: `apply` converge y `verify` da
+  CORRECTO con los invitados existiendo, coincidiendo y arrancados
+  (`labs/<lab>/logs/verify-<ts>.json`).
+- **Idempotencia**: una segunda ejecución seguida de `apply` sale `changed=0` y su
+  diario sólo tiene `GET` (regla 6).
+
 **No verificado, y por qué:**
 
-- **No se ha desplegado nada contra un Proxmox real.** Las credenciales de este
-  repositorio son relleno por diseño; las de verdad se pondrán después.
 - **La disjunción de vmids no se puede comprobar sin credenciales**: los asigna el
   motor al aplicar, leyendo el clúster.
-- **El pool sí se comprobaría al aplicar** (`apply` lo crea y `verify` lo lee), pero
-  eso ya exige un Proxmox alcanzable.
 - `preflight` de sólo lectura **no puede probar** que una tarea de Proxmox vaya a
   completarse.
 
@@ -380,6 +401,15 @@ for p in deployment_engine/playbooks/*.yml; do ansible-playbook --syntax-check "
 - **No hay variables de entorno, by design.** Ningún valor de configuración se lee
   de `os.environ`: sale de `secrets.yml`, `vars/engine.yml` y la declaración del
   lab. El wrapper `./lab` no exporta nada.
+- **El host de la API y el nombre del nodo son DOS valores.** `pve_nodo` es el host
+  de la URL; `pve_nombre_nodo` es el nombre con el que Proxmox conoce al nodo (lo
+  que va en las rutas `/nodes/<nombre>/...`). En un nodo único suelen coincidir,
+  pero pueden no hacerlo (un nodo llamado `Proxmox` alcanzado por su IP): usar el
+  host como nombre de nodo hace que la API responda 596 "no such node".
+- **Lo asíncrono se espera sondeando la API, no con un `until`.** Proxmox responde
+  un `UPID` y trabaja en segundo plano; el motor sondea la tarea por la puerta
+  (`tasks/esperar_tarea.yml`) para que **cada sondeo deje su línea en el diario**.
+  Un `retries`/`until` de Ansible habría sondeado a espaldas del diario.
 - **Sólo `ansible.builtin`.** El motor no instala ni usa ninguna colección.
 - **El motor nunca borra** un invitado que no esté en la declaración: borrar es
   `destroy`, que se niega si el invitado sigue declarado.

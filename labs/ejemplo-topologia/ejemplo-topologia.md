@@ -23,15 +23,15 @@ si los editas a mano, `./lab check docs` falla._
 
 | rol | tipo | escalón | cores | memoria (MB) | disco (GB) | bridge | dirección |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| switch | VM (qemu) | 1 | 2 | 512 | 8 | vmb-ejemplo-topologia | 192.0.2.2/24 |
-| workstation-1 | LXC | 2 | 1 | 256 | 4 | vmb-ejemplo-topologia | 192.0.2.11/24 |
-| workstation-2 | LXC | 2 | 1 | 256 | 4 | vmb-ejemplo-topologia | 192.0.2.12/24 |
+| switch | VM (qemu) | 1 | 2 | 512 | 8 | vmb_ejemplo | 192.0.2.2/24 |
+| workstation-1 | LXC | 2 | 1 | 256 | 4 | vmb_ejemplo | 192.0.2.11/24 |
+| workstation-2 | LXC | 2 | 1 | 256 | 4 | vmb_ejemplo | 192.0.2.12/24 |
 
 ## Bridges del lab
 
 | bridge | dirección del bridge |
 | --- | --- |
-| vmb-ejemplo-topologia | 192.0.2.1/24 |
+| vmb_ejemplo | 192.0.2.1/24 |
 
 ## Orden de arranque (escalones)
 
@@ -56,8 +56,9 @@ guion hasta que exista un despliegue real.
 
 ## Cómo llevarlo a un Proxmox real
 
-Los pasos exactos, en orden. Nada de esto se ha ejecutado contra un Proxmox real en
-este repositorio: las credenciales de aquí son relleno.
+Los pasos exactos, en orden. Este repositorio **se ha ejecutado ya contra un
+Proxmox real** siguiendo estos pasos; abajo quedan anotadas las dos trampas que
+aparecieron (nombre del nodo y nombre del bridge).
 
 1. **Rellena las credenciales** (no se versionan):
    ```
@@ -65,12 +66,20 @@ este repositorio: las credenciales de aquí son relleno.
    chmod 600 deployment_engine/secrets.yml
    $EDITOR deployment_engine/secrets.yml
    ```
-   Hay que sustituir `pve_nodo`, `pve_token_id` y `pve_token_secreto`. El puerto por
-   defecto de Proxmox es 8006.
+   Hay que sustituir `pve_nodo` (el host de la API), `pve_nombre_nodo` (el nombre
+   con el que Proxmox conoce al nodo, el de `/nodes/<nombre>/...`), `pve_token_id` y
+   `pve_token_secreto`. El puerto por defecto de Proxmox es 8006.
+
+   > Ejecutado contra un Proxmox real: si el nodo se llama `Proxmox` y se alcanza
+   > por su IP, `pve_nodo` y `pve_nombre_nodo` son distintos. Poner el host en los
+   > dos hace que la API conteste **596 "no such node"** al preguntar por la red.
 
 2. **Sustituye las direcciones del lab.** Este lab declara direcciones en
    `192.0.2.0/24`, que es un rango reservado para documentación (RFC 5737) y no
-   existe en ninguna red real. Edita `ejemplo-topologia.yml` y pon las tuyas.
+   existe en ninguna red real. Edita `ejemplo-topologia.yml` y pon las tuyas. El
+   nombre del bridge (`vmb_ejemplo`) ya cumple el formato que el núcleo exige
+   (sin guiones, 2 a 15 caracteres): el motor rechaza los que no lo cumplen antes
+   de tocar la API.
 
 3. **Mira el plan** (no toca nada):
    ```

@@ -58,6 +58,17 @@ def _red_de_net0(net0):
     return bridge, mac
 
 
+def _descripcion_sin_ruido(texto):
+    """La descripción como la guarda Proxmox, sin el `\\n` que la API le pega al final.
+
+    Proxmox trata `description` como campo de texto y le añade un salto de línea: si
+    no se quita, la comparación de idempotencia ve "drift" donde no lo hay y dispara
+    un PUT innecesario (rompiendo la regla de que dos ejecuciones seguidas no cambian
+    nada). El `strip` sólo toca los extremos; el interior se respeta tal cual.
+    """
+    return (texto or "").strip()
+
+
 def estado_vacio():
     """El mundo antes de que exista nada: un clúster sin invitados ni pools."""
     return {
@@ -144,7 +155,7 @@ def estado_desde_api(datos):
                 "vmid": vmid,
                 "nombre": config.get("name") or config.get("hostname") or nombre,
                 "tipo": "lxc" if tipo == "lxc" else "qemu",
-                "descripcion": config.get("description") or "",
+                "descripcion": _descripcion_sin_ruido(config.get("description")),
                 "cores": config.get("cores"),
                 "memoria": config.get("memory"),
                 "bridge": bridge,
@@ -160,7 +171,7 @@ def estado_desde_api(datos):
             estado["invitados_otros"][nombre] = {
                 "vmid": vmid,
                 "pool": pool,
-                "descripcion": (configs.get(str(vmid)) or {}).get("description") or "",
+                "descripcion": _descripcion_sin_ruido((configs.get(str(vmid)) or {}).get("description")),
             }
 
     estado["vmids_usados"] = sorted(set(estado["vmids_usados"]))

@@ -1,0 +1,44 @@
+---
+# PROPÓSITO:   UN ÚNICO sondeo de una tarea asíncrona: pregunta su estado por la
+#              PUERTA (queda en el diario) y, si aún corre, espera antes del
+#              siguiente. Es el cuerpo del bucle de `esperar_tarea.yml`.
+# INVARIANTES: la pregunta pasa por `pve_api.yml`, como TODA llamada a la API: una
+#              línea de diario por sondeo. El bloque entero se SALTA cuando la tarea
+#              ya no corre: así el bucle de arriba, que no puede cortarse con un
+#              `when`, termina su trabajo en la primera vuelta en que la tarea acaba
+#              (las vueltas de más son no-op, sin tocar la API).
+# LÍMITES:     sólo sabe leer /nodes/<nodo>/tasks/<upid>/status. No cancela tareas
+#              ni interpreta su salida (eso lo hace `esperar_tarea.yml`).
+# VER:         README.md §Una sola puerta hacia la API; AGENTS.md §Reglas duras (4.6)
+#
+# Espera: pve_tarea_upid, pve_tarea_nodo, pve_tarea_intento (lo pone el bucle).
+# Deja:   pve_tarea_estado, pve_tarea_exitstatus, pve_tarea_terminada.
+
+- name: "ESPERA · sondeo {{ pve_tarea_intento }} de la tarea {{ pve_tarea_upid }}"
+  when: not (pve_tarea_terminada | default(false) | bool)
+  block:
+    - name: "ESPERA · preguntar el estado de la tarea"
+      ansible.builtin.include_tasks: pve_api.yml
+      vars:
+        pve_api_metodo: "GET"
+        pve_api_ruta: "/nodes/{{ pve_tarea_nodo }}/tasks/{{ pve_tarea_upid }}/status"
+        pve_api_etiqueta: "espera de la tarea {{ pve_tarea_upid }} (intento {{ pve_tarea_intento }})"
+        # Se VACÍA el cuerpo a propósito: este include hereda el `pve_api_cuerpo`
+        # del paso que lanzó la tarea, y un GET con cuerpo es un 501 en Proxmox.
+        pve_api_cuerpo: {}
+        # Un sondeo que falla no aborta por sí solo: el bucle agota los intentos y
+        # `esperar_tarea.yml` explica el fallo con su propio mensaje.
+        pve_api_tolerar_error: true
+
+    # La tarea ya NO corre cuando su `status` deja de ser "running" (pasa a
+    # "stopped"). `exitstatus` dirá entonces si acabó bien ("OK") o mal.
+    - name: "ESPERA · leer el estado devuelto"
+      ansible.builtin.set_fact:
+        pve_tarea_estado: "{{ pve_api_ultimo_datos.status | default('unknown') }}"
+        pve_tarea_exitstatus: "{{ pve_api_ultimo_datos.exitstatus | default('') }}"
+        pve_tarea_terminada: "{{ (pve_api_ultimo_datos.status | default('unknown')) != 'running' }}"
+
+    - name: "ESPERA · dormir {{ engine_tarea_intervalo }}s antes del siguiente sondeo"
+      ansible.builtin.pause:
+        seconds: "{{ engine_tarea_intervalo | int }}"
+      when: not (pve_tarea_terminada | default(false) | bool)

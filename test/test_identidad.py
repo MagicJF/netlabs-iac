@@ -136,7 +136,7 @@ def caso_2_vmid_ocupado():
             "nombre": "beta-nucleo",
             "tipo": "lxc",
             "descripcion": "lab=beta rol=nucleo gestionado por netlabs_v4_b",
-            "cores": 1, "memoria": 256, "bridge": "vmb-beta",
+            "cores": 1, "memoria": 256, "bridge": "vmb_beta",
             "mac": modulo_identidad.identidad_mac(300, PREFIJO_MAC),
             "arrancado": True, "pool": "beta", "nodo": "pve-simulado",
         },
@@ -171,6 +171,7 @@ def caso_4_declaracion_incoherente():
         ("comparten la dirección", "detecta dos roles con la misma dirección"),
         ("vmid", "detecta el vmid declarado a mano"),
         ("carpeta", "detecta que el nombre no coincide con la carpeta"),
+        ("no acepta ese nombre de interfaz", "detecta el bridge que Proxmox rechazaría"),
     ):
         comprobar(fragmento in texto, descripcion)
     lanzo = False
@@ -194,7 +195,7 @@ def caso_5_rol_ya_desplegado_conserva_vmid():
             "descripcion": "lab=alfa rol=nucleo gestionado por netlabs_v4_b",
             "cores": 2,
             "memoria": 512,
-            "bridge": "vmb-alfa",
+            "bridge": "vmb_alfa",
             "mac": "BC:24:11:00:00:64",
             "arrancado": True,
             "pool": "alfa",
@@ -229,7 +230,7 @@ def caso_6_verificacion_en_los_dos_sentidos():
         "descripcion": "hecho a mano, sin descripción del motor",
         "cores": 1,
         "memoria": 256,
-        "bridge": "vmb-alfa",
+        "bridge": "vmb_alfa",
         "mac": None,
         "arrancado": True,
         "pool": "alfa",
@@ -245,7 +246,7 @@ def caso_6_verificacion_en_los_dos_sentidos():
             "descripcion": f"lab=alfa rol={rol} gestionado por netlabs_v4_b",
             "cores": 2 if rol == "nucleo" else 1,
             "memoria": 512 if rol == "nucleo" else 256,
-            "bridge": "vmb-alfa",
+            "bridge": "vmb_alfa",
             "mac": modulo_identidad.identidad_mac(vmid, PREFIJO_MAC),
             "arrancado": True,
             "pool": "alfa",

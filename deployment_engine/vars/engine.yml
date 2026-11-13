@@ -25,7 +25,7 @@ engine_vmid_maximo: 999999
 # Plantilla del sistema para crear un contenedor. Un LXC no se puede crear sin
 # ella, y no es un valor de ningún lab: es del ENTORNO (qué plantillas hay en el
 # almacenamiento del nodo). Por eso vive aquí y no en la declaración.
-engine_ostemplate_lxc: "local:vztmpl/CAMBIAME.tar.zst"
+engine_ostemplate_lxc: "local:vztmpl/debian-13-standard_13.6-1_amd64.tar.zst"
 
 # Nombre del nodo que se usa cuando NO hay credenciales: `plan` sin `--api`
 # planifica contra un clúster vacío simulado, y las rutas REST necesitan un nombre
@@ -49,6 +49,19 @@ engine_timeout_api: 30
 # Tamaño máximo, en caracteres, del cuerpo de la respuesta que se guarda en el
 # diario. El diario es prueba de lo ocurrido, no una copia del cluster.
 engine_diario_max_cuerpo: 2000
+
+# --- Tareas asíncronas ----------------------------------------------------
+# Proxmox crea, borra y recarga la red EN SEGUNDO PLANO: la llamada devuelve un
+# UPID y el trabajo continúa después de responder. Para que un paso no corra
+# contra algo que aún no existe (p. ej. arrancar un invitado que se está
+# creando), el motor sondea `GET /nodes/<nodo>/tasks/<upid>/status` hasta que la
+# tarea deja de estar "running".
+#
+# Cuántos sondeos como máximo, y cada cuántos segundos. Juntos fijan el tope de
+# espera (por defecto 150 x 2s = 300s). Si se agota, el verbo FALLA con un
+# mensaje claro en vez de seguir a ciegas.
+engine_tarea_intentos: 150
+engine_tarea_intervalo: 2
 
 # --- Logs -----------------------------------------------------------------
 # Cuántos informes `verify-*.json` se conservan por lab. Los más viejos se

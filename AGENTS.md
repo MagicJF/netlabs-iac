@@ -37,7 +37,8 @@ Regla de frontera: *¿esto seguiría igual si desapareciera el lab?* Sí →
 
 1. **Sólo API de Proxmox.** `https://<nodo>:<puerto>/api2/json`. Prohibido
    `snippets`, `hookscripts`, `pct exec`, `qm`, SSH al hipervisor. Si algo no se
-   puede por API, se para y se pregunta; no se rodea.
+   puede por API, se para y se pregunta; no se rodea. El **motor** no entra por SSH
+   jamás; para depurar a mano, ver §Depuración por SSH (último recurso).
 2. **Una sola puerta**: toda llamada pasa por
    `deployment_engine/tasks/pve_api.yml` con `ansible.builtin.uri`. Ningún play
    llama a la API por su cuenta, y el wrapper `./lab` **no llama a la API**.
@@ -65,6 +66,25 @@ Regla de frontera: *¿esto seguiría igual si desapareciera el lab?* Sí →
     subdirectorios dentro de `deployment_engine/`, para y justifícalo en el README.
 11. **Nada derivado se guarda en el repo**: ni vmids, ni MACs, ni un fichero de
     asignaciones. El estado vive en Proxmox y se re-deriva leyendo la API.
+
+## Depuración por SSH (último recurso)
+
+El motor habla con Proxmox **sólo por la API** (regla 1). Pero cuando la API no
+alcanza —no da el error real, no expone un fichero del nodo, no explica por qué
+falla una tarea— existe una vía de depuración por SSH **para quien diagnostica**
+(persona o agente), **nunca para el motor**:
+
+- **Último recurso, de verdad.** Antes hay que **AGOTAR la API**: probar cada método
+  y cada ruta que permita la documentación oficial de Proxmox, y leer la respuesta y
+  el diario. Si algo se puede saber por API, se sabe por API.
+- **Sólo para DIAGNOSTICAR**, no para cambiar el mundo. El motor no entra por SSH
+  jamás: ningún play, tarea, filtro ni herramienta usa SSH, y `./lab check puerta`
+  lo vigila.
+- **Credenciales en `secrets.yml`** (`pve_ssh_usuario`, `pve_ssh_password`), en claro
+  y gitignored como el resto. Si el nodo sólo admite clave pública, se autoriza la
+  `.pub` que haga falta; **no** se toca la configuración de `sshd` del nodo.
+- **Cuando la API no llega, se dice**: qué se intentó por API, por qué no bastó y qué
+  se hizo por SSH. Sin maquillar.
 
 ## Identidad: quién pone los números
 
@@ -120,11 +140,34 @@ Un fichero con dos escritores es el que envejece mal. `labs/<lab>/<lab>.md` tien
 | creaste o borraste ficheros | `./lab check links` |
 | antes de cualquier commit | `./lab check` (todo) + `ansible-lint` |
 | vas a decir "hecho" | `./lab check` verde y la evidencia pegada en la respuesta |
+| vas a subir a GitHub | ciclo `destroy → apply → verify` verde + `./lab check` (ver §Commits y subida a GitHub) |
 
 `./lab check [nombre]` corre todo: `links`, `docs`, `refs`, `puerta`,
 `declaracion`, `colisiones`, `pureza-lab` y `readme`. Un check que no puede
 fallar no es un check: para cada uno hay que haberlo visto gritar rompiendo a
 propósito lo que vigila.
+
+## Commits y subida a GitHub
+
+Un cambio del motor **no se da por bueno hasta que el ciclo completo pasa de
+verdad** contra un Proxmox real:
+
+```
+./lab --lab <lab> destroy --yes
+./lab --lab <lab> apply      # debe converger en UNA sola pasada
+./lab --lab <lab> verify     # debe dar CORRECTO
+```
+
+Cuando ese **ciclo `destroy → apply → verify` pasa en verde** (y `./lab check` está
+verde), el cambio está listo: **se puede commitear y subir a GitHub**
+(`MagicJF/netlabs_v4_b`), sin pedir permiso para ello.
+
+- Commits en estilo convencional (`feat:`, `fix:`, `docs:`, `test:`...), en
+  imperativo y en castellano.
+- **Nunca** se sube `secrets.yml` ni `labs/*/logs/` (gitignored; si aparecieran, algo
+  va mal).
+- Si el ciclo **no** pasa, no se sube: se arregla, o se dice en claro qué falta y por
+  qué. Un commit que no ha pasado el ciclo es una promesa sin respaldo.
 
 ## Cabecera obligatoria de cada fichero
 

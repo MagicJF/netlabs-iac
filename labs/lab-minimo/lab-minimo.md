@@ -15,13 +15,13 @@ si los editas a mano, `./lab check docs` falla._
 
 | rol | tipo | escalón | cores | memoria (MB) | disco (GB) | bridge | dirección |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| workstation-1 | LXC | 1 | 1 | 256 | 4 | vmb-lab-minimo | 198.51.100.11/24 |
+| workstation-1 | LXC | 1 | 1 | 256 | 4 | vmb_lab_minimo | 198.51.100.11/24 |
 
 ## Bridges del lab
 
 | bridge | dirección del bridge |
 | --- | --- |
-| vmb-lab-minimo | 198.51.100.1/24 |
+| vmb_lab_minimo | 198.51.100.1/24 |
 
 ## Orden de arranque (escalones)
 
@@ -59,10 +59,12 @@ que el motor no conoce ningún lab:
 
 ## Cómo llevarlo a un Proxmox real
 
-Igual que cualquier otro lab: rellenar `deployment_engine/secrets.yml`, sustituir
-las direcciones (están en `198.51.100.0/24`, rango reservado para documentación por
-la RFC 5737, inexistente en la realidad) y entonces
-`./lab --lab lab-minimo plan --api`, `preflight`, `apply`, `verify`.
+Igual que cualquier otro lab: rellenar `deployment_engine/secrets.yml` (host de la
+API en `pve_nodo`, nombre del nodo en `pve_nombre_nodo` — pueden no coincidir),
+sustituir las direcciones (están en `198.51.100.0/24`, rango reservado para
+documentación por la RFC 5737, inexistente en la realidad) y entonces
+`./lab --lab lab-minimo plan --api`, `preflight`, `apply`, `verify`. El nombre del
+bridge ya cumple el formato que el núcleo exige (sin guiones, ≤15 caracteres).
 
 ## Por qué así
 

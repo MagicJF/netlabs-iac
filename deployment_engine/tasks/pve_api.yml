@@ -36,8 +36,12 @@
     method: "{{ pve_api_metodo }}"
     headers:
       Authorization: "PVEAPIToken={{ pve_token_id }}={{ pve_token_secreto }}"
+    # Un CUERPO sólo tiene sentido al ESCRIBIR (POST/PUT). Con GET/HEAD/DELETE,
+    # Proxmox responde 501 "Unexpected content for method" si llega cualquier
+    # contenido -- y ese contenido puede colarse desde el `vars:` del include
+    # llamante. Por eso el cuerpo se OMITE salvo en POST/PUT, en vez de mandar `{}`.
     body_format: form-urlencoded
-    body: "{{ pve_api_cuerpo | default({}) }}"
+    body: "{{ (pve_api_cuerpo | default({})) if (pve_api_metodo | upper in ['POST', 'PUT']) else omit }}"
     validate_certs: "{{ pve_verificar_tls | bool }}"
     timeout: "{{ engine_timeout_api }}"
     return_content: true

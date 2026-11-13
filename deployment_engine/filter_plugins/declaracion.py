@@ -5,7 +5,9 @@
 #              (regla 4.8) -- si aparecen en la declaración, esto es un error.
 #              Toda referencia cruzada tiene que resolver: un bridge citado tiene
 #              que existir en el lab, un rol no puede estar en dos listas, dos
-#              roles no pueden compartir dirección.
+#              roles no pueden compartir dirección. Y el NOMBRE de cada bridge
+#              tiene que ser uno que Proxmox acepte (formato `pve-iface`): si no,
+#              la API lo rechaza con un 400 al aplicar y mejor saberlo antes.
 # LÍMITES:     no habla con Proxmox y no sabe nada del mundo real; sólo mira el
 #              YAML. Que un bridge exista en el NODO no se comprueba aquí: eso es
 #              `preflight`, que sí lee la API.
@@ -14,6 +16,8 @@
 # Se importa el error de Ansible si estamos dentro de Ansible. Si no (tests con
 # `python3` a secas), vale una excepción propia: el fichero tiene que poder
 # importarse sin la dependencia de Ansible para poder probarlo aislado.
+import re
+
 try:
     from ansible.errors import AnsibleFilterError as ErrorMotor
 except ImportError:  # pragma: no cover - sólo ocurre fuera de Ansible
@@ -39,6 +43,26 @@ CAMPOS_INVITADO = {
     "bridge": str,
     "direccion": str,
 }
+
+# Formato de nombre de interfaz de red que Proxmox acepta (formato `pve-iface` de
+# `PVE::JSONSchema`): empieza por letra y sigue con letras/dígitos/guion_bajo (NO
+# admite guiones). El sufijo opcional `[:.]<n>` es para VLANs.
+#
+# OJO con la LONGITUD: la API acepta hasta 20 caracteres, pero el NÚCLEO sólo
+# admite 15 (`IFNAMSIZ`). Un bridge de 16 a 20 caracteres pasa la validación de la
+# API y luego revienta al recargar la red ("interface name too long"), dejando el
+# bridge sin activar. Por eso aquí se exige el límite ESTRICTO del núcleo: 15.
+IFACE_PATRON = re.compile(r"^[a-zA-Z][a-zA-Z0-9_]{1,20}([:.]\d+)?$")
+IFACE_MIN = 2
+IFACE_MAX = 15
+
+
+def _nombre_bridge_valido(nombre):
+    """¿Aceptaría Proxmox este nombre de interfaz? (formato `pve-iface`)."""
+    texto = str(nombre)
+    if not (IFACE_MIN <= len(texto) <= IFACE_MAX):
+        return False
+    return bool(IFACE_PATRON.match(texto))
 
 
 def _direccion_sin_mascara(direccion):
@@ -81,7 +105,14 @@ def declaracion_validar(declaracion, carpeta=None):
         if not isinstance(bridge, dict) or not bridge.get("nombre"):
             errores.append(f"`lab.bridges[{indice}]` no tiene `nombre`")
             continue
-        nombres_bridge.append(bridge["nombre"])
+        nombre_bridge = bridge["nombre"]
+        if not _nombre_bridge_valido(nombre_bridge):
+            errores.append(
+                f"`lab.bridges[{indice}]` ('{nombre_bridge}'): Proxmox no acepta ese "
+                "nombre de interfaz (empezar por letra, sólo letras/dígitos/guion_bajo, "
+                "2 a 15 caracteres, sin guiones). La API lo rechazaría al aplicar."
+            )
+        nombres_bridge.append(nombre_bridge)
     duplicados = {n for n in nombres_bridge if nombres_bridge.count(n) > 1}
     if duplicados:
         errores.append(f"hay bridges repetidos en el lab: {sorted(duplicados)}")

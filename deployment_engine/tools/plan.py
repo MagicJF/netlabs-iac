@@ -137,7 +137,7 @@ def construir_plan(declaracion, estado, identidad, parametros):
                     ACCION_ACTUALIZAR,
                     "PUT",
                     ruta_config,
-                    {campo: valor["esperado"] for campo, valor in diferencias.items()},
+                    _parametros_actualizacion(invitado, diferencias),
                     f"el rol '{invitado['rol']}' existe pero difiere en "
                     + ", ".join(sorted(diferencias)),
                     escalon=invitado["escalon"],
@@ -171,6 +171,29 @@ def construir_plan(declaracion, estado, identidad, parametros):
     return pasos
 
 
+def _net0(invitado):
+    """La cadena de red de la config de Proxmox para este invitado.
+
+    Un contenedor la declara con `name/bridge/hwaddr`; una VM con `<modelo>=<mac>`.
+    Está en un solo sitio porque crear y actualizar tienen que decir lo mismo.
+    """
+    if invitado["tipo"] == "lxc":
+        return f"name=eth0,bridge={invitado['bridge']},hwaddr={invitado['mac']}"
+    return f"virtio={invitado['mac']},bridge={invitado['bridge']}"
+
+
+# Traducción de los campos INTERNOS (vocabulario del dominio, en castellano) a las
+# claves LITERALES de la API de Proxmox. No son lo mismo: `descripcion` es
+# `description` y `memoria` es `memory`. El nombre cambia según el tipo (`hostname`
+# en un contenedor, `name` en una VM) y la red no es un campo suelto (se reescribe
+# `net0` entero): por eso no están todos en esta tabla.
+PARAMETRO_API = {
+    "descripcion": "description",
+    "cores": "cores",
+    "memoria": "memory",
+}
+
+
 def _parametros_creacion(invitado, lab, parametros):
     """Los parámetros de la API para crear un invitado de este tipo.
 
@@ -183,21 +206,41 @@ def _parametros_creacion(invitado, lab, parametros):
         "pool": lab,
         "cores": invitado["cores"],
         "memory": invitado["memoria"],
+        "net0": _net0(invitado),
     }
     if invitado["tipo"] == "lxc":
-        # En un contenedor la interfaz se declara con name/bridge/hwaddr.
+        # En un contenedor el nombre va en `hostname` y hace falta la plantilla.
         return {
             **comunes,
             "hostname": invitado["nombre"],
             "ostemplate": parametros["ostemplate_lxc"],
-            "net0": f"name=eth0,bridge={invitado['bridge']},hwaddr={invitado['mac']}",
         }
-    # En una VM la interfaz se declara como <modelo>=<mac>,bridge=<bridge>.
-    return {
-        **comunes,
-        "name": invitado["nombre"],
-        "net0": f"virtio={invitado['mac']},bridge={invitado['bridge']}",
+    # En una VM el nombre va en `name` y no hay plantilla que valga.
+    return {**comunes, "name": invitado["nombre"]}
+
+
+def _parametros_actualizacion(invitado, diferencias):
+    """Los parámetros de la API para ACTUALIZAR un invitado que ya existe.
+
+    `diferencias` trae campos internos; aquí se traducen a las claves LITERALES de la
+    API. Sin esto, un `PUT .../config` saldría con `descripcion` o `memoria` y la API
+    lo rechazaría con un 400 ("property is not defined in schema").
+    """
+    valor = {
+        "descripcion": invitado["descripcion"],
+        "cores": invitado["cores"],
+        "memoria": invitado["memoria"],
     }
+    parametros = {}
+    for campo in diferencias:
+        if campo in PARAMETRO_API:
+            parametros[PARAMETRO_API[campo]] = valor[campo]
+        elif campo == "nombre":
+            parametros["hostname" if invitado["tipo"] == "lxc" else "name"] = invitado["nombre"]
+        elif campo in ("bridge", "mac"):
+            # La red no es un campo suelto: se reescribe `net0` entero.
+            parametros["net0"] = _net0(invitado)
+    return parametros
 
 
 def formatear_plan(plan, declaracion, estado, identidad):

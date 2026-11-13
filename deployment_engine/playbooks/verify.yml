@@ -1,0 +1,139 @@
+---
+# PROPÓSITO:   el verbo `verify` y, a la vez, su TEST FINAL: comprueba en los DOS
+#              sentidos que el mundo coincide con lo declarado. Falla con código de
+#              salida != 0 si hay drift, y deja el informe en `logs/`.
+# INVARIANTES: el conjunto ESPERADO se DERIVA de la declaración: el test nunca
+#              recorre la lista que él mismo trae. Sobra algo = fallo; falta algo =
+#              fallo; un invitado parado = fallo.
+#              El informe se escribe ANTES de fallar, para que una verificación en
+#              rojo deje la misma evidencia que una en verde.
+# LÍMITES:     la dirección IP declarada no es verificable por API (vive dentro del
+#              invitado). Lo dice el informe, en vez de dar por bueno lo que no ha
+#              mirado. Y un invitado en el pool de otro lab se reporta como "de otro
+#              lab", no como propio.
+# VER:         README.md §Verificación; AGENTS.md §Qué correr y cuándo
+
+- name: "VERIFY · ¿existe de verdad lo que se declaró?"
+  hosts: proxmox_api
+  gather_facts: false
+  vars_files:
+    - ../vars/engine.yml
+  tasks:
+    - name: "VERIFY · cargar la declaración del lab"
+      ansible.builtin.include_vars:
+        file: "{{ pve_archivo_lab }}"
+        name: declaracion_cruda
+
+    - name: "VERIFY · validar la coherencia de la declaración"
+      ansible.builtin.include_tasks: ../tasks/validar.yml
+
+    - name: "VERIFY · leer el mundo y re-derivar la identidad"
+      ansible.builtin.include_tasks: ../tasks/identidad.yml
+
+    # Aquí sí hay que parar si no hay mundo: pero el informe se deja igual, porque
+    # "no se pudo leer" es también un resultado y hay que poder demostrarlo.
+    - name: "VERIFY · sello de tiempo del informe"
+      ansible.builtin.set_fact:
+        sello_tiempo: "{{ now().strftime('%Y%m%dT%H%M%SZ') }}"
+
+    - name: "VERIFY · informe sin estado del mundo"
+      ansible.builtin.copy:
+        content: "{{ informe_sin_mundo | to_nice_json }}\n"
+        dest: "{{ pve_carpeta_logs }}/verify-{{ sello_tiempo }}.json"
+        mode: '0640'
+      changed_when: false
+      vars:
+        informe_sin_mundo:
+          lab: "{{ pve_lab }}"
+          ok: false
+          ts: "{{ sello_tiempo }}"
+          estado_del_mundo: "{{ pve_mundo_origen | default('?') }}"
+          motivo: "{{ pve_mundo_error | default('motivo desconocido') }}"
+          nota: >-
+            No se pudo leer Proxmox. La declaración es la fuente de verdad, pero sin
+            leer la API no se puede comparar con nada: el resultado honesto es un
+            fallo, no un aprobado.
+          no_verificable:
+            - "todo: sin estado del mundo no se ha comprobado ni un invitado"
+      when: (pve_mundo_error | default('') | length) > 0
+
+    - name: "VERIFY · resumen humano sin estado del mundo"
+      ansible.builtin.copy:
+        content: |-
+          ============================================================
+          VERIFICACIÓN del lab '{{ pve_lab }}' — NO SE PUDO VERIFICAR
+          ============================================================
+          No hay estado del mundo: {{ pve_mundo_error | default('motivo desconocido') }}
+
+          Se intentó leer la API en {{ pve_mundo_origen | default('?') }}.
+          La declaración es la fuente de verdad, pero sin leer Proxmox no se puede
+          comparar con nada: el resultado honesto es un fallo, no un aprobado.
+
+          El diario de la ejecución (qué se pidió y qué respondió) está en:
+            {{ pve_carpeta_logs }}/api.jsonl
+        dest: "{{ pve_carpeta_logs }}/ultimo-verify.txt"
+        mode: '0640'
+      changed_when: false
+      when: (pve_mundo_error | default('') | length) > 0
+
+    - name: "VERIFY · parar si no hay estado del mundo"
+      ansible.builtin.fail:
+        msg: |-
+          No se pudo verificar el lab '{{ pve_lab }}': no hay estado del mundo.
+            {{ pve_mundo_error | default('motivo desconocido') }}
+          El diario de la ejecución está en {{ pve_carpeta_logs }}/api.jsonl
+      when: (pve_mundo_error | default('') | length) > 0
+
+    - name: "VERIFY · comparar la declaración con la API (en los dos sentidos)"
+      ansible.builtin.set_fact:
+        informe: "{{ declaracion | estado_verificar(estado, identidad) }}"
+
+    # Evidencia versionable: el JSON tiene todo lo comprobado, para poder citarlo.
+    - name: "VERIFY · escribir la evidencia (logs/verify-<sello>.json)"
+      ansible.builtin.copy:
+        content: "{{ informe | combine({'ts': sello_tiempo, 'estado_del_mundo': pve_mundo_origen}) | to_nice_json }}\n"
+        dest: "{{ pve_carpeta_logs }}/verify-{{ sello_tiempo }}.json"
+        mode: '0640'
+      # La evidencia es un log: escribirla no cambia el mundo (regla 4.9).
+      changed_when: false
+
+    - name: "VERIFY · escribir el resumen humano (para la consola)"
+      ansible.builtin.copy:
+        content: "{{ informe | estado_informe_texto }}\n"
+        dest: "{{ pve_carpeta_logs }}/ultimo-verify.txt"
+        mode: '0640'
+      changed_when: false
+
+    # Retención: los logs rotan. Sin esto, cada ejecución dejaría un fichero más y el
+    # directorio crecería sin fin.
+    - name: "VERIFY · listar los informes que ya hay"
+      ansible.builtin.find:
+        paths: "{{ pve_carpeta_logs }}"
+        patterns: "verify-*.json"
+      register: informes_previos
+
+    - name: "VERIFY · borrar los informes más viejos (retención)"
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ (informes_previos.files | sort(attribute='path'))[: -engine_retencion_informes | int] }}"
+      when: (informes_previos.files | length) > (engine_retencion_informes | int)
+
+    - name: "VERIFY · resultado"
+      ansible.builtin.fail:
+        msg: |-
+          Verificación FALLIDA para el lab '{{ pve_lab }}':
+            faltan={{ informe.faltan | length }}  sobran={{ informe.sobran | length }}
+            drift={{ informe.drift | length }}  parados={{ informe.parados | length }}
+            de otro lab={{ informe.otros_lab | length }}
+          Resumen:   {{ pve_carpeta_logs }}/ultimo-verify.txt
+          Evidencia: {{ pve_carpeta_logs }}/verify-{{ sello_tiempo }}.json
+      when: not informe.ok
+
+    - name: "VERIFY · resultado"
+      ansible.builtin.debug:
+        msg: >-
+          verificación CORRECTA del lab '{{ pve_lab }}': {{ informe.conformes | length }}
+          invitado(s) existen, coinciden y están arrancados.
+          Evidencia: {{ pve_carpeta_logs }}/verify-{{ sello_tiempo }}.json
+      when: informe.ok

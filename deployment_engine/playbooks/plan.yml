@@ -1,0 +1,78 @@
+---
+# PROPÓSITO:   el verbo `plan`. Deriva y ORDENA las llamadas REST que llevarían el
+#              mundo desde su estado actual hasta la declaración, y las escribe para
+#              poder revisarlas. No toca nada.
+# INVARIANTES: `apply` ejecuta ESTE plan. No existe una segunda lógica de decisión:
+#              si el plan y lo que se ejecuta pudieran diferir, el plan no valdría
+#              como revisión previa.
+#              El estado del mundo sale de un fixture por defecto (clúster vacío
+#              simulado) y de la API con `--api`: por eso `plan` es demostrable sin
+#              credenciales y sin ningún Proxmox.
+# LÍMITES:     el plan no prueba que una llamada vaya a funcionar. Ordena lo que hay
+#              que pedir; que Proxmox lo acepte sólo lo dirá `apply`.
+# VER:         README.md §Cómo se usa; labs/<lab>/<lab>.md
+
+- name: "PLAN · qué llamadas haría el motor, en qué orden"
+  hosts: proxmox_api
+  gather_facts: false
+  vars_files:
+    - ../vars/engine.yml
+  tasks:
+    - name: "PLAN · cargar la declaración del lab"
+      ansible.builtin.include_vars:
+        file: "{{ pve_archivo_lab }}"
+        name: declaracion_cruda
+
+    # La coherencia del estado deseado se comprueba igual en plan, preflight y
+    # apply: es la misma tarea compartida, no tres copias que se separan con el tiempo.
+    - name: "PLAN · validar la coherencia de la declaración"
+      ansible.builtin.include_tasks: ../tasks/validar.yml
+
+    # De aquí sale `estado` (del fixture o de la API) y `identidad` (rol -> vmid,
+    # nombre, MAC). El asignador se re-deriva en cada ejecución: no hay estado en disco.
+    - name: "PLAN · leer el mundo y asignar identidad"
+      ansible.builtin.include_tasks: ../tasks/identidad.yml
+
+    - name: "PLAN · parar si no hay estado del mundo"
+      ansible.builtin.fail:
+        msg: |-
+          No se pudo leer el estado del mundo para el lab '{{ pve_lab }}':
+            {{ pve_mundo_error | default('motivo desconocido') }}
+          Sin saber qué hay, un plan sería una invención y no una previsión.
+          (Sin credenciales, `plan` funciona contra el fixture: quita `--api`.)
+      when: (pve_mundo_error | default('') | length) > 0
+
+    # Lo que el motor sabe del entorno (no del lab): dónde, y con qué plantilla de
+    # contenedor. Sale de secrets.yml y vars/engine.yml, nunca de una variable de entorno.
+    - name: "PLAN · parámetros del entorno"
+      ansible.builtin.set_fact:
+        parametros_motor:
+          # Sin credenciales no hay nodo que preguntar: se usa el nombre del mundo
+          # simulado, y el texto del plan dice de dónde salió el estado.
+          nodo: "{{ pve_nodo | default(engine_nodo_simulado) }}"
+          ostemplate_lxc: "{{ engine_ostemplate_lxc }}"
+          comentario_pool: "topología gestionada por netlabs_v4_b (motor por API)"
+
+    - name: "PLAN · calcular el plan ordenado"
+      ansible.builtin.set_fact:
+        plan_pasos: "{{ declaracion | estado_plan(estado, identidad, parametros_motor) }}"
+
+    - name: "PLAN · traducir el plan a texto"
+      ansible.builtin.set_fact:
+        plan_texto: "{{ plan_pasos | estado_plan_texto(declaracion, estado, identidad) }}"
+
+    - name: "PLAN · guardar el plan (revisión y evidencia)"
+      ansible.builtin.copy:
+        content: "{{ plan_texto }}\n"
+        dest: "{{ pve_carpeta_logs }}/plan.txt"
+        mode: '0640'
+      # Escribir en logs/ NO es cambiar el mundo: si lo fuera, la promesa de
+      # idempotencia (regla 4.9) sería falsa por un fichero de log.
+      changed_when: false
+
+    - name: "PLAN · resumen"
+      ansible.builtin.debug:
+        msg: >-
+          plan de '{{ pve_lab }}': {{ plan_pasos | length }} llamada(s) REST,
+          estado del mundo leído de {{ pve_mundo_origen }}.
+          Detalle en {{ pve_carpeta_logs }}/plan.txt

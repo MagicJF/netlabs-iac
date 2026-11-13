@@ -1,0 +1,97 @@
+---
+# PROPÓSITO:   el verbo `destroy`. El ÚNICO que destruye. Borra los invitados del lab
+#              y, al final, su pool (sólo cuando ya está vacío).
+# INVARIANTES: el motor NUNCA borra un invitado que no esté en la declaración: si en
+#              el pool del lab aparece algo que ningún rol declara, `destroy` se
+#              NIEGA y lo dice. Borrar es irreversible; equivocarse no tiene vuelta.
+#              El pool se borra el último y sólo si ha quedado vacío, para que un
+#              fallo a medias no deje invitados huérfanos sin su frontera de propiedad.
+# LÍMITES:     la API borra de forma asíncrona. El MVP espera un momento fijo entre
+#              el borrado de los invitados y el del pool, en vez de sondear.
+# VER:         README.md §Cómo se usa; AGENTS.md §Reglas duras (regla 9)
+
+- name: "DESTROY · borrar los invitados del lab y su pool"
+  hosts: proxmox_api
+  gather_facts: false
+  vars_files:
+    - ../vars/engine.yml
+  tasks:
+    - name: "DESTROY · cargar la declaración del lab"
+      ansible.builtin.include_vars:
+        file: "{{ pve_archivo_lab }}"
+        name: declaracion_cruda
+
+    - name: "DESTROY · validar la coherencia de la declaración"
+      ansible.builtin.include_tasks: ../tasks/validar.yml
+
+    - name: "DESTROY · leer el mundo y re-derivar la identidad"
+      ansible.builtin.include_tasks: ../tasks/identidad.yml
+
+    - name: "DESTROY · parar si no hay estado del mundo"
+      ansible.builtin.fail:
+        msg: |-
+          No se pudo leer el estado del mundo para el lab '{{ pve_lab }}':
+            {{ pve_mundo_error | default('motivo desconocido') }}
+          Sin leer la API no se puede saber qué se va a borrar. Y borrar sin saber no
+          se hace.
+      when: (pve_mundo_error | default('') | length) > 0
+
+    # La comprobación de seguridad: nada en el pool que la declaración no reconozca.
+    - name: "DESTROY · comprobar que en el pool no hay nada ajeno"
+      ansible.builtin.set_fact:
+        informe: "{{ declaracion | estado_verificar(estado, identidad) }}"
+
+    - name: "DESTROY · negarse a borrar lo que no está declarado"
+      ansible.builtin.fail:
+        msg: |-
+          DESTROY CANCELADO para el lab '{{ pve_lab }}'.
+          En el pool '{{ pve_lab }}' hay invitados que la declaración NO reconoce:
+          {% for sobrante in informe.sobran %}
+            - vmid={{ sobrante.vmid }} nombre={{ sobrante.nombre }} rol={{ sobrante.rol }} ({{ sobrante.nota }})
+          {% endfor %}
+          Este motor nunca borra algo que no haya declarado otra persona. Revísalo a
+          mano en Proxmox (o añádelo a la declaración) y vuelve a intentarlo.
+      when: (informe.sobran | length) > 0
+
+    - name: "DESTROY · qué se va a borrar"
+      ansible.builtin.debug:
+        msg: >-
+          '{{ pve_lab }}': se borrarán {{ informe.encontrados_en_pool }} invitado(s) del
+          pool y, después, el pool si queda vacío.
+
+    # Sólo se borra lo que está EN EL POOL del lab (la frontera de propiedad): un
+    # invitado de otro lab jamás entra en esta lista.
+    - name: "DESTROY · borrar cada invitado del lab"
+      ansible.builtin.include_tasks: ../tasks/pve_api.yml
+      vars:
+        pve_api_metodo: DELETE
+        pve_api_ruta: "/nodes/{{ item.nodo }}/{{ item.tipo }}/{{ item.vmid }}"
+        pve_api_etiqueta: "borrado del invitado {{ item.vmid }} ({{ item.rol_o_nombre }})"
+        pve_api_cuerpo:
+          purge: 1
+      loop: "{{ estado.invitados | dict2items | map(attribute='value') | list }}"
+      loop_control:
+        label: "{{ item.tipo }}/{{ item.vmid }} {{ item.nombre }}"
+      when: (estado.invitados | length) > 0
+
+    # La API borra en segundo plano; sin esta espera, borrar el pool fallaría porque
+    # todavía tendría miembros. Se prefiere una espera fija a sondear: es un MVP y el
+    # caso de un borrado lento no cambia la decisión.
+    - name: "DESTROY · esperar a que Proxmox termine de borrar"
+      ansible.builtin.pause:
+        seconds: 3
+      when: (estado.invitados | length) > 0
+
+    - name: "DESTROY · borrar el pool del lab (frontera de propiedad)"
+      ansible.builtin.include_tasks: ../tasks/pve_api.yml
+      vars:
+        pve_api_metodo: DELETE
+        pve_api_ruta: "/pools/{{ pve_lab }}"
+        pve_api_etiqueta: "el pool del lab, ya vacío"
+      when: pve_lab in (estado.pools | default({}))
+
+    - name: "DESTROY · resultado"
+      ansible.builtin.debug:
+        msg: >-
+          '{{ pve_lab }}' destruido: {{ estado.invitados | length }} invitado(s) y su pool.
+          El diario dice exactamente qué se llamó: {{ pve_carpeta_logs }}/api.jsonl

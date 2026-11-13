@@ -1,0 +1,85 @@
+---
+# PROPÓSITO:   el verbo `apply`. Converge lo declarado ejecutando EL MISMO plan que
+#              imprime `plan`, y al terminar verifica: el verbo no se cree a sí mismo.
+# INVARIANTES: no hay una segunda lógica de decisión. Si `plan` y `apply` pudieran
+#              hacer cosas distintas, revisar el plan no serviría de nada.
+#              Es idempotente: lo que ya coincide NO genera llamada, así que una
+#              segunda ejecución seguida no cambia nada (regla 4.9).
+#              Nunca borra un invitado que no esté en la declaración.
+# LÍMITES:     la API de Proxmox crea y borra de forma asíncrona. El MVP no sondea:
+#              confía en que el plan va en orden y deja la comprobación a la
+#              verificación final, que sí lee el resultado.
+# VER:         README.md §Cómo se usa; AGENTS.md §Qué correr y cuándo
+
+- name: "APPLY · converger lo declarado"
+  hosts: proxmox_api
+  gather_facts: false
+  vars_files:
+    - ../vars/engine.yml
+  tasks:
+    - name: "APPLY · cargar la declaración del lab"
+      ansible.builtin.include_vars:
+        file: "{{ pve_archivo_lab }}"
+        name: declaracion_cruda
+
+    - name: "APPLY · validar la coherencia de la declaración"
+      ansible.builtin.include_tasks: ../tasks/validar.yml
+
+    - name: "APPLY · leer el mundo y asignar identidad"
+      ansible.builtin.include_tasks: ../tasks/identidad.yml
+
+    - name: "APPLY · parar si no hay estado del mundo"
+      ansible.builtin.fail:
+        msg: |-
+          No se pudo leer el estado del mundo para el lab '{{ pve_lab }}':
+            {{ pve_mundo_error | default('motivo desconocido') }}
+          Aplicar sin saber qué hay es exactamente lo que este motor no hace: podría
+          crear un invitado encima de otro. No se aplica nada.
+      when: (pve_mundo_error | default('') | length) > 0
+
+    - name: "APPLY · parámetros del entorno"
+      ansible.builtin.set_fact:
+        parametros_motor:
+          nodo: "{{ pve_nodo }}"
+          ostemplate_lxc: "{{ engine_ostemplate_lxc }}"
+          comentario_pool: "topología gestionada por netlabs_v4_b (motor por API)"
+
+    # El plan se recalcula aquí con la misma función que usa `plan`: mismo código,
+    # mismos datos, misma decisión.
+    - name: "APPLY · calcular el plan"
+      ansible.builtin.set_fact:
+        plan_pasos: "{{ declaracion | estado_plan(estado, identidad, parametros_motor) }}"
+
+    - name: "APPLY · escribir el plan que se va a ejecutar (evidencia)"
+      ansible.builtin.copy:
+        content: "{{ plan_pasos | estado_plan_texto(declaracion, estado, identidad) }}\n"
+        dest: "{{ pve_carpeta_logs }}/apply-ultimo-plan.txt"
+        mode: '0640'
+      # Escribir en logs/ no es cambiar el mundo (ver plan.yml).
+      changed_when: false
+
+    - name: "APPLY · resumen de lo que se va a hacer"
+      ansible.builtin.debug:
+        msg: >-
+          '{{ pve_lab }}': {{ plan_pasos | length }} llamada(s) REST por ejecutar
+          (estado del mundo de {{ pve_mundo_origen }})
+
+    # Cada paso del plan es una llamada a la PUERTA: mismo diario, mismas reglas.
+    # Una respuesta de error aquí para el verbo con un mensaje legible.
+    - name: "APPLY · ejecutar el plan, paso a paso"
+      ansible.builtin.include_tasks: ../tasks/pve_api.yml
+      vars:
+        pve_api_metodo: "{{ item.metodo }}"
+        pve_api_ruta: "{{ item.ruta }}"
+        pve_api_cuerpo: "{{ item.parametros }}"
+        pve_api_etiqueta: "paso {{ item.orden }}: {{ item.accion }} -- {{ item.porque }}"
+      loop: "{{ plan_pasos }}"
+      loop_control:
+        label: "{{ item.orden }}/{{ plan_pasos | length }}  {{ item.metodo }} {{ item.ruta }}"
+      when: (plan_pasos | length) > 0
+
+# La verificación va como segundo play, en la misma ejecución: `apply` converge Y
+# comprueba. Es el mismo `verify.yml` que se puede lanzar solo -- y por eso no puede
+# haber dos formas de verificar.
+- name: "APPLY · verificación final del mismo verify.yml"
+  ansible.builtin.import_playbook: verify.yml

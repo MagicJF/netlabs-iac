@@ -1,0 +1,71 @@
+---
+# PROPÓSITO:   el verbo `preflight`. Sólo lectura: dice qué hay, qué falta y qué
+#              difiere (DRIFT) entre la declaración y el mundo, ANTES de tocar nada.
+# INVARIANTES: usa la MISMA comparación por conjuntos que `verify` (en los dos
+#              sentidos), porque un preflight que midiera distinto que el test sería
+#              una segunda fuente de verdad.
+# LÍMITES:     un preflight de sólo lectura NO puede probar que una tarea de Proxmox
+#              vaya a completarse. Dice lo que ve, y lo dice.
+# VER:         README.md §Verificación; AGENTS.md §Qué correr y cuándo
+
+- name: "PREFLIGHT · qué hay, qué falta, qué difiere"
+  hosts: proxmox_api
+  gather_facts: false
+  vars_files:
+    - ../vars/engine.yml
+  tasks:
+    - name: "PREFLIGHT · cargar la declaración del lab"
+      ansible.builtin.include_vars:
+        file: "{{ pve_archivo_lab }}"
+        name: declaracion_cruda
+
+    - name: "PREFLIGHT · validar la coherencia de la declaración"
+      ansible.builtin.include_tasks: ../tasks/validar.yml
+
+    - name: "PREFLIGHT · leer el mundo y asignar identidad"
+      ansible.builtin.include_tasks: ../tasks/identidad.yml
+
+    - name: "PREFLIGHT · parar si no hay estado del mundo"
+      ansible.builtin.fail:
+        msg: |-
+          No se pudo leer el estado del mundo para el lab '{{ pve_lab }}':
+            {{ pve_mundo_error | default('motivo desconocido') }}
+          Sin leer la API no hay preflight posible: lo único honesto es decirlo.
+      when: (pve_mundo_error | default('') | length) > 0
+
+    - name: "PREFLIGHT · comparar lo declarado con lo que hay"
+      ansible.builtin.set_fact:
+        informe: "{{ declaracion | estado_verificar(estado, identidad) }}"
+
+    - name: "PREFLIGHT · parámetros del entorno"
+      ansible.builtin.set_fact:
+        parametros_motor:
+          nodo: "{{ pve_nodo }}"
+          ostemplate_lxc: "{{ engine_ostemplate_lxc }}"
+          comentario_pool: "topología gestionada por netlabs_v4_b (motor por API)"
+
+    - name: "PREFLIGHT · cuántas llamadas haría apply"
+      ansible.builtin.set_fact:
+        plan_pasos: "{{ declaracion | estado_plan(estado, identidad, parametros_motor) }}"
+
+    - name: "PREFLIGHT · guardar el informe"
+      ansible.builtin.copy:
+        content: >-
+          {{ informe | estado_informe_texto }}
+
+          El estado del mundo se leyó de {{ pve_mundo_origen }}.
+          `apply` haría {{ plan_pasos | length }} llamada(s) REST más.
+          (Un preflight de sólo lectura no puede probar que Proxmox vaya a aceptar
+          cada una: eso se sabe al aplicar.)
+        dest: "{{ pve_carpeta_logs }}/preflight.txt"
+        mode: '0640'
+      # Escribir en logs/ no es cambiar el mundo (ver plan.yml).
+      changed_when: false
+
+    - name: "PREFLIGHT · resumen"
+      ansible.builtin.debug:
+        msg: >-
+          preflight de '{{ pve_lab }}': faltan={{ informe.faltan | length }}
+          sobran={{ informe.sobran | length }} drift={{ informe.drift | length }}
+          parados={{ informe.parados | length }} de_otro_lab={{ informe.otros_lab | length }}.
+          Detalle en {{ pve_carpeta_logs }}/preflight.txt

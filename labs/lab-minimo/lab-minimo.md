@@ -81,5 +81,5 @@ este lab no ejercita la rama QEMU del plan; para eso está el otro ejemplo.
   [deployment_engine/filter_plugins/identidad.py](../../deployment_engine/filter_plugins/identidad.py)
 - La comprobación de colisiones entre labs (este lab es su caso de prueba):
   [deployment_engine/tools/framework_check.py](../../deployment_engine/tools/framework_check.py)
-- Una sola puerta a la API:
+- La puerta a la API de Proxmox:
   [deployment_engine/tasks/pve_api.yml](../../deployment_engine/tasks/pve_api.yml)

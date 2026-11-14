@@ -3,7 +3,7 @@
 <!-- PROPÓSITO: la decisión que no se quiere volver a discutir.
      INVARIANTES: ninguna vía de acceso al hipervisor que no sea la API.
      LÍMITES: no decide qué desplegar, sólo por dónde se le pide.
-     VER: README.md §Una sola puerta hacia la API; AGENTS.md §Reglas duras -->
+     VER: README.md §Las cuatro puertas, y un diario de cada una; AGENTS.md §Reglas duras -->
 
 **Estado:** aceptada.
 

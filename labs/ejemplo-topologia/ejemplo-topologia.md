@@ -126,9 +126,10 @@ sólo sabe "arranca el escalón 1, luego el 2": no hay ningún nombre de rol den
 ### La VM del conmutador no se configura
 
 Su interior no se toca: el motor la despliega, la arranca y comprueba que existe y
-tiene los recursos declarados. Configurar el reenvío dentro del invitado es la
-**capa 2** y está fuera de alcance a propósito. La declaración sólo dice que este
-rol es una VM con su interfaz en el bridge del lab.
+tiene los recursos declarados. Este lab **no declara `config:`**, así que no hay
+interior que converger: la declaración sólo dice que este rol es una VM con su
+interfaz en el bridge del lab. (El motor **sí** sabe configurar el interior —es el
+vocabulario de la fase 2, `config:` e `imagen:`—, y lo ejerce el lab de aceptación.)
 
 ### Lo que el YAML no dice, y se aprende al usarlo
 
@@ -153,7 +154,7 @@ dirección no es comprobable, en vez de dar por bueno lo que no ha mirado.
 
 ## Ver también (punteros al código)
 
-- La puerta única a la API y el diario de cada llamada:
+- La puerta de la API de Proxmox y el diario de cada llamada:
   [deployment_engine/tasks/pve_api.yml](../../deployment_engine/tasks/pve_api.yml)
 - El asignador de identidad (vmid, nombre canónico, MAC):
   [deployment_engine/filter_plugins/identidad.py](../../deployment_engine/filter_plugins/identidad.py)

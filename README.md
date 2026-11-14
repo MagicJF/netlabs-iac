@@ -2,13 +2,16 @@
 
 Un **motor IaC escrito en Ansible** que, a partir de la **declaración de una
 topología**, crea, actualiza, arranca, verifica y destruye invitados (VMs QEMU y
-contenedores LXC) en un nodo Proxmox **exclusivamente por su API REST**.
+contenedores LXC) en un nodo Proxmox **sólo por su API REST** —y que además
+**configura el interior de cada invitado** (RouterOS por su REST, Linux por SSH),
+dejando cada paso en su diario.
 
 El valor de este repositorio no son las topologías que despliega: es **el motor y
 su forma de trabajar** —declaración, verbos, identidad asignada por el propio
-motor, diario íntegro de cada llamada a la API, verificación por conjuntos en los
-dos sentidos, y documentación con punteros bidireccionales—. Las topologías viven
-cada una en su carpeta (`labs/`) y **el motor no conoce ninguna**.
+motor, **cuatro puertas y tres diarios**, verificación por conjuntos en los dos
+mundos (el de la API y el del interior), y documentación con punteros
+bidireccionales—. Las topologías viven cada una en su carpeta (`labs/`) y **el
+motor no conoce ninguna**.
 
 ---
 
@@ -16,7 +19,7 @@ cada una en su carpeta (`labs/`) y **el motor no conoce ninguna**.
 
 | Capa | Dónde | Qué es |
 | --- | --- | --- |
-| **El motor** | `deployment_engine/` | todo lo compartido por todos los despliegues: la puerta de la API y su diario, el asignador de identidad, la validación, el cálculo del plan, los checks y las plantillas |
+| **El motor** | `deployment_engine/` | todo lo compartido por todos los despliegues: las **puertas** (API de Proxmox, REST de RouterOS, interior Linux, consola) y sus diarios, el asignador de identidad, la validación, el plan, los **drivers del interior**, los checks y las plantillas |
 | **Las topologías** | `labs/<nombre>/` | *una carpeta por lab*: su declaración (`<nombre>.yml`), su documento (`<nombre>.md`) y sus logs (`logs/`, gitignored) |
 
 La pregunta que decide dónde va algo: **¿esto seguiría igual si desapareciera el
@@ -43,15 +46,24 @@ netlabs_v4_b/
 │   ├── vars/engine.yml       defaults del motor (timeouts, MAC, retención…)
 │   ├── playbooks/            un fichero por verbo: plan, preflight, apply,
 │   │                         verify, destroy
-│   ├── tasks/                tareas compartidas: pve_api.yml (la puerta + el
-│   │                         diario), pve_api_y_esperar.yml (la espera de las
-│   │                         tareas asíncronas), identidad.yml, validar.yml
+│   ├── tasks/                las CUATRO puertas y sus diarios: pve_api.yml (API
+│   │                         de Proxmox → api.jsonl), ros_api.yml (REST de
+│   │                         RouterOS, por el puesto de control → api.jsonl),
+│   │                         interior_ssh.yml (interior Linux → interior.jsonl),
+│   │                         camino_consola.yml (consola → camino.jsonl); más
+│   │                         los drivers (configurar_routeros.yml,
+│   │                         configurar_linux.yml), el camino (camino.yml,
+│   │                         camino_mundo.yml), el inventario en memoria
+│   │                         (inventario_invitados.yml), la sonda (sonda.yml),
+│   │                         la espera (esperar_tarea.yml) y validar.yml
 │   ├── filter_plugins/       lo que Ansible calcula en Jinja: declaracion.py,
-│   │                         identidad.py, estado.py
+│   │                         identidad.py, estado.py, interior.py (el driver
+│   │                         PURO del interior)
 │   ├── tools/                capa Python stdlib: plan.py, documentos.py,
-│   │                         framework_check.py
+│   │                         consola.py, framework_check.py
 │   └── templates/            SÓLO la región generada del doc de un lab
 ├── docs/decisiones/          ADRs: pocos, y sólo los que no quieres re-litigar
+├── docs/camino-del-puesto-de-control.md   cómo funciona el camino (prosa)
 ├── labs/.plantilla/          lo que copia `./lab new`
 └── labs/<nombre>/            UNA CARPETA POR TOPOLOGÍA
 ```
@@ -132,6 +144,26 @@ containers:                # invitados LXC
 Lo que **no** se declara, y es a propósito: ni `vmid`, ni MAC, ni el nombre
 canónico, ni a qué pool va cada invitado. Eso lo **deriva** el motor (§Identidad).
 El YAML dice *qué* y *en qué orden*; nunca dice *con qué número*.
+
+**El vocabulario del interior (fase 2):** un lab puede además declarar **qué hay que
+configurar dentro** de cada equipo, y el motor lo converge como una fase más de su plan.
+
+- **`config:`**, con **exactamente una clave de tipo** (`linux` o `routeros`), que elige el
+  driver. Dentro van las **áreas** (los campos que el motor sabe tocar y de los que
+  responde): `identidad`, `servicios`, `direcciones`, `rutas`, `dhcp`, `cortafuegos`,
+  `reenvio`, `dhcp_servidor`, `camino`…
+- **`imagen:`** en una VM QEMU: el disco de fábrica que se importa al crearla (un CHR).
+- **`direccion:`** admite tres formas: `<ip>/<prefijo>` (estática), **`dhcp`** (dinámica: el
+  invitado no la declara; se lee del host y, si hay camino, de la concesión del router) o
+  **ausente** (un equipo sin dirección: un conmutador puro).
+- **`reservas: derivadas`** es la única forma de declarar reservas DHCP de un router: el
+  motor reserva, por la MAC que **deriva del vmid**, cada dirección estática declarada por
+  otro invitado del mismo bridge —excluyendo al propio servidor—. Una MAC en un YAML es un bug.
+- **`lab.supernet`** acota todo lo del lab (lo vigila el check `supernet`), y
+  **`lab.camino`** pide el puesto de control que construye el motor (§`docs/camino-del-puesto-de-control.md`).
+
+**Dentro de un área declarada, lo que no está en el YAML se quita del equipo; fuera de las
+áreas declaradas, el motor no opina** (regla 17).
 
 **Qué se despliega se dice al llamar al verbo**: el nombre del lab es el único
 parámetro que el motor necesita, y el nombre del pool sale de él.
@@ -224,19 +256,27 @@ ningún Proxmox. Con `--api` lee el estado real por la API.
 
 ---
 
-## Una sola puerta hacia la API, y un diario de todo
+## Las cuatro puertas, y un diario de cada una
 
-Toda llamada a Proxmox sale de Ansible y pasa por **`deployment_engine/tasks/
-pve_api.yml`**, que hace la petición con `ansible.builtin.uri` contra
-`/api2/json` **y escribe la línea del diario**. Ningún play llama a la API "por
-fuera", y el wrapper `./lab` **no llama a la API**: sólo valida y lanza
-`ansible-playbook`. El check `puerta` verifica mecánicamente que no exista ni un
-`/api2/json` fuera de esa tarea.
+Al mundo se le habla por **cuatro puertas**, y por ninguna otra: a **Proxmox** por
+`tasks/pve_api.yml` (`/api2/json`, con `ansible.builtin.uri`), a **RouterOS** por
+`tasks/ros_api.yml` (su `/rest/…`, alcanzado por el puesto de control), al
+**interior Linux** por `tasks/interior_ssh.yml` (SSH), y a la **consola de la API**
+sólo desde `tasks/camino_consola.yml`. Ningún play llama "por fuera", y el wrapper
+`./lab` **no llama a nada**: sólo valida y lanza `ansible-playbook`.
 
-El diario es **sagrado**: una línea JSON por petición, con `ts`, `verb`, `lab`,
-`method`, `path`, `params`, `status`, `duration_ms` y el cuerpo de la respuesta
-(truncado a `engine_diario_max_cuerpo`). **Si una ejecución no dejó diario, no
-ocurrió.** Nunca se escribe la cabecera `Authorization`.
+Cada puerta deja **su diario**, y los tres son sagrados: `logs/api.jsonl` (cada
+llamada a Proxmox y a RouterOS, con un campo `api` que dice a cuál y el rol del
+invitado), `logs/interior.jsonl` (cada paso dentro de un Linux) y
+`logs/camino.jsonl` (cada uso de la consola). Una línea JSON por operación, con su
+`ts`, su verbo y su resultado (truncado a `engine_diario_max_cuerpo`). **Si una
+ejecución no dejó diario, no ocurrió.** Ni la cabecera `Authorization` ni una
+contraseña o una clave se escriben jamás en un diario.
+
+El check `puerta` vigila mecánicamente las cuatro: la ruta base de Proxmox
+(`/api2/json`) sólo puede aparecer en `pve_api.yml`, la de RouterOS (`/rest`) en
+`ros_api.yml`, los parámetros de conexión SSH a un invitado en `interior_ssh.yml` /
+`inventario_invitados.yml`, y el protocolo de consola en `camino_consola.yml`.
 
 Los logs son **del lab** y van gitignored: son artefactos de ejecución que rotan,
 y lo que se versiona es la evidencia que se cita en la prosa del lab, no el
@@ -401,8 +441,10 @@ credenciales y sin Proxmox**:
 | `links` | cada enlace markdown de un `.md` resuelve a una ruta existente |
 | `docs` | la región generada de cada `.md` es **idéntica** a su render |
 | `refs` | qué documentos citan un fichero, y cuáles están caducados desde su sellado |
-| `puerta` | ni un `/api2/json` fuera de `tasks/pve_api.yml` |
-| `declaracion` | coherencia del estado deseado: un rol en dos listas, un bridge citado que no existe, dos roles con la misma dirección, un bridge con un nombre que el núcleo rechazaría (guiones, >15 caracteres)… |
+| `puerta` | las cuatro puertas: `/api2/json` sólo en `pve_api.yml`, `/rest` sólo en `ros_api.yml`, el SSH del interior sólo en `interior_ssh.yml` / `inventario_invitados.yml`, el protocolo de consola sólo en `camino_consola.yml` |
+| `privilegios` | nada del motor concede privilegios de la API fuera de la guarda de `preflight`, y ningún invitado declarado nace privilegiado |
+| `supernet` | toda dirección y todo rango de un lab cae dentro de su `lab.supernet`, y los supernets de dos labs no se solapan |
+| `declaracion` | coherencia del estado deseado: un rol en dos listas, un bridge citado que no existe, dos roles con la misma dirección, un bridge con un nombre que el núcleo rechazaría (guiones, >15 caracteres), un `dhcp` con áreas que pidan entrar… |
 | `colisiones` | los labs declarados no comparten bridges, direcciones ni nombres |
 | `pureza-lab` | ni un valor de lab (ni su nombre) dentro de `deployment_engine/` |
 | `readme` | el README no lleva ningún valor de lab |
@@ -414,7 +456,9 @@ Cada check grita con **el fichero y el comando que lo arregla**.
 | Si… | Corre |
 | --- | --- |
 | cambiaste `labs/<lab>/<lab>.yml` | `./lab --lab <lab> plan` y luego `./lab check docs` |
+| cambiaste un lab con `config:` (un driver, un área) | `./lab --lab <lab> plan --api` y `./lab check docs` |
 | cambiaste un playbook, tarea, filtro o herramienta | `./lab check refs <ruta>` y revisa los docs que salgan |
+| tocaste un driver del interior (`routeros`/`linux`) | `./lab check puerta` + `python3 test/test_interior.py` y `test/test_routeros.py` |
 | cambiaste el texto de prosa de un `.md` | `./lab check docs --sellar <doc>` |
 | creaste o borraste ficheros | `./lab check links` |
 | antes de cualquier commit | `./lab check` (todo) + `ansible-lint` |
@@ -428,9 +472,9 @@ Esta sección no lleva adjetivos.
 
 **Verificado dentro de este repositorio, con la salida real del comando:**
 
-- `./lab check` en verde con los ocho checks, **y los ocho se han visto fallar** al
-  romper a propósito lo que vigilan (seis están en el ejercicio de abajo, con su
-  salida literal; `refs` y `readme` se vieron fallar al construir el repositorio).
+- `./lab check` en verde con los **diez** checks, **y cada uno se ha visto fallar** al
+  romper a propósito lo que vigila (los del ejercicio de abajo, con su salida literal;
+  `refs` y `readme` al construir el repositorio).
 - `ansible-lint` sin hallazgos y `--syntax-check` correcto en todos los playbooks.
 - `./lab list` y `./lab --lab <lab> plan` de las **tres topologías declaradas**:
   planes **distintos**, coherentes y ordenados, derivados de la declaración.
@@ -447,6 +491,11 @@ Esta sección no lleva adjetivos.
   (`labs/<lab>/logs/verify-<ts>.json`).
 - **Idempotencia**: una segunda ejecución seguida de `apply` sale `changed=0` y su
   diario sólo tiene `GET` (regla 6).
+- **La fase 2, contra el mismo VPS**: el lab de aceptación (seis invitados, dos CHR, tres
+  escalones, el puesto de control con su camino) se despliega, **converge en UNA sola
+  pasada** y da `verify` CORRECTO (`labs/<lab>/logs/verify-<ts>.json`); la
+  segunda pasada de `apply` deja el diario de la API y el del interior **sólo con
+  lecturas**, y el plan ya **no reemite** `construir_camino` cuando el camino responde.
 - **Convivencia**: las tres topologías declaradas, **desplegadas a la vez** (nueve
   invitados en tres pools, con vmids disjuntos y cada invitado en el bridge de su
   lab) y verificadas las tres con `verify` en verde. Después se destruyeron las
@@ -536,9 +585,13 @@ AVISO refs: README.md cita `deployment_engine/tools/framework_check.py`, que ha 
 ## Cómo se comprueba todo, con los comandos exactos
 
 ```bash
-./lab check                          # los ocho checks, sin credenciales ni Proxmox
+./lab check                          # los diez checks, sin credenciales ni Proxmox
 python3 test/test_identidad.py       # los casos del asignador, con fixtures
 python3 test/test_bridges.py         # la propiedad de los bridges: qué borra destroy
+python3 test/test_interior.py        # el driver PURO del interior: (declarado, leído) → pasos
+python3 test/test_routeros.py        # el driver de RouterOS: el baile de credenciales, la retirada
+python3 test/test_declaracion.py     # el validador: caza lo que tiene que cazar
+python3 test/test_regresion_planes.py  # los labs de fase 1 no cambian ni un paso
 ansible-lint                         # perfil basic, 0 hallazgos
 yamllint -c .yamllint .              # 0 hallazgos
 for p in deployment_engine/playbooks/*.yml; do ansible-playbook --syntax-check "$p"; done
@@ -575,8 +628,10 @@ for p in deployment_engine/playbooks/*.yml; do ansible-playbook --syntax-check "
 
 Una línea cada una, y nada más:
 
-- Configurar el **interior** de los invitados (sistema operativo, RouterOS, DHCP,
-  VPN): es la capa 2, y este motor despliega, no configura.
+- **Aplicaciones dentro de los invitados** (ficheros, paquetes, servicios): el
+  vocabulario llega a la **configuración de red del equipo** (RouterOS, Linux), no a
+  lo que corre encima. El punto de extensión es una primitiva nueva del motor, con
+  su ADR.
 - **Cloud-init y plantillas de disco** más allá del mínimo para que un invitado
   arranque.
 - **Inventario dinámico** de los invitados desplegados.
@@ -596,7 +651,16 @@ Una línea cada una, y nada más:
   [deployment_engine/tools/plan.py](deployment_engine/tools/plan.py)
 - Los **checks** del motor:
   [deployment_engine/tools/framework_check.py](deployment_engine/tools/framework_check.py)
-- Las tres **decisiones** que no se re-litigan:
-  [docs/decisiones/0001-solo-api-de-proxmox.md](docs/decisiones/0001-solo-api-de-proxmox.md),
-  [docs/decisiones/0002-el-pool-como-frontera-de-propiedad.md](docs/decisiones/0002-el-pool-como-frontera-de-propiedad.md),
-  [docs/decisiones/0003-documento-con-dos-regiones.md](docs/decisiones/0003-documento-con-dos-regiones.md)
+- El **driver puro del interior** (declarado + leído → pasos, en los dos sentidos):
+  [deployment_engine/filter_plugins/interior.py](deployment_engine/filter_plugins/interior.py)
+- El **camino del puesto de control** (la consola, el túnel, el puerto derivado):
+  [docs/camino-del-puesto-de-control.md](docs/camino-del-puesto-de-control.md)
+- Las **decisiones** que no se re-litigan:
+  [0001](docs/decisiones/0001-solo-api-de-proxmox.md),
+  [0002](docs/decisiones/0002-el-pool-como-frontera-de-propiedad.md),
+  [0003](docs/decisiones/0003-documento-con-dos-regiones.md),
+  [0004](docs/decisiones/0004-el-camino-y-el-token.md),
+  [0005](docs/decisiones/0005-el-driver-del-interior.md),
+  [0006](docs/decisiones/0006-escribir-en-routeros.md),
+  [0007](docs/decisiones/0007-las-patas-se-declaran.md),
+  [0008](docs/decisiones/0008-una-direccion-por-pata.md)

@@ -152,12 +152,13 @@ sitio (`tools/plan.py`), no repartida por los playbooks.
 
 ### Un límite que se ve al leer la topología
 
-Cada invitado declara **un** bridge y **una** dirección. Este lab, por tanto, no
-puede declarar un cortafuegos con una pata en cada red: la interconexión entre
-perímetro y núcleo **no se declara**, y las dos redes quedan aisladas entre sí. No
-es un olvido de esta declaración, es la forma que tiene hoy el esquema: admitir
-varias interfaces por invitado es un cambio del motor, no de un lab. Se dice aquí
-en vez de maquillarlo con una topología que aparente lo que no hay.
+**Este** lab declara un bridge y una dirección por invitado, así que no declara un
+cortafuegos con una pata en cada red: la interconexión entre perímetro y núcleo **no
+se declara**, y las dos redes quedan aisladas entre sí. No es un olvido de esta
+declaración ni un límite del motor: el esquema **sí** admite varias patas por
+invitado (`bridges:` como lista) y el lab de aceptación las usa. Aquí se elige una
+por invitado, y se dice, en vez de maquillarlo con una topología que aparente lo que
+no hay.
 
 Otros límites, los mismos de cualquier lab de este repositorio, y uno de este que
 conviene tener delante:
@@ -165,9 +166,9 @@ conviene tener delante:
 - **La dirección IP declarada de cada rol no es verificable por API**: vive dentro
   del invitado y la configuración del hipervisor no la guarda. `verify` compara el
   bridge y la MAC (que sí están en la config) y lo dice en voz alta en lugar de dar
-  por bueno lo que no ha mirado. Es más: el motor no la escribe tampoco —no
-  configura el interior de los invitados—, así que es el plan de direccionamiento,
-  no una dirección puesta.
+  por bueno lo que no ha mirado. Y como **este** lab no declara `config:`, el motor
+  no la escribe dentro tampoco: es el plan de direccionamiento, no una dirección
+  puesta. (En un lab con interior, el motor sí la aplica y la relee.)
 - **La dirección del bridge se declara y no se envía**: el `POST` que crea un
   bridge manda `iface`, `type`, `autostart` y el `comments` con la marca del motor, y
   nada de `address`/`cidr`. Los dos bridges de este lab existen, están activos y

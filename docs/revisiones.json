@@ -15,15 +15,16 @@
   },
   "README.md": {
     "citados": {
-      "deployment_engine/filter_plugins/estado.py": "2ce28b5ba98e8fa4d17f535712fe2e5258619a72c1f5dc04f114ed3a5a4fd786",
-      "deployment_engine/filter_plugins/identidad.py": "4f882c0786d0635cdaa8797450c9a7a1236aaf6f40c656b7e82c1fa9c4e5bed0",
-      "deployment_engine/playbooks/plan.yml": "4ad4925ca71b8d524421d8c5b5b3abb97f9a7c0fb875b9bea58200de02b8886d",
-      "deployment_engine/tasks/pve_api.yml": "b9d61716521edcced9db80c37854a2d6c922ef48c0ffc46cd2715ba9e7117c56",
-      "deployment_engine/tasks/pve_api_y_esperar.yml": "a03cd1a2c7af96448e424d5dc1587eebc386b912a56a4dd2e3c5791b2c4888b8",
-      "deployment_engine/tools/documentos.py": "8858eb50b71900de94e4d3cdbc59373c7407a7b9aa8137ae4106760481643ad3",
-      "deployment_engine/tools/framework_check.py": "f5c5045ade258b4aa0b5364b161346b44172ffccbea666759072c139f82223b6",
-      "deployment_engine/tools/plan.py": "8ff52fdf4ae81a026cfb8fcdf9f61f08d6ed7e30b97c408c98e9c2f94e061a32",
-      "deployment_engine/vars/engine.yml": "b54e16305a2cbc2f5992ed91948bf65a86788c73e4e22393e3257382d8c763ce"
+      "deployment_engine/filter_plugins/estado.py": "a1620807cabdc6b05b6dd3cd796be97f8ece7cefdbfb956898e7d996f3fc73ab",
+      "deployment_engine/filter_plugins/identidad.py": "773d13a7c740c6cabe1c4ac5611837af070f646f286327bbc5d21d6895fef6db",
+      "deployment_engine/filter_plugins/interior.py": "09f5c21df31d0c4eb122c139c540999ccadcd70ad354fa1c93b05a31a017d0f9",
+      "deployment_engine/playbooks/plan.yml": "635fb591df14cae55d494642b3527652f692a2fa8a93e8e6dfca9f704454cfbd",
+      "deployment_engine/tasks/pve_api.yml": "4628a91b351f10d2f28bf99a40973ae6fa8255e1ed79827d8a8174ff323df6d7",
+      "deployment_engine/tasks/pve_api_y_esperar.yml": "4a2b0f5e90ab5ebf840519e25507f02b89005f640498204003a5b78fbbf94ff9",
+      "deployment_engine/tools/documentos.py": "e2570908b54f9b60bcede738376125b2f43b1f25afad9a6bc17b25133137479c",
+      "deployment_engine/tools/framework_check.py": "3a98804c73bc932a9ab6cc57aa222322062de7cb71918fdd78aab7d2d1dbfcc4",
+      "deployment_engine/tools/plan.py": "32f1959789e47f4d3d94f1d6776fbe3d839b6f0325addf34fafe3081ebc89360",
+      "deployment_engine/vars/engine.yml": "182372f74a670e1f9e68ebc9d5abf5d5d0bbcb6f125a521680be1b139015da24"
     }
   },
   "docs/camino-del-puesto-de-control.md": {
@@ -36,7 +37,7 @@
   },
   "docs/decisiones/0001-solo-api-de-proxmox.md": {
     "citados": {
-      "deployment_engine/tasks/pve_api.yml": "b9d61716521edcced9db80c37854a2d6c922ef48c0ffc46cd2715ba9e7117c56"
+      "deployment_engine/tasks/pve_api.yml": "4628a91b351f10d2f28bf99a40973ae6fa8255e1ed79827d8a8174ff323df6d7"
     }
   },
   "docs/decisiones/0002-el-pool-como-frontera-de-propiedad.md": {
@@ -76,25 +77,25 @@
   },
   "labs/ejemplo-topologia/ejemplo-topologia.md": {
     "citados": {
-      "deployment_engine/filter_plugins/identidad.py": "b12e05a5b1c386ec0933b3497ecde90c469c00d1c235c0a223a0c94a3f1c324b",
-      "deployment_engine/tasks/pve_api.yml": "832a5c0c9fe41d33e4f781c1d0b336144cabd7777e05895d0e813a4b09fa0a54",
-      "deployment_engine/tools/framework_check.py": "3a5e68672b2350bc8aaa7990c28f7535f9becdc88d3087f4e9469303c9933e9b",
-      "deployment_engine/tools/plan.py": "c572f9f947e2f79b17850690837ac7a53ab811ce82ab0719b94535e7475f38c1"
+      "deployment_engine/filter_plugins/identidad.py": "773d13a7c740c6cabe1c4ac5611837af070f646f286327bbc5d21d6895fef6db",
+      "deployment_engine/tasks/pve_api.yml": "4628a91b351f10d2f28bf99a40973ae6fa8255e1ed79827d8a8174ff323df6d7",
+      "deployment_engine/tools/framework_check.py": "3a98804c73bc932a9ab6cc57aa222322062de7cb71918fdd78aab7d2d1dbfcc4",
+      "deployment_engine/tools/plan.py": "32f1959789e47f4d3d94f1d6776fbe3d839b6f0325addf34fafe3081ebc89360"
     }
   },
   "labs/lab-dos-redes/lab-dos-redes.md": {
     "citados": {
-      "deployment_engine/filter_plugins/identidad.py": "b12e05a5b1c386ec0933b3497ecde90c469c00d1c235c0a223a0c94a3f1c324b",
-      "deployment_engine/tasks/pve_api.yml": "832a5c0c9fe41d33e4f781c1d0b336144cabd7777e05895d0e813a4b09fa0a54",
-      "deployment_engine/tools/framework_check.py": "3a5e68672b2350bc8aaa7990c28f7535f9becdc88d3087f4e9469303c9933e9b",
-      "deployment_engine/tools/plan.py": "c572f9f947e2f79b17850690837ac7a53ab811ce82ab0719b94535e7475f38c1"
+      "deployment_engine/filter_plugins/identidad.py": "773d13a7c740c6cabe1c4ac5611837af070f646f286327bbc5d21d6895fef6db",
+      "deployment_engine/tasks/pve_api.yml": "4628a91b351f10d2f28bf99a40973ae6fa8255e1ed79827d8a8174ff323df6d7",
+      "deployment_engine/tools/framework_check.py": "3a98804c73bc932a9ab6cc57aa222322062de7cb71918fdd78aab7d2d1dbfcc4",
+      "deployment_engine/tools/plan.py": "32f1959789e47f4d3d94f1d6776fbe3d839b6f0325addf34fafe3081ebc89360"
     }
   },
   "labs/lab-minimo/lab-minimo.md": {
     "citados": {
-      "deployment_engine/filter_plugins/identidad.py": "4f882c0786d0635cdaa8797450c9a7a1236aaf6f40c656b7e82c1fa9c4e5bed0",
-      "deployment_engine/tasks/pve_api.yml": "b9d61716521edcced9db80c37854a2d6c922ef48c0ffc46cd2715ba9e7117c56",
-      "deployment_engine/tools/framework_check.py": "f5c5045ade258b4aa0b5364b161346b44172ffccbea666759072c139f82223b6"
+      "deployment_engine/filter_plugins/identidad.py": "b12e05a5b1c386ec0933b3497ecde90c469c00d1c235c0a223a0c94a3f1c324b",
+      "deployment_engine/tasks/pve_api.yml": "30b2547fe614455cea2c2986ab87ac0cca52f5f2115f129b4ff51b8a8206e5d2",
+      "deployment_engine/tools/framework_check.py": "3a98804c73bc932a9ab6cc57aa222322062de7cb71918fdd78aab7d2d1dbfcc4"
     }
   }
 }

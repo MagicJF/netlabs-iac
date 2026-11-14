@@ -42,6 +42,13 @@
       "deployment_engine/tools/documentos.py": "8858eb50b71900de94e4d3cdbc59373c7407a7b9aa8137ae4106760481643ad3"
     }
   },
+  "docs/decisiones/0004-el-camino-y-el-token.md": {
+    "citados": {
+      "deployment_engine/tasks/camino.yml": "1ecba93a864a48ff550d9e2be91a226852780321d5bf296f6fca41f5d61e154b",
+      "deployment_engine/tools/consola.py": "0b4a81b1bc9f9e08090382fba4125b3325f3f42511572beb882c2831218afc65",
+      "deployment_engine/vars/engine.yml": "6d7e4c162a278619aba284ccd1017c79edba591dd95d7af297035fbf14ea16ec"
+    }
+  },
   "labs/ejemplo-topologia/ejemplo-topologia.md": {
     "citados": {
       "deployment_engine/filter_plugins/identidad.py": "4f882c0786d0635cdaa8797450c9a7a1236aaf6f40c656b7e82c1fa9c4e5bed0",

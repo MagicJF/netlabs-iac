@@ -297,20 +297,22 @@ FIN_UNIDAD
 systemctl daemon-reload
 systemctl enable --now {UNIDAD_CAMINO}
 sleep 4
-echo NETLABS_CAMINO_PUESTO_$((39+3))
+echo {marca_camino()}
 """
 
 
-def linea_consola(guion, base64=None):
+def linea_consola(guion):
     """La ÚNICA línea que se manda por la consola: el guion, en base64, a `sh`.
 
-    `base64` se inyecta para poder probarlo sin depender del módulo estándar en las
-    pruebas; en el motor se usa el de la biblioteca estándar.
+    En base64 porque la consola NO es un canal de datos fiable: se manda una línea
+    sin heredocs, sin comillas y sin nada que el eco pueda romper. Y se decodifica en
+    el equipo (`base64 -d | sh`) para que lo que se ejecute sea exactamente lo que se
+    codificó aquí, sin que nadie lo reinterprete por el camino.
     """
     import base64 as modulo_base64
 
-    codificar = base64 or (lambda texto: modulo_base64.b64encode(texto.encode()).decode())
-    return f"echo {codificar(guion)} | base64 -d | sh"
+    codificado = modulo_base64.b64encode(guion.encode()).decode()
+    return f"echo {codificado} | base64 -d | sh"
 
 
 def marca_camino():
@@ -323,23 +325,41 @@ def marca_camino():
 # Reservas DHCP derivadas: la MAC no se declara NUNCA (regla 14)
 # ---------------------------------------------------------------------------
 
-def reservas_derivadas(declaracion, identidad, invitado_servidor):
+def reservas_derivadas(declaracion, identidad, invitado_servidor, en_red=None):
     """Las reservas que el servidor DHCP de `invitado_servidor` tiene que tener.
 
-    Se DERIVAN: por cada OTRO invitado del mismo bridge que declare una dirección
-    estática, una reserva con la MAC que el motor deriva de su vmid. Así ningún
-    cliente dinámico puede robarle la dirección a un router o a un servidor. El
-    propio servidor no se reserva a sí mismo.
+    Se DERIVAN: por cada OTRO invitado alcanzable por ese servidor que declare una
+    dirección estática, una reserva con la MAC que el motor deriva de su vmid. Así
+    ningún cliente dinámico puede robarle la dirección a un router o a un servidor.
+    El propio servidor no se reserva a sí mismo.
+
+    ¿Quién es «alcanzable por ese servidor»? Eso lo dice el ÁMBITO, y hay dos casos
+    porque hay dos formas de declararlo:
+
+      * `en_red` (un prefijo, p. ej. 10.41.1.0/24): el servidor DHCP de un RouterOS
+        declara la RED que sirve, y su interfaz (ether2) no tiene por qué coincidir
+        con la pata de gestión del invitado (`bridge:`). Se reserva a quien tenga una
+        dirección declarada DENTRO de esa red. Ésta es la forma buena para un router.
+      * sin `en_red`: el ámbito es el BRIDGE del propio invitado. Es el caso de un
+        Linux que sirve la red del bridge en el que está (el puesto de control).
+
+    Ámbito por bridge como respaldo de un router: sirve para no dejar las reservas
+    vacías cuando no se declara `red`, y por eso se usa sólo entonces.
     """
     servidor = str(invitado_servidor.get("rol"))
     bridge = invitado_servidor.get("bridge")
     por_rol = {i["rol"]: i for i in identidad["invitados"]}
     reservas = []
     for otro in declaracion.get("invitados", []):
-        if otro.get("rol") == servidor or otro.get("bridge") != bridge:
+        if otro.get("rol") == servidor:
             continue
         direccion = str(otro.get("direccion") or "")
         if not direccion or direccion == "dhcp" or "/" not in direccion:
+            continue
+        if en_red:
+            if not en_red_siendo(direccion, en_red):
+                continue
+        elif otro.get("bridge") != bridge:
             continue
         identidad_otro = por_rol.get(otro.get("rol"))
         if identidad_otro is None:
@@ -352,6 +372,27 @@ def reservas_derivadas(declaracion, identidad, invitado_servidor):
             }
         )
     return sorted(reservas, key=lambda r: r["direccion"])
+
+
+def en_red_siendo(direccion, red):
+    """¿Cae `direccion` (con máscara) dentro de la red `red`?
+
+    Se comparan los OCTETOS que la máscara de `red` cubre, entero a entero: 10.41.1.7
+    está en 10.41.1.0/24 porque los tres primeros octetos coinciden. Con prefijos que
+    no caen en un octeto no se opina (devuelve False) en vez de hacer aritmética
+    fina: un cálculo sutil aquí sería otra cosa que puede estar mal sin que nadie lo
+    note, y los labs usan /16 y /24.
+    """
+    base, _, prefijo = str(red or "").partition("/")
+    if not base or not prefijo:
+        return False
+    bits = int(prefijo)
+    if bits % 8 != 0:
+        return False
+    cuantos = bits // 8
+    izquierda = str(direccion).split("/")[0].split(".")
+    derecha = base.split(".")
+    return izquierda[:cuantos] == derecha[:cuantos]
 
 
 # ---------------------------------------------------------------------------
@@ -377,9 +418,13 @@ def _paso(accion, invitado, area, operaciones, porque):
 
 
 def _identidad_canonica(declarado, leido):
-    """Diferencia del área `identidad`: nombre del equipo y credenciales del motor."""
+    """Diferencia del área `identidad`: nombre del equipo y credenciales del motor.
+
+    El valor DECLARADO del área es el nombre, tal cual (`identidad: rt-borde`): la
+    declaración no envuelve en un mapa lo que ya es un dato.
+    """
     operaciones = []
-    esperado = str((declarado or {}).get("identidad") or "")
+    esperado = str(declarado or "")
     actual = str((leido or {}).get("nombre") or "")
     if esperado and actual != esperado:
         operaciones.append({"op": "poner_identidad", "nombre": esperado})
@@ -416,10 +461,14 @@ def _cliente_dhcp_canonico(declarado, leido):
 def _direcciones_canonicas(declarado, leido):
     """Diferencia del área `direcciones`. La dinámica con el mismo valor NO se toca
     aquí: no se puede borrar por la API (es de otro dueño) y por eso es RESIDUO, y
-    el residuo se resuelve con `reiniciar_invitado` (§9.2, ADR 0007)."""
+    el residuo se resuelve con `reiniciar_invitado` (§9.2, ADR 0007).
+
+    Lo DECLARADO es la lista tal cual se escribe en el lab
+    (`- {interfaz: ether2, direccion: 10.40.1.1/24}`); lo LEÍDO es lo que el driver
+    saca del equipo, ya separado en `estaticas` y `dinamicas`.
+    """
     deseadas = {
-        (str(d.get("interfaz")), str(d.get("direccion")))
-        for d in ((declarado or {}).get("estaticas") or [])
+        (str(d.get("interfaz")), str(d.get("direccion"))) for d in (declarado or [])
     }
     actuales = {
         (str(d.get("interfaz")), str(d.get("direccion")))
@@ -435,10 +484,13 @@ def _direcciones_canonicas(declarado, leido):
 
 def _rutas_canonicas(declarado, leido):
     """Diferencia del área `rutas`: sólo las ESTÁTICAS. Las conectadas las pone el
-    sistema y la dinámica del DHCP es residuo (`reiniciar_invitado`)."""
+    sistema y la dinámica del DHCP es residuo (`reiniciar_invitado`).
+
+    Lo DECLARADO es la lista tal cual (`- {destino, pasarela}`); lo LEÍDO, lo que el
+    driver saca del equipo.
+    """
     deseadas = {
-        (str(r.get("destino")), str(r.get("pasarela")))
-        for r in ((declarado or {}).get("rutas") or [])
+        (str(r.get("destino")), str(r.get("pasarela"))) for r in (declarado or [])
     }
     actuales = {
         (str(r.get("destino")), str(r.get("pasarela")))
@@ -452,12 +504,31 @@ def _rutas_canonicas(declarado, leido):
     return operaciones
 
 
-def _dhcp_canonico(declarado, leido, reservas):
+def _red_normalizada(red):
+    """La red DHCP declarada, en la forma en que se compara con lo leído.
+
+    Se normalizan los tres campos que importan (prefijo, pasarela y DNS) y se ordena
+    la lista de DNS: comparar dos listas de DNS en distinto orden y llamarlo cambio
+    haría que la segunda ejecución escribiera sin que nada hubiera cambiado.
+    """
+    red = red or {}
+    return {
+        "prefijo": str(red.get("prefijo") or ""),
+        "pasarela": str(red.get("pasarela") or ""),
+        "dns": sorted(str(d) for d in (red.get("dns") or [])),
+    }
+
+
+def _dhcp_canonico(declarado, leido, declaracion, identidad, invitado):
     """Diferencia del área `dhcp` de un RouterOS: red, servidor, pool y reservas.
 
     Las reservas se comparan por MAC: la dirección que reserva el router tiene que
     ser la que el motor DERIVA del vmid del invitado (regla 14). Una reserva con la
     MAC equivocada se quita: dentro del área, lo que no está declarado sale.
+
+    Cada servidor declarado tiene SU ámbito (`red.prefijo`), así que sus reservas se
+    derivan una a una: un router con dos LANs no puede reservar en la primera lo que
+    vive en la segunda.
     """
     operaciones = []
     for declarado_servidor in declarado or []:
@@ -473,33 +544,42 @@ def _dhcp_canonico(declarado, leido, reservas):
         elif str(encontrado.get("rango") or "") != rango:
             operaciones.append({"op": "poner_servidor_dhcp", "interfaz": interfaz, "rango": rango})
         red = declarado_servidor.get("red") or {}
-        if red:
+        if red and _red_normalizada(red) != _red_normalizada((encontrado or {}).get("red")):
+            # Se compara con lo LEÍDO, no se escribe por si acaso: reescribir la red en
+            # cada ejecución rompería la idempotencia (y mentiría sobre `changed=0`).
+            normalizada = _red_normalizada(red)
             operaciones.append(
                 {
                     "op": "poner_red_dhcp",
-                    "prefijo": str(red.get("prefijo") or ""),
-                    "pasarela": str(red.get("pasarela") or ""),
-                    "dns": list(red.get("dns") or []),
+                    "prefijo": normalizada["prefijo"],
+                    "pasarela": normalizada["pasarela"],
+                    "dns": normalizada["dns"],
                 }
             )
-    # Las interfaces declaradas con DHCP que ya no se declaran: se quitan.
+        # Las reservas de ESTE servidor: su ámbito es la RED que sirve (`red.prefijo`)
+        # y, si no la declara, el bridge en el que vive el invitado.
+        reservas = reservas_derivadas(
+            declaracion, identidad, invitado, en_red=red.get("prefijo")
+        )
+        deseadas = {str(r["mac"]).upper(): str(r["direccion"]) for r in reservas}
+        actuales = {
+            str(r.get("mac")).upper(): str(r.get("direccion"))
+            for r in ((leido or {}).get("reservas") or [])
+        }
+        for mac, direccion in sorted(deseadas.items()):
+            if actuales.get(mac) != direccion:
+                operaciones.append({"op": "poner_reserva", "mac": mac, "direccion": direccion})
+        for mac in sorted(set(actuales) - set(deseadas)):
+            operaciones.append({"op": "quitar_reserva", "mac": mac})
+
+    # Las interfaces con DHCP que ya no se declaran: se quitan (dentro del área, lo
+    # que no está declarado sale).
     declaradas = {str(s.get("interfaz")) for s in (declarado or [])}
     for candidato in (leido or {}).get("servidores") or []:
         if str(candidato.get("interfaz")) not in declaradas:
             operaciones.append(
                 {"op": "quitar_servidor_dhcp", "interfaz": str(candidato.get("interfaz"))}
             )
-
-    deseadas = {str(r["mac"]).upper(): str(r["direccion"]) for r in reservas}
-    actuales = {
-        str(r.get("mac")).upper(): str(r.get("direccion"))
-        for r in ((leido or {}).get("reservas") or [])
-    }
-    for mac, direccion in sorted(deseadas.items()):
-        if actuales.get(mac) != direccion:
-            operaciones.append({"op": "poner_reserva", "mac": mac, "direccion": direccion})
-    for mac in sorted(set(actuales) - set(deseadas)):
-        operaciones.append({"op": "quitar_reserva", "mac": mac})
     return operaciones
 
 
@@ -527,12 +607,17 @@ def _reenvio_canonico(declarado, leido):
     return []
 
 
-def _dhcp_servidor_canonico(declarado, leido, reservas):
+def _dhcp_servidor_canonico(declarado, leido, declaracion, identidad, invitado):
     """Diferencia del área `dhcp_servidor` de un Linux: dnsmasq, reservas y el
     apagado del offload del checksum, sin el cual las ofertas DHCP salen rotas y el
-    kernel del CHR las tira (medido en v3, y sigue siendo cierto)."""
+    kernel del CHR las tira (medido en v3, y sigue siendo cierto).
+
+    El ámbito de sus reservas es el bridge en el que vive el invitado: un Linux sirve
+    la red del bridge al que está colgado, que es justo donde están los demás.
+    """
     if not declarado:
         return []
+    reservas = reservas_derivadas(declaracion, identidad, invitado)
     operaciones = []
     interfaz = str(declarado.get("interfaz") or "")
     rango = str(declarado.get("rango") or "")
@@ -594,8 +679,14 @@ def residuo_dinamico(leido):
     return (bool(motivos), "; ".join(motivos))
 
 
-def pasos_de_convergencia(invitado, identidad_invitado, declaracion, leido, parametros):
+def pasos_de_convergencia(invitado, identidad, declaracion, leido, parametros):
     """(declarado, leído) -> pasos del interior de ESTE invitado, en orden.
+
+    `identidad` es el mapa del LAB entero (no la identidad de este invitado): las
+    reservas DHCP del servidor de un bridge se derivan de las direcciones estáticas
+    de LOS DEMÁS invitados de ese bridge, así que sin la identidad completa no se
+    pueden calcular. Se pasa entera y no se recorta: un mapa recortado da reservas
+    vacías y una convergencia que dice que ha ido bien sin haber reservado nada.
 
     Dos formas, y la diferencia importa:
 
@@ -633,14 +724,22 @@ def pasos_de_convergencia(invitado, identidad_invitado, declaracion, leido, para
         )
 
     areas_leidas = leido.get("areas") or {}
-    reservas = reservas_derivadas(declaracion, {"invitados": [identidad_invitado]}, invitado)
 
     # La identidad de un RouterOS va la ÚLTIMA en la primera convergencia: primero
     # se añade y se verifica lo nuevo, y sólo entonces se cambia el equipo por
     # dentro. Si se cambiara antes, un fallo a mitad dejaría el equipo accesible con
     # las credenciales viejas y sin camino de vuelta para el motor.
+    #
+    # «Primera convergencia» no se adivina por la forma del mapa leído: se decide con
+    # lo que las operaciones dicen. Si la identidad no tiene nada que cambiar, no hay
+    # paso de identidad y el orden da igual.
+    operaciones_identidad = (
+        _identidad_canonica(declaradas["identidad"], areas_leidas.get("identidad"))
+        if "identidad" in declaradas
+        else None
+    )
     orden = list(declaradas.keys())
-    if tipo == "routeros" and "identidad" in orden and not (leido.get("areas") or {}).get("identidad"):
+    if tipo == "routeros" and operaciones_identidad:
         orden.remove("identidad")
         orden.append("identidad")
 
@@ -648,7 +747,7 @@ def pasos_de_convergencia(invitado, identidad_invitado, declaracion, leido, para
     for area in orden:
         actual = areas_leidas.get(area)
         if area == "identidad":
-            operaciones = _identidad_canonica(declaradas[area], actual)
+            operaciones = operaciones_identidad or []
         elif area == "servicios":
             operaciones = _servicios_canonicos(declaradas[area], actual)
         elif area == "cliente_dhcp":
@@ -658,22 +757,30 @@ def pasos_de_convergencia(invitado, identidad_invitado, declaracion, leido, para
         elif area == "rutas":
             operaciones = _rutas_canonicas(declaradas[area], actual)
         elif area == "dhcp":
-            operaciones = _dhcp_canonico(declaradas[area], actual, reservas)
+            operaciones = _dhcp_canonico(declaradas[area], actual, declaracion, identidad, invitado)
         elif area == "direccion":
             operaciones = _direccion_linux_canonica(declaradas[area], actual)
         elif area == "reenvio":
             operaciones = _reenvio_canonico(declaradas[area], actual)
         elif area == "dhcp_servidor":
-            operaciones = _dhcp_servidor_canonico(declaradas[area], actual, reservas)
+            operaciones = _dhcp_servidor_canonico(
+                declaradas[area], actual, declaracion, identidad, invitado
+            )
         elif area == "camino":
             operaciones = _camino_canonico(declaradas[area], actual)
         else:  # pragma: no cover - el validador ya rechaza lo que no está en AREAS
             raise ErrorMotor(f"el área '{area}' no tiene driver: añadirla es un ADR")
 
-        if not operaciones and not isinstance(actual, dict):
-            # Área declarada y todavía sin leer: se converge entera (no se puede
-            # afirmar que coincide sin haberla mirado).
-            operaciones = [{"op": "converger_area_completa"}]
+        if not isinstance(actual, dict):
+            # Área declarada y NO leída. No se escribe a ciegas ni se da por buena:
+            # sin lectura no se puede afirmar si coincide, y escribir «por si acaso»
+            # rompería la idempotencia (la segunda ejecución volvería a escribir).
+            # El driver tiene que leer TODAS las áreas declaradas: si falta una, el
+            # verbo para y lo dice.
+            raise ErrorMotor(
+                f"el driver no leyó el área '{area}' del rol '{rol}' ({tipo}): sin "
+                "lectura no se puede decir si coincide con lo declarado"
+            )
         if operaciones:
             pasos.append(
                 _paso(
@@ -707,14 +814,15 @@ def pasos_de_convergencia(invitado, identidad_invitado, declaracion, leido, para
     return pasos
 
 
-def espera_de_servicio(invitado, identidad_invitado):
+def espera_de_servicio(invitado):
     """El paso que comprueba que un escalón SIRVE de verdad antes de pasar al
     siguiente (regla 18: nunca se arranca un escalón antes de que el anterior esté
     convergido y sirviendo).
 
     No es un `wait_for` sobre el invitado: es una petición a la dirección que la
     declaración promete, en el puerto por el que ese tipo se deja ver (el REST de
-    RouterOS, el sshd de un Linux).
+    RouterOS, el sshd de un Linux). No necesita identidad: la sonda va a la
+    dirección declarada, que es lo que la declaración promete.
     """
     tipo = tipo_de(invitado)
     if tipo is None:

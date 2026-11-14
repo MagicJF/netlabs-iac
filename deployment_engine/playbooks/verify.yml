@@ -118,6 +118,9 @@
         state: absent
       loop: "{{ (informes_previos.files | sort(attribute='path'))[: -engine_retencion_informes | int] }}"
       when: (informes_previos.files | length) > (engine_retencion_informes | int)
+      # Borrar un informe VIEJO de `logs/` no es cambiar el mundo (ver plan.yml): sin
+      # esto, una segunda pasada saldría con un `changed` que no lo es (regla 6).
+      changed_when: false
 
     - name: "VERIFY · resultado"
       ansible.builtin.fail:

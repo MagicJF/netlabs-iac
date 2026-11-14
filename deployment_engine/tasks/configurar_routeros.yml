@@ -57,6 +57,9 @@
     # `inventario_invitados.yml` (regla 12), y si se escribieran aquí habría dos sitios
     # donde se decide cómo se entra a un invitado.
     ansible_ssh_common_args: "{{ interior_ssh_comunes }}"
+  # Meter un host en el inventario EN MEMORIA no cambia el mundo: sin esto, la segunda
+  # pasada de `apply` saldría con un `changed` que no lo es (regla 6).
+  changed_when: false
   vars:
     ros_puesto: "puesto-{{ pve_lab }}"
     # NADA que guardar: el puerto sale del vmid del puesto de control (regla 11).

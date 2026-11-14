@@ -90,6 +90,12 @@
           # y que el plan mete en la creación del puesto de control.
           camino_clave_publica: "{{ camino_clave_publica | default('') }}"
 
+    # Si el camino YA responde, no hay que reconstruirlo: el plan no emitirá la mitad
+    # `construir_camino` (regla 6). Se sondea AQUÍ, antes de planificar, y se deja en el
+    # estado del mundo (es una lectura: un puerto que contesta no se puede fingir).
+    - name: "PLAN · leer si el camino del lab ya está en pie"
+      ansible.builtin.include_tasks: ../tasks/camino_mundo.yml
+
     - name: "PLAN · calcular el plan ordenado"
       ansible.builtin.set_fact:
         plan_pasos: "{{ declaracion | estado_plan(estado, identidad, parametros_motor) }}"

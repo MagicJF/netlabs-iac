@@ -85,6 +85,11 @@
           # y que el plan mete en la creación del puesto de control.
           camino_clave_publica: "{{ camino_clave_publica | default('') }}"
 
+    # Si el camino YA responde, el plan no emitiría `construir_camino` (regla 6): es una
+    # lectura local, y así el preflight cuenta las llamadas que de verdad haría `apply`.
+    - name: "PREFLIGHT · leer si el camino del lab ya está en pie"
+      ansible.builtin.include_tasks: ../tasks/camino_mundo.yml
+
     - name: "PREFLIGHT · cuántas llamadas haría apply"
       ansible.builtin.set_fact:
         plan_pasos: "{{ declaracion | estado_plan(estado, identidad, parametros_motor) }}"

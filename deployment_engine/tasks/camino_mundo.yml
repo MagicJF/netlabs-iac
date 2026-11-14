@@ -1,0 +1,50 @@
+---
+# PROPÓSITO:   LEER EL CAMINO EN EL MUNDO. Comprobar, ANTES de planificar, si el puerto
+#              reenviado del puesto de control YA contesta -- para que el plan sepa si el
+#              túnel está EN PIE y no reemita `construir_camino` (que reescribe la línea del
+#              `authorized_keys` de casa y reenvía la orden por la consola) cuando ya lo está.
+#              Es lo que hace que la SEGUNDA pasada de `apply` no cambie nada (regla 6).
+# INVARIANTES: es una LECTURA LOCAL: un `wait_for` al mismo puerto que prueba
+#              `comprobar_camino` (127.0.0.1:<engine_camino_puerto_base + vmid del control>).
+#              No toca la API de Proxmox ni el invitado. El puerto sale del vmid: NADA
+#              derivado se guarda (regla 11). Sin puesto de control en el lab, no sondea y
+#              deja `responde` en falso.
+# LÍMITES:     no prueba que el invitado FUNCIONE, sólo que el puerto contesta: es lo justo
+#              para decidir si hay que reconstruir. La prueba de punta a punta --que la cadena
+#              casa -> 443 -> puesto -> vuelta esté ENTERA-- es `comprobar_camino`, y va
+#              dentro del plan, no aquí.
+# VER:         filter_plugins/interior.py (camino_responde, pasos_del_camino);
+#              tasks/camino.yml; docs/camino-del-puesto-de-control.md
+#
+# Variables que espera:  identidad, declaracion, engine_camino_puerto_base
+# Y deja:                estado  (con `camino.responde`)
+
+- name: "CAMINO·MUNDO · el puerto del camino de este lab (20000 + vmid del puesto de control)"
+  ansible.builtin.set_fact:
+    camino_mundo_puerto: >-
+      {{ ('' if (camino_mundo_puesto | length == 0)
+          else ((engine_camino_puerto_base | int) + (camino_mundo_puesto.vmid | int)) | string) }}
+  vars:
+    # Quién es el puesto de control: lo pregunta a la función pura, no a un valor del lab.
+    camino_mundo_puesto: >-
+      {{ identidad.invitados
+         | selectattr('rol', 'equalto', (declaracion | interior_puesto_control))
+         | list | first | default({}) }}
+
+# `failed_when: false` a propósito: un puerto que no contesta NO es un error, es la RESPUESTA
+# («el camino no está en pie»). El plan decide con eso.
+- name: "CAMINO·MUNDO · sondear si el túnel del camino ya contesta (lectura local)"
+  ansible.builtin.wait_for:
+    host: "127.0.0.1"
+    port: "{{ camino_mundo_puerto | int }}"
+    timeout: 1
+    state: started
+  register: camino_mundo_sonda
+  failed_when: false
+  when: camino_mundo_puerto | length > 0
+
+- name: "CAMINO·MUNDO · dejar en el estado si el camino responde o no"
+  ansible.builtin.set_fact:
+    estado: >-
+      {{ estado | combine({'camino': {'responde':
+         (camino_mundo_sonda.state | default('') == 'started')}}) }}

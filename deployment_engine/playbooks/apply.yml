@@ -81,6 +81,12 @@
           # y que el plan mete en la creación del puesto de control.
           camino_clave_publica: "{{ camino_clave_publica | default('') }}"
 
+    # Si el camino YA responde, el plan no emite `construir_camino`: no se reescribe el
+    # `authorized_keys` de casa ni se reenvía la orden por la consola (regla 6). Es una
+    # LECTURA local, y se hace antes de calcular el plan.
+    - name: "APPLY · leer si el camino del lab ya está en pie"
+      ansible.builtin.include_tasks: ../tasks/camino_mundo.yml
+
     # El plan se recalcula aquí con la misma función que usa `plan`: mismo código,
     # mismos datos, misma decisión.
     - name: "APPLY · calcular el plan"

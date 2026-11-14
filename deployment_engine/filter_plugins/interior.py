@@ -853,16 +853,24 @@ def pasos_de_convergencia(invitado, identidad, declaracion, leido, parametros):
     declaradas = areas_de(invitado)
 
     if not leido:
+        # La forma GRUESA: UN paso por invitado. Un paso por área repetiría la misma
+        # frase N veces para el mismo equipo y contaría como trabajo lo que es UNA sola
+        # conversación con él: el plan es una explicación, y una que se repite no explica.
+        # Las áreas declaradas van en el `porque` (informan, que es lo que se puede hacer
+        # sin leer) pero NO como operaciones: sin lectura no se puede afirmar qué cambia,
+        # y enseñar operaciones sería prometer un cambio que nadie ha comprobado.
+        areas = ", ".join(sorted(declaradas))
         return [
             _paso(
                 "converger_interior",
                 invitado,
-                area,
+                # No es un área suelta (no se ha leído ninguna): es el invitado entero.
+                None,
                 [],
                 f"el rol '{rol}' es un interior de tipo {tipo} y el plan no ha leído "
-                "dentro (sin credenciales): se converge el área entera",
+                f"dentro (sin credenciales): se converge el invitado entero, área por "
+                f"área ({areas})",
             )
-            for area in declaradas
         ]
 
     if not leido.get("alcanzable"):

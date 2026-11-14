@@ -360,14 +360,22 @@ igual(
 print("\nFORMA GRUESA (plan sin credenciales: no se ha leído dentro)\n")
 
 pasos_gruesos = motor.pasos_de_convergencia(BORDE, IDENTIDAD, DECLARACION, {}, PARAMETROS)
+# UN paso por invitado, no uno por área: el plan es una explicación del trabajo, y cuatro
+# frases idénticas sobre el mismo equipo cuentan como cuatro lo que es una sola
+# conversación con él. Las áreas declaradas se dicen dentro del `porque`, que es donde
+# informan sin prometer nada.
 igual(
     [(p["accion"], p["parametros"]["area"]) for p in pasos_gruesos],
-    [("converger_interior", area) for area in motor.areas_de(BORDE)],
-    "sin lectura, un paso por área declarada",
+    [("converger_interior", None)],
+    "sin lectura, UN paso por invitado (no uno por área)",
 )
 comprobar(
     all(p["via"] == "interior" and p["porque"] for p in pasos_gruesos),
     "cada paso dice por dónde va y por qué (un paso sin razón es un bug)",
+)
+comprobar(
+    all(area in pasos_gruesos[0]["porque"] for area in motor.areas_de(BORDE)),
+    "y el paso nombra las áreas que va a recorrer, que es lo que se puede decir sin leer",
 )
 igual(
     motor.pasos_de_convergencia(PUESTO, IDENTIDAD, DECLARACION, {}, PARAMETROS)[0][

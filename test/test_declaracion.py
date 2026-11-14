@@ -181,6 +181,45 @@ comprobar(
 
 # ---------------------------------------------------------------------------
 
+print("\nLAS INTERFACES QUE SE CONFIGURAN TIENEN QUE EXISTIR\n")
+
+
+def _borde(declaracion):
+    return [i for i in declaracion["vms"] if i["rol"] == "borde"][0]
+
+
+# Un CHR que declara configurar `ether2` necesita DOS patas. Sin la segunda, RouterOS
+# contesta `400 input does not match any value of interface` A MITAD de la convergencia
+# (medido: con la dirección de gestión ya pedida prestada y el equipo a medias), así que
+# esto tiene que cazarse ANTES de tocar el VPS.
+errores = errores_de(lambda d: _borde(d).__setitem__("bridges", ["vmb_gestion"]))
+comprobar(
+    dice(errores, "ether2") and dice(errores, "pata"),
+    "configurar `ether2` con una sola pata declarada se caza: esa interfaz no existiría y "
+    "el motor se pararía a mitad de la convergencia",
+)
+
+errores = errores_de(lambda d: _borde(d).__setitem__("bridges", ["vmb_gestion", "vmb_lan1"]))
+igual(
+    [error for error in errores if "ether2" in error], [],
+    "con las DOS patas declaradas no hay queja: el orden de `bridges` ES la numeración",
+)
+
+comprobar(
+    dice(
+        errores_de(
+            lambda d: _borde(d).__setitem__(
+                "bridges", ["vmb_gestion", "vmb_que_no_existe"]
+            )
+        ),
+        "vmb_que_no_existe",
+    ),
+    "y una pata que el lab no declara en `lab.bridges` también se caza",
+)
+
+
+# ---------------------------------------------------------------------------
+
 if FALLOS:
     print(f"\nRESULTADO: {len(FALLOS)} fallo(s).")
     sys.exit(1)

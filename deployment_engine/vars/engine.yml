@@ -74,6 +74,16 @@ engine_puerto_ssh_invitado: 22
 # son dos cosas distintas y confundirlas da «Permission denied» al entrar.
 engine_usuario_invitado: root
 
+# --- RouterOS (un invitado que se configura por su REST) -------------------
+# El usuario del motor en un RouterOS, y lo que trae de fábrica. No son valores de
+# ningún lab: son hechos del equipo (medidos en un CHR 7.25.1: trae el usuario `admin`
+# SIN contraseña y sin ninguna clave). El usuario del motor coincide con el de fábrica
+# -- el motor no crea un usuario aparte, le PONE su credencial al que ya está --, así
+# que lo que cambia de verdad es la contraseña, y esa vive en `secrets.yml`
+# (`routeros_clave`): es del entorno, no del equipo.
+engine_routeros_usuario: admin
+engine_routeros_clave_fabrica: ""
+
 # --- Privilegios: lo que el motor EXIGE y lo que VEDA ---------------------
 # No son valores del entorno: son la lista de lo que el motor necesita hacer y de lo
 # que nunca debe poder hacer. Van POR ROL, y un rol por RUTA: conceder un solo rol en
@@ -188,6 +198,14 @@ engine_camino_retardo: 3
 # diario. El diario es prueba de lo ocurrido, no una copia del cluster.
 engine_diario_max_cuerpo: 2000
 
+# --- La sonda de un escalón ---------------------------------------------------
+# Cuánto se espera a que un escalón conteste antes de negarse a tocar el siguiente
+# (regla 18). Son intentos cortos y seguidos: un CHR que acaba de arrancar tarda unos
+# segundos en levantar su servidor web, y un Linux en abrir el sshd, pero un equipo roto
+# no se arregla esperando media hora. Con estos números la ventana es de ~2 min y medio.
+engine_sonda_intentos: 24     # número de intentos
+engine_sonda_espera: 2        # segundos que se le dan a CADA intento de conexión
+engine_sonda_pausa: 5         # segundos entre intento e intento
 # --- Tareas asíncronas ----------------------------------------------------
 # Proxmox crea, borra y recarga la red EN SEGUNDO PLANO: la llamada devuelve un
 # UPID y el trabajo continúa después de responder. Para que un paso no corra

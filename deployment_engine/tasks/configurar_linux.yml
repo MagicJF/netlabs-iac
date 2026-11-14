@@ -138,8 +138,12 @@
   changed_when: false
 
 - name: "DRIVER LINUX · '{{ interior_rol }}' ha quedado como se declara"
-  ansible.builtin.fail:
-    msg: |-
+  ansible.builtin.assert:
+    # La comprobación de verdad es la REELECTURA (mismo caso que el driver de RouterOS: un
+    # `fail` con `success_msg` no vale, esta versión de Ansible rechaza la opción y el verbo
+    # se caería justo al ir bien -- medido).
+    that: interior_pendiente | length == 0
+    fail_msg: |-
       '{{ interior_rol }}' NO ha convergido en esta pasada: sigue habiendo
       {{ interior_pendiente | length }} operación(es) pendiente(s):
 
@@ -150,6 +154,4 @@
       repite a ciegas: se mira el diario y se arregla la causa (un paquete que no se
       pudo instalar, un servicio que no arrancó, una interfaz que no existe).
     success_msg: "'{{ interior_rol }}': comprobado leyendo dentro, y coincide con lo declarado."
-  when:
-    - interior_escrituras | length > 0
-    - interior_pendiente | length > 0
+  when: interior_escrituras | length > 0

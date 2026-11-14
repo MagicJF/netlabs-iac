@@ -1,0 +1,182 @@
+---
+# PROPÓSITO:   LA PUERTA A ROUTEROS. Es el único sitio del repositorio que habla con el
+#              REST de un invitado, y es a la vez el que escribe la línea del diario:
+#              hacer la petición y diarizarla son UNA sola cosa, igual que en la puerta
+#              de Proxmox (regla 12: cuatro puertas, tres diarios).
+#
+#              Se habla DESDE EL PUESTO DE CONTROL, no desde el nodo de control: el
+#              puesto tiene una pata en cada bridge del lab y por eso alcanza a
+#              cualquier invitado, mientras que desde casa no se llega a ninguna red
+#              interna del hipervisor (medido, §5 del encargo). Por eso la llamada se
+#              DELEGA en él. La dirección a la que se llama es la del invitado, y el
+#              diario se escribe aquí, en el nodo de control: la prueba viaja con el
+#              resultado, no se queda en el invitado.
+#
+# INVARIANTES: una línea JSON por petición en `logs/api.jsonl`, SIEMPRE, salga bien o
+#              mal, con `api: routeros` y el rol del invitado. La contraseña NO se
+#              escribe nunca en el diario: los campos que son credenciales se tapan por
+#              su nombre (`sin_secretos`), sin depender de que el llamante se acuerde.
+#              El diario es un log: `changed_when: false` al escribirlo.
+# LÍMITES:     esta tarea sólo sabe hacer UNA llamada: no decide qué llamar ni en qué
+#              orden (eso es el driver) ni interpreta la respuesta (eso son los filtros
+#              puros de `interior.py`). El HTTP en claro es deliberado y temporal: el CHR
+#              de fábrica no trae certificado (ver docs/decisiones/0006-*.md).
+# VER:         docs/decisiones/0006-*.md; tasks/configurar_routeros.yml; ./lab check puerta
+#
+# Variables que espera:
+#   ros_metodo       GET | POST | PUT | DELETE
+#   ros_ruta         ruta relativa a /rest (p. ej. /system/identity)
+#   ros_cuerpo       (opcional) los parámetros de la llamada, en JSON
+#   ros_area         (opcional) el área del interior a la que pertenece la llamada
+#   ros_acumular     (opcional) guardar el resultado en `ros_leidos`, por ruta: es lo
+#                    que permite leer VARIAS rutas en un bucle sin quedarse sólo con
+#                    la última (el driver lee un área por llamada)
+#   ros_direccion    la dirección del invitado en el bridge del lab
+#   ros_usuario ros_clave   la credencial con la que se llama
+#   ros_invitado     el rol del invitado (para el diario)
+#   ros_intermediario  quién habla (el puesto de control, ya en el inventario en memoria)
+#   ros_etiqueta     (opcional) para qué era esta llamada
+#   ros_tolerar_error  (opcional) no fallar en error: el llamante decide
+# Y deja en `ros_ultimo_*` el status, el cuerpo, los datos y el error legible.
+
+# Sin puesto de control no hay puerta: se dice ANTES de intentar nada y con el remedio,
+# en vez de fallar con un error de conexión que no explica nada (regla 16).
+- name: "PUERTA ROUTEROS · ¿hay puesto de control por el que hablar?"
+  ansible.builtin.fail:
+    msg: |-
+      No se puede hablar con el REST de '{{ ros_invitado | default('?') }}': no hay
+      puesto de control por el que llegar.
+
+      El REST de un invitado se habla DESDE el puesto de control del lab (tiene una pata
+      en cada bridge), y el puesto no está en el inventario de esta ejecución. Eso
+      significa que el camino del lab no se ha construido en este verbo: lanza
+      `./lab --lab {{ pve_lab }} apply`, que construye el camino primero (y ningún
+      escalón empieza antes de que el camino responda).
+  when: (ros_intermediario | default('') | length) == 0
+
+- name: "PUERTA ROUTEROS · cronometrar {{ ros_metodo }} {{ ros_ruta }}"
+  ansible.builtin.set_fact:
+    ros_t0: "{{ now() }}"
+
+# `no_log`: el resultado contiene la cabecera Authorization con la credencial.
+# `failed_when: false`: primero se DIARIZA, después se decide.
+- name: "REST {{ ros_metodo }} {{ ros_ruta }} de '{{ ros_invitado | default('?') }}'"
+  ansible.builtin.uri:
+    url: "http://{{ ros_direccion }}/rest{{ ros_ruta }}"
+    method: "{{ ros_metodo }}"
+    url_username: "{{ ros_usuario }}"
+    url_password: "{{ ros_clave }}"
+    force_basic_auth: true
+    # TRAMPA MEDIDA (CHR 7.25.1): si se manda `body_format: json` con el cuerpo OMITIDO
+    # --que es lo que hace un GET--, el servidor web del CHR no contesta y la llamada
+    # muere por timeout a los 30 segundos, como si el equipo no estuviera. Sin
+    # `body_format` no pasa. Así que el formato del cuerpo sólo se declara al ESCRIBIR, y
+    # en una lectura ni se menciona. (Comprobado bisecando: la misma llamada con
+    # `status_code` va bien; lo que la rompe es el formato del cuerpo en un GET.)
+    body: "{{ ros_cuerpo | default(omit) }}"
+    body_format: "{{ 'json' if (ros_metodo | upper in ['POST', 'PUT']) else omit }}"
+    timeout: "{{ engine_timeout_api }}"
+    return_content: true
+    # Los 4xx NO hacen fallar la tarea: un 401 (credencial de fábrica) o un 400 (un
+    # objeto que no existe) son respuestas que el motor necesita LEER y diarizar.
+    status_code: [200, 201, 400, 401, 403, 404, 405, 500]
+  delegate_to: "{{ ros_intermediario }}"
+  register: ros_respuesta
+  no_log: true
+  failed_when: false
+  # Una lectura no cambia nada; una escritura sí. Es lo que hace verdadera la promesa de
+  # idempotencia (regla 6): la segunda ejecución de un verbo convergido sólo lleva GET.
+  changed_when: ros_metodo | upper not in ['GET', 'HEAD']
+
+- name: "PUERTA ROUTEROS · clasificar la respuesta de {{ ros_ruta }}"
+  ansible.builtin.set_fact:
+    # Sin conexión no hay `status`: -1 lo representa y es legible en el diario.
+    ros_ultimo_status: "{{ ros_respuesta.status | default(-1) | int }}"
+    ros_ultimo_cuerpo: "{{ ros_respuesta.content | default('') }}"
+    ros_ultimo_json: "{{ ros_respuesta.json | default({}, true) }}"
+    ros_ultimo_crudo: "{{ ros_respuesta.msg | default('') }}"
+    ros_duracion_ms: "{{ ((now() - ros_t0).total_seconds() * 1000) | round(0) | int }}"
+
+- name: "PUERTA ROUTEROS · extraer los datos de {{ ros_ruta }}"
+  ansible.builtin.set_fact:
+    # RouterOS devuelve LISTA al preguntar por una tabla y OBJETO al preguntar por un
+    # dato suelto (`/system/identity` -> `{"name": "CHR"}`). Se deja tal cual llegó y
+    # el analizador decide: normalizar aquí escondería cuál de las dos cosas contestó.
+    ros_ultimo_datos: "{{ ros_ultimo_json if ros_ultimo_status < 400 else {} }}"
+    # El error legible sale de una TABLA, no de una cadena de if/elif.
+    ros_ultimo_error: "{{ errores_conocidos.get(ros_ultimo_status, error_generico) }}"
+  vars:
+    errores_conocidos:
+      -1: >-
+        no se pudo conectar con http://{{ ros_direccion }} -- puede que el invitado no
+        esté arrancado, que su dirección no sea la declarada, o que el puesto de control
+        no tenga pata en ese bridge. Lo que dijo el transporte: {{ ros_ultimo_crudo }}
+      400: >-
+        RouterOS no aceptó la llamada (400): {{ ros_ultimo_json.message | default('') }}
+        {{ ros_ultimo_json.detail | default('') }}
+      401: >-
+        RouterOS no acepta la credencial del motor (401): puede ser la primera
+        convergencia (el equipo aún tiene la de fábrica) o que la de secrets.yml ya no
+        valga
+      403: >-
+        RouterOS rechazó la credencial por permisos (403)
+      404: >-
+        esa ruta no existe en este RouterOS (404): {{ ros_ruta }}
+    error_generico: >-
+      {{ 'RouterOS respondió ' ~ ros_ultimo_status ~ ' a ' ~ ros_metodo ~ ' ' ~ ros_ruta
+         if ros_ultimo_status >= 400 else '' }}
+
+# El diario va SIEMPRE, antes de decidir nada: un 401 queda registrado igual de bien
+# que un 200. Y los parámetros se tapan: la contraseña del motor viaja en el cuerpo de
+# alguna llamada (poner la credencial) y NUNCA puede acabar escrita aquí.
+- name: "DIARIO · {{ ros_metodo }} {{ ros_ruta }} en '{{ ros_invitado | default('?') }}'"
+  ansible.builtin.lineinfile:
+    path: "{{ pve_carpeta_logs }}/api.jsonl"
+    line: "{{ diario | to_json }}"
+    create: true
+    mode: '0640'
+    insertafter: EOF
+  vars:
+    diario:
+      ts: "{{ ros_t0.isoformat() }}"
+      verb: "{{ pve_verb }}"
+      lab: "{{ pve_lab }}"
+      api: routeros
+      puerta: rest
+      invitado: "{{ ros_invitado | default('') }}"
+      method: "{{ ros_metodo }}"
+      path: "{{ ros_ruta }}"
+      params: "{{ ros_cuerpo | default({}) | interior_sin_secretos }}"
+      status: "{{ ros_ultimo_status }}"
+      duration_ms: "{{ ros_duracion_ms }}"
+      etiqueta: "{{ ros_etiqueta | default('') }}"
+      response: "{{ (ros_ultimo_json | to_json)[: (engine_diario_max_cuerpo | default(0) | int)] }}"
+  changed_when: false
+
+# Acumulación: una lectura es una RUTA, así que la ruta es la clave natural. Sin esto,
+# leer cuatro tablas en un bucle dejaría sólo la última y el analizador vería un equipo
+# a medias. Es estado de ESTA ejecución: no se guarda nada (regla 11).
+- name: "PUERTA ROUTEROS · acumular lo leído en {{ ros_ruta }}"
+  ansible.builtin.set_fact:
+    ros_leidos: >-
+      {{ (ros_leidos | default({})) | combine({ ros_ruta: {
+           'area': ros_area | default(''),
+           'ruta': ros_ruta,
+           'status': ros_ultimo_status,
+           'json': ros_ultimo_datos,
+           'error': ros_ultimo_error } }) }}
+  when: ros_acumular | default(false) | bool
+  changed_when: false
+
+# Salvo que el llamante pida tolerar errores (el driver sabe qué esperaba de un 401 en la
+# primera convergencia), una respuesta de error PARA el verbo, con el camino de vuelta.
+- name: "PUERTA ROUTEROS · parar si el router respondió con error"
+  ansible.builtin.fail:
+    msg: |-
+      La llamada al REST de '{{ ros_invitado | default('?') }}' ({{ ros_direccion }}) ha
+      fallado: {{ ros_metodo }} {{ ros_ruta }}
+          {{ ros_ultimo_error | default('error desconocido') }}
+      El diario de esta ejecución está en {{ pve_carpeta_logs }}/api.jsonl
+  when:
+    - not (ros_tolerar_error | default(false) | bool)
+    - (ros_ultimo_error | default('') | length) > 0

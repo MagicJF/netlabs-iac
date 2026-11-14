@@ -366,6 +366,36 @@ def _red_del_invitado(invitado, declaracion, estado, parametros):
     return red
 
 
+def _redes_del_invitado(invitado, declaracion, estado, parametros):
+    """El bloque de red del invitado: `net0`, `net1`... una por PATA DECLARADA.
+
+    Tres casos, y ninguno se adivina:
+      * el invitado del CAMINO (el puesto de control) nace con una pata por cada bridge del
+        lab y una en el bridge de gestión del NODO, la última: eso lo decide
+        `_red_del_invitado` y va aparte;
+      * un invitado que declara VARIAS patas (`bridges:`) nace con una por bridge, en el
+        orden declarado y con la MAC de cada pata derivada (`identidad_mac_de_pata`). Es el
+        caso de un CHR que sirve una LAN: sus interfaces son `ether1`, `ether2`... en ese
+        orden, y por eso el orden de la declaración ES la numeración;
+      * el resto (una sola pata) es `_net0`, exactamente como en la fase 1.
+    """
+    if modulo_interior.tiene_camino(invitado):
+        return _red_del_invitado(invitado, declaracion, estado, parametros)
+    patas = invitado.get("bridges") or []
+    if len(patas) <= 1:
+        return {"net0": _net0(invitado)}
+    red = {}
+    for indice, bridge in enumerate(patas):
+        mac = modulo_identidad.identidad_mac_de_pata(
+            invitado["vmid"], indice, _prefijo_mac(parametros)
+        )
+        if invitado["tipo"] == "lxc":
+            red[f"net{indice}"] = f"name=eth{indice},bridge={bridge},hwaddr={mac}"
+        else:
+            red[f"net{indice}"] = f"virtio={mac},bridge={bridge}"
+    return red
+
+
 def _net0(invitado):
     """La cadena de red de la config de Proxmox para este invitado.
 
@@ -401,14 +431,13 @@ def _parametros_creacion(invitado, lab, declaracion, estado, parametros):
         "pool": lab,
         "cores": invitado["cores"],
         "memory": invitado["memoria"],
-        "net0": _net0(invitado),
     }
 
-    # El invitado del interior NACE COMPLETO: una pata por cada bridge del lab y una en
-    # el bridge de gestión del NODO, la última (por ahí sale hacia casa). Cambiarle las
-    # patas a un invitado en marcha obliga a reiniciarlo, y aquí no se reinicia la
-    # máquina que está trabajando (§5): por eso todas se declaran al crear.
-    comunes.update(_red_del_invitado(invitado, declaracion, estado, parametros))
+    # Las patas: `net0` para un invitado de siempre, una por bridge declarado (`net0`,
+    # `net1`...) para uno que sirve varias redes, y las del camino para el puesto de
+    # control. Todas se deciden al crear: cambiarle las patas a un invitado en marcha
+    # obliga a reiniciarlo y aquí no se reinicia la máquina que está trabajando (§5).
+    comunes.update(_redes_del_invitado(invitado, declaracion, estado, parametros))
 
     if invitado["tipo"] == "lxc":
         # En un contenedor el nombre va en `hostname` y hace falta la plantilla.
@@ -435,13 +464,34 @@ def _parametros_creacion(invitado, lab, declaracion, estado, parametros):
     # En una VM el nombre va en `name` y no hay plantilla que valga.
     creado = {**comunes, "name": invitado["nombre"]}
 
+    # Y un CHR no tiene consola gráfica útil: la suya es la SERIE. Se le da un puerto serie
+    # como socket y se manda ahí la pantalla (`vga: serial0`), que es lo que hace que la
+    # consola de RouterOS se pueda leer POR LA API -- el protocolo de consola del navegador
+    # del nodo, que habla `tools/consola.py` y sólo él -- sin abrir la consola gráfica y sin
+    # pedirle una pantalla al hipervisor. Va aquí, con el bus del disco, porque se decide al
+    # NACER: un invitado que nació sin consola serie se rehace (`destroy` + `apply`), que es
+    # como lo crea el motor -- entero. No es un valor de ningún lab: es lo que un RouterOS
+    # necesita para que se le pueda leer la consola.
+    if modulo_interior.tipo_de(invitado) == "routeros":
+        creado["serial0"] = "socket"
+        creado["vga"] = "serial0"
+
     # La imagen de fábrica se adjunta SÓLO al crear: `import-from` no se acepta
     # después (medido). De ahí que la declaración de `imagen` sea una promesa que se
     # cumple al nacer el invitado, o no se cumple nunca.
+    #
+    # El BUS del disco no es cosmético, y esto está MEDIDO: un CHR (RouterOS) NO arranca
+    # con el disco en virtio-scsi --SeaBIOS se queda en «Load system / ERROR: could not
+    # find disk!» y entra en bucle de iPXE-- y sí arranca en SATA. Se vio con el dedo:
+    # el CHR creado en `scsi0` no llegó ni a pedir concesión DHCP, y por eso el motor no
+    # encontraba su REST («no route to host»). Así que el bus lo decide lo que el
+    # invitado DECLARA SER por dentro (`config: {routeros: ...}`, vía `tipo_de`), nunca
+    # el nombre del fichero de la imagen: eso sería un valor de lab.
     if invitado.get("imagen"):
         almacen = parametros["almacenamiento_imagen"]
-        creado["scsi0"] = f"{almacen}:0,import-from={almacen}:import/{invitado['imagen']}"
-        creado["bootdisk"] = "scsi0"
+        bus = "sata0" if modulo_interior.tipo_de(invitado) == "routeros" else "scsi0"
+        creado[bus] = f"{almacen}:0,import-from={almacen}:import/{invitado['imagen']}"
+        creado["bootdisk"] = bus
     return creado
 
 
@@ -477,8 +527,10 @@ def _parametros_actualizacion(invitado, diferencias):
                     "cambia en caliente: hay que rehacerlo (`destroy` de ese invitado "
                     "y `apply`), que es como lo crea el motor: entero"
                 )
-            # La red no es un campo suelto: se reescribe `net0` entero.
-            parametros["net0"] = _net0(invitado)
+            # La red no es un campo suelto: se reescriben las patas ENTERAS (`net0`, `net1`...).
+            # Sin declaración ni estado: por aquí NO puede pasar un invitado del camino (el
+            # guardián de arriba lo impide), y es el único que necesitaría leer el mundo.
+            parametros.update(_redes_del_invitado(invitado, None, None, parametros))
     return parametros
 
 

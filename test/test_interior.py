@@ -402,10 +402,10 @@ print("\nFORMA EXACTA (con lectura dentro del equipo)\n")
 LEIDO_AL_DIA = {
     "alcanzable": True,
     "areas": {
-        "identidad": {"nombre": "rt-borde", "usuario_motor": True, "clave_motor": True},
+        "identidad": {"nombre": "rt-borde", "usuario_motor": True, "clave_motor": True, "credencial_motor": True},
         "servicios": {"deshabilitados": ["api", "api-ssl", "ftp", "telnet"]},
         "cliente_dhcp": {"habilitado": False},
-        "direcciones": {"estaticas": [{"interfaz": "ether2", "direccion": "10.60.1.1/24"}], "dinamicas": []},
+        "direcciones": {"estaticas": [{"interfaz": "ether1", "direccion": "10.60.0.11/24"}, {"interfaz": "ether2", "direccion": "10.60.1.1/24"}], "dinamicas": []},
         "rutas": {
             "estaticas": [{"destino": "0.0.0.0/0", "pasarela": "10.60.0.1"}],
             "dinamicas": [],
@@ -418,7 +418,7 @@ LEIDO_AL_DIA = {
                     "red": {"prefijo": "10.60.1.0/24", "pasarela": "10.60.1.1", "dns": ["10.60.1.1"]},
                 }
             ],
-            "reservas": [{"mac": "BC:24:11:00:00:CA", "direccion": "10.60.1.10/24"}],
+            "reservas": [{"mac": "BC:24:11:00:00:CA", "direccion": "10.60.1.10"}],
         },
     },
 }
@@ -450,6 +450,7 @@ LEIDO_CON_SOBRA = {
         servicios={"deshabilitados": ["api", "api-ssl", "ftp", "telnet", "ssh"]},
         direcciones={
             "estaticas": [
+                {"interfaz": "ether1", "direccion": "10.60.0.11/24"},
                 {"interfaz": "ether2", "direccion": "10.60.1.1/24"},
                 {"interfaz": "ether3", "direccion": "10.60.2.1/24"},
             ],
@@ -474,7 +475,7 @@ igual(
 LEIDO_SIN_IDENTIDAD = {
     "alcanzable": True,
     "areas": {
-        "identidad": {"nombre": "", "usuario_motor": False, "clave_motor": False},
+        "identidad": {"nombre": "", "usuario_motor": False, "clave_motor": False, "credencial_motor": False},
         "servicios": {"deshabilitados": []},
         "cliente_dhcp": {"habilitado": True},
         "direcciones": {"estaticas": [], "dinamicas": []},
@@ -953,6 +954,70 @@ if _CONFIG:
         _identidad.identidad_mac(110, "BC:24:11") == "BC:24:11:00:00:6E",
         "la MAC de la reserva es la que el motor DERIVA del vmid: nadie la escribe a mano (regla 14)",
     )
+
+# ---------------------------------------------------------------------------
+print("\n== un puesto de control declara una dirección por cada bridge del lab ==")
+# Medido: sin dirección en la LAN, el CHR que cuelga de ella no contesta al REST y su
+# convergencia no se puede ni empezar (10.40.1.11 en 'nucleo'). La forma es `direcciones`
+# (lista), y se funde en el área `direccion` para que la convergencia tenga un solo camino.
+_PUESTO = {
+    "rol": "control",
+    "tipo": "lxc",
+    "direccion": "10.40.0.10/24",
+    "config": {"linux": {"direcciones": [{"interfaz": "eth1", "direccion": "10.40.1.2/24"}]}},
+}
+comprobar(
+    motor.areas_de(_PUESTO)["direccion"]
+    == [
+        {"interfaz": "eth0", "direccion": "10.40.0.10/24"},
+        {"interfaz": "eth1", "direccion": "10.40.1.2/24"},
+    ],
+    "la de gestión sale del campo `direccion` y va PRIMERO; las otras patas, declaradas una a una",
+)
+comprobar(
+    motor.areas_de(_PUESTO).get("direcciones") is None,
+    "`direcciones` no es un área aparte: se funde en `direccion` (una sola forma de converger)",
+)
+_LEIDO_PUESTO = motor.leido_linux(
+    [
+        {
+            "area": "direccion",
+            "rc": 0,
+            "encontrado": "2: eth0    inet 10.40.0.10/24 brd 10.40.0.255 scope global eth0\n"
+            "3: eth1    inet 10.40.1.2/24 brd 10.40.1.255 scope global eth1\n",
+        }
+    ]
+)
+comprobar(
+    _LEIDO_PUESTO["direccion"]["direcciones"]
+    == [
+        {"interfaz": "eth0", "direccion": "10.40.0.10/24"},
+        {"interfaz": "eth1", "direccion": "10.40.1.2/24"},
+    ],
+    "y la lectura saca TODAS las patas con dirección, no sólo eth0",
+)
+comprobar(
+    _LEIDO_PUESTO["direccion"]["direccion"] == "10.40.0.10/24",
+    "la de gestión sigue siendo la de eth0: es la que el plan usa para levantar el túnel",
+)
+comprobar(
+    motor._direccion_linux_canonica(
+        motor.areas_de(_PUESTO)["direccion"], _LEIDO_PUESTO["direccion"]
+    )
+    == [],
+    "con las dos patas puestas, la segunda pasada no escribe nada (idempotencia)",
+)
+comprobar(
+    motor._direccion_linux_canonica(
+        motor.areas_de(_PUESTO)["direccion"],
+        {
+            "direccion": "10.40.0.10/24",
+            "direcciones": [{"interfaz": "eth0", "direccion": "10.40.0.10/24"}],
+        },
+    )
+    == [{"op": "poner_direccion", "interfaz": "eth1", "direccion": "10.40.1.2/24"}],
+    "si falta la pata de la LAN, se pone SÓLO esa: lo que ya está no se toca",
+)
 
 # ---------------------------------------------------------------------------
 

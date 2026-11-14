@@ -14,9 +14,9 @@ si los editas a mano, `./lab check docs` falla._
 
 | rol | tipo | escalón | cores | memoria (MB) | disco (GB) | bridge | dirección |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| borde | VM (qemu) | 1 | 2 | 512 | 1 | vmb_gestion | 10.40.0.11/24 |
+| borde | VM (qemu) | 1 | 2 | 512 | 1 | vmb_gestion + vmb_lan1 | 10.40.0.11/24 |
 | control | LXC | 1 | 1 | 512 | 4 | vmb_gestion | 10.40.0.10/24 |
-| nucleo | VM (qemu) | 2 | 1 | 512 | 1 | vmb_lan1 | 10.40.1.11/24 |
+| nucleo | VM (qemu) | 2 | 1 | 512 | 1 | vmb_lan1 + vmb_lan2 | 10.40.1.11/24 |
 | servidor | LXC | 2 | 1 | 512 | 4 | vmb_lan1 | dhcp |
 | puesto-1 | LXC | 3 | 1 | 512 | 4 | vmb_lan1 | dhcp |
 | puesto-2 | LXC | 3 | 1 | 512 | 4 | vmb_lan2 | dhcp |
@@ -124,10 +124,34 @@ está en los `escalones` de la declaración, y el plan lo respeta (regla 18).
   invitado de verdad y no sobre el plan. Costó encontrarla: el motor pedía reescribir el
   fichero del DHCP y recargar el servicio en cada pasada porque no leía el estado del
   servicio ni normalizaba el rango declarado contra el que escribe dnsmasq (ver ADR 0005).
-- **Lo que falta, dicho en voz alta.** Este lab no llega todavía al final del camino: el
-  `apply` para a propósito en el **primer escalón de RouterOS** («el rol 'borde' es un
-  interior de tipo routeros y el plan no ha leído dentro»), porque su driver (su REST y su
-  imagen de fábrica) no está implementado; y la **sonda** que comprueba que un escalón
-  sirve antes de tocar el siguiente tampoco. Los escalones 2 y 3 quedan **parados** en el
-  hipervisor, que es exactamente la barrera que el lab quiere demostrar: no se arranca lo
-  siguiente hasta que lo anterior esté convergido y sirviendo.
+- **El driver de RouterOS ya lee y decide contra el CHR de verdad; lo que lo para es una
+  ley del propio RouterOS.** El 14-nov-2026, con el `apply` llegando por fin al escalón
+  de `borde`, el diario de la API dejó **once lecturas, todas 200** (identidad, usuarios,
+  claves, direcciones, servicios, cliente DHCP, rutas, servidores DHCP, rangos, redes y
+  concesiones) y el baile de credenciales funcionando: **401** con la clave del motor y
+  **200** con la de fábrica, que es como el driver sabe con cuál converger. La primera
+  escritura es la que pincha: `POST /ip/address/add` con la dirección de gestión que el
+  cliente de fábrica ya tiene puesta devuelve **400 `failure: already have such address`**,
+  y no se puede apagar ese cliente antes porque **se lleva la dirección y con ella el
+  REST** (medido: la escritura llegó, el CHR se quedó sin dirección y la llamada murió sin
+  respuesta a los 34 s; desde el puesto, `ping KO`). El motor para y lo dice, en vez de
+  escribir a ciegas o dejarse un `ignore_errors`: las dos salidas posibles —entrar primero
+  por otra pata declarada, o una dirección temporal derivada— están escritas en el
+  **ADR 0006 §5** y ninguna está implementada a propósito.
+- **Dos trampas del transporte, las dos medidas, y las dos dan «timeout» en vez de error.**
+  Un GET con `body_format: json` (aunque el cuerpo se omita) deja al CHR **sin contestar**,
+  y el disco de la VM en `scsi0` deja al equipo **sin arrancar** (SeaBIOS: `Load system /
+  ERROR: could not find disk!`, bucle de iPXE) — con la VM `running` y `verify` dándola por
+  conforme. Las dos se arreglaron en el motor: el formato del cuerpo sólo se declara al
+  escribir (`ros_api.yml`), y el bus del disco lo decide lo que el invitado declara ser por
+  dentro, no el nombre de la imagen (`plan.py`). Medido de paso: RouterOS tarda **~4,7 s
+  por llamada**, así que los timeouts por defecto no valen.
+- **El orden de las áreas lo manda el motor, no el lab.** `AREAS` (`interior.py`) pone
+  `direcciones` antes de `cliente_dhcp` justo por eso, y `test/test_routeros.py` compara la
+  lista de operaciones entera para que nadie lo deshaga sin enterarse.
+- **Lo que falta, dicho en voz alta.** El `apply` para hoy en la escritura de la dirección
+  de gestión de `borde` (la ley de arriba, con su decisión pendiente en el ADR 0006 §5); la
+  **sonda** que comprueba que un escalón sirve antes de tocar el siguiente tampoco está. Los
+  escalones 2 y 3 quedan **parados** en el hipervisor, que es exactamente la barrera que el
+  lab quiere demostrar: no se arranca lo siguiente hasta que lo anterior esté convergido y
+  sirviendo.

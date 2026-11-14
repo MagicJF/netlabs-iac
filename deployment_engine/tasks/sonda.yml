@@ -1,0 +1,71 @@
+---
+# PROPÓSITO:   LA SONDA DE UN ESCALÓN. Comprueba que el escalón anterior SIRVE --que su
+#              equipo contesta en el puerto por el que se deja ver-- antes de que el plan
+#              toque el siguiente (regla 18: nunca se arranca un escalón sobre uno que no
+#              sirve). No configura NADA y no adivina: pregunta en la dirección que la
+#              declaración promete y, si no contesta, el verbo PARA con el nombre del rol.
+#
+#              Se ejecuta DESDE EL PUESTO DE CONTROL, por la MISMA puerta que configura el
+#              interior (`interior_ssh.yml`): la sonda no abre su propia conexión, porque el
+#              motor tiene una puerta por cosa y no dos caminos para lo mismo.
+# INVARIANTES: la sonda sólo MIRA: no escribe ni cambia el estado de nadie. Se sondea la
+#              dirección DECLARADA (nunca una deducida), y un invitado sin dirección fija no
+#              se sondea --no hay promesa que comprobar--: lo decide `espera_de_servicio`
+#              (`filter_plugins/interior.py`) y entonces el plan ni añade el paso.
+# LÍMITES:     la sonda no prueba que el servicio haga su trabajo (eso es `verify`), sólo
+#              que el puerto contesta: es una barrera, no una prueba funcional. Y usa
+#              `/dev/tcp` de bash porque el puesto de control no trae `nc` ni `curl` de
+#              fábrica (medido en el LXC 109 de Debian 13).
+# VER:         deployment_engine/tools/plan.py (espera_de_servicio),
+#              deployment_engine/filter_plugins/interior.py (espera_de_servicio),
+#              docs/decisiones/0007-las-patas-se-declaran.md; ./lab check puerta
+
+# Se entra por el puesto de control: si el camino no está en pie, la sonda no puede
+# preguntar nada (y eso ya lo dice antes el paso del camino, con su nombre).
+- name: "SONDA {{ sonda_rol }} · por dónde se sondea"
+  ansible.builtin.include_tasks: inventario_invitados.yml
+  vars:
+    # Se sondea DESDE el puesto de control, así que el inventario es el suyo: la sonda no
+    # abre su propia conexión, entra por la puerta del interior con el rol del bastión.
+    interior_rol: "{{ declaracion | interior_puesto_control }}"
+
+# UNA orden, con sus reintentos DENTRO del shell: así la espera se agota en un solo paso y
+# el motor no depende de cuántas veces se le llame. El `timeout` por intento evita que una
+# conexión que se queda colgada consuma toda la ventana de la sonda.
+- name: "SONDA {{ sonda_rol }} · esperar a que conteste en {{ sonda_direccion }}:{{ sonda_puerto }}"
+  ansible.builtin.include_tasks: interior_ssh.yml
+  vars:
+    interior_rol: "{{ declaracion | interior_puesto_control }}"
+    # El tipo del invitado SONDEADO (no el de quien sondea): es el dato con el que el diario
+    # del interior dice a quién se estaba preguntando y por qué puerta.
+    interior_tipo: "{{ sonda_tipo | default('linux') }}"
+    interior_comandos:
+      - accion: "leer"
+        area: "sonda"
+        declarado: "{{ sonda_rol }} contesta en {{ sonda_direccion }}:{{ sonda_puerto }}"
+        porque: "{{ sonda_porque }}"
+        comando: >-
+          bash -c 'i=0;
+          while [ $i -lt {{ engine_sonda_intentos }} ]; do
+          i=$((i+1));
+          if timeout {{ engine_sonda_espera }} bash -c "</dev/tcp/{{ sonda_direccion }}/{{ sonda_puerto }}" 2>/dev/null; then
+          echo "SONDA OK {{ sonda_direccion }}:{{ sonda_puerto }} en el intento $i"; exit 0;
+          fi; sleep {{ engine_sonda_pausa }}; done;
+          echo "SONDA KO {{ sonda_direccion }}:{{ sonda_puerto }} tras $i intentos"; exit 1'
+
+# Y el veredicto, en voz alta. No se sigue con el escalón siguiente: se para aquí y se dice
+# quién no contestó y dónde mirar. Volver a lanzar `apply` sigue exactamente desde este paso
+# (el plan es idempotente), así que arreglar y reintentar no rehace lo ya convergido.
+- name: "SONDA {{ sonda_rol }} · ¿contestó en {{ sonda_direccion }}:{{ sonda_puerto }}?"
+  ansible.builtin.fail:
+    msg: |-
+      La sonda del escalón {{ sonda_escalon }} ha fallado: '{{ sonda_rol }}' NO contesta en
+      {{ sonda_direccion }}:{{ sonda_puerto }}.
+
+      {{ sonda_porque }}
+
+      El motor no toca el escalón siguiente hasta que éste sirva (regla 18), así que se para
+      aquí. Antes de volver a lanzar `apply`, mira el diario del interior
+      ({{ pve_carpeta_logs }}/interior.jsonl) y el de la API ({{ pve_carpeta_logs }}/api.jsonl):
+      entre los dos está lo que el equipo contestó la última vez que se le habló.
+  when: (interior_resultados[0].rc | default(1) | int) != 0

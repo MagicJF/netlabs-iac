@@ -1,5 +1,49 @@
-# /goal — netlabs_v4_b, fase 2: el motor también configura el interior de los invitados
+DISCLAIMER: este coal ya fue ejecutado y salto este mensaje: "You've reached the maximum number of tool-calling iterations allowed. Please provide a final response summarizing what you've found and accomplished so far, without calling any more tools."; a continuacion la respuesta
 
+# /goal — netlabs_v4_b, fase 2: el motor también configura el interior de los invitados
+Resumen honesto del estado, sin maquillar.
+
+    Lo que está verde (verificado con salida real)
+
+    • ./lab check: todos los checks en verde (links, docs, refs, puerta, privilegios, declaracion, supernet, colisiones,
+    pureza-lab, readme).
+    • ansible-lint: 0 fallos, 0 avisos en 52 ficheros.
+    • Suites puras: test_interior, test_declaracion, test_regresion_planes, test_identidad, test_privilegios, test_bridges OK.
+    • test_routeros: 2 asserts en rojo, y son mis asserts nuevos mal escritos, no el motor (ver abajo).
+
+    Lo que se arregló en esta tanda, con la medición que lo respalda
+
+    1. borde ya converge en una pasada. El 1 operación pendiente: [direcciones] quitar_direccion tenía dos causas medidas en el
+    diario: (a) RouterOS retira por .id, con la dirección en numbers contesta 404 (el POST que la pone sí devuelve {"ret": "*2"});
+    (b) la retirada se emitía después del cambio de credencial, y esa escritura se queda sin credencial (401 tolerado). Ahora la
+    retirada va justo tras poner la declarada, con el .id resuelto (capturado del POST, o sacado de una relectura si esa respuesta
+    se perdió) y por la dirección prestada.
+    2. La sonda de un escalón ya no rompe el diario: faltaba interior_tipo en el ejecutor (tasks/sonda.yml + paso.yml).
+    3. Sin respuesta del POST en el baile → tolerado, decide la relectura. Medido: el mismo POST /ip/address/add contesta 200 en
+    borde y -1 (timeout) en el CHR del segundo escalón. Se marca tolerar_sin_respuesta en las escrituras del baile; quien
+    prueba que se escribió es la relectura final.
+    4. nucleo no era alcanzable porque el puesto de control no tenía dirección en esa LAN (medido: No route to host → luego timed
+    out). El vocabulario no sabía expresar «una dirección por pata». Añadí config.linux.direcciones (lista de {interfaz,
+    direccion}), que se funde en el área direccion; la lectura de la puerta Linux pasó a ip -4 -o addr show scope global para ver
+    todas las patas. El lab declara eth1: 10.40.1.2/24. Esto es una primitiva nueva del vocabulario y le falta su ADR y su entrada
+    en la prosa del lab.
+    5. El mensaje de fallo del check de RouterOS ahora incluye la lectura con la que decidió: no hay que instrumentar el motor
+    para diagnosticar.
+
+    Lo que falta, en claro
+
+    • Los 2 asserts de test_routeros.py que dejé a medias: la salida real dice que la relectura aparece dos veces (obtenido
+    ['leer', 'leer']) y que también aparece en el caso LLAMADAS_CHOQUE. No he terminado de localizar el duplicado; los asserts hay
+    que escribirlos contra el comportamiento real (una relectura por retirada, marcada leer, antes del /remove, y ninguna cuando
+    la prestada ya estaba en la lectura inicial).
+    • El ciclo destroy → apply → apply → verify NO está verde. El último intento: destroy_exit=0, apply*=2, verify_exit=2,
+    fallando en nucleo (mientras que borde ya pasaba su check en la primera pasada). Con los arreglos 4 y 3 aplicados, el ciclo no
+    se ha vuelto a lanzar.
+    • No hay commit ni push de nada de esto: la regla del repo es que no se sube sin el ciclo verde. Todo está en el árbol de
+    trabajo.
+    • Pendiente de documentar cuando el ciclo cierre: ADR de direcciones (Linux, patas extra del puesto de control), prosa del lab
+    (filing back), y las lecciones en la skill netlabs-v4_b (retirada por .id; respuesta perdida que se tolera y decide la
+    relectura; tolerar≠seguir a ciegas; una dirección por bridge para el puesto de control).
 > Este encargo **continúa** a `/home/hermes/netlabs_v4_b-goal-prompt.md` (fase 1: el motor
 > despliega por la API de Proxmox). No lo contradice: lo extiende. Lo que la fase 1 dejó
 > explícitamente fuera de alcance —«configurar el interior de los invitados»— es exactamente

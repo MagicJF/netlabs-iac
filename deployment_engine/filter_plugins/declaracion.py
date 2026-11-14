@@ -19,7 +19,7 @@
 #              pueda alcanzar tampoco: eso necesita el camino en pie, y se dice al
 #              aplicar.
 # VER:         README.md §Verificación; AGENTS.md §Reglas duras;
-#              docs/decisiones/0005-areas-declaradas.md; ./lab check declaracion
+#              docs/decisiones/0005-el-driver-del-interior.md; ./lab check declaracion
 
 # Se importa el error de Ansible si estamos dentro de Ansible. Si no (tests con
 # `python3` a secas), vale una excepción propia: el fichero tiene que poder
@@ -88,6 +88,21 @@ IP_PATRON = re.compile(r"^\d{1,3}(\.\d{1,3}){3}(/\d{1,2})?$")
 # (secrets.yml). Lo único que puede traer son los dos valores que un lab de verdad
 # puede necesitar distintos: qué host y qué puerto, y son OPCIONALES.
 CLAVES_CAMINO = ("salida", "host", "puerto")
+
+
+def patas_declaradas(invitado):
+    """Los bridges del invitado, EN ORDEN: `bridges:` (varias) o `bridge:` (una).
+
+    El orden es el de las interfaces: la primera pata es `eth0` (en RouterOS, `ether1`),
+    la segunda `eth1`/`ether2`, y así. Un invitado de una sola pata puede seguir
+    declarando `bridge:` (todo lo de la fase 1 sigue igual); uno que sirve varias redes
+    declara `bridges: [...]` porque sus interfaces se nombran en la declaración.
+    """
+    if isinstance(invitado.get("bridges"), list) and invitado["bridges"]:
+        return [str(nombre) for nombre in invitado["bridges"]]
+    if invitado.get("bridge"):
+        return [str(invitado["bridge"])]
+    return []
 
 
 def _direccion_valida(direccion):
@@ -169,6 +184,27 @@ def _validar_interior(invitado, etiqueta, rol, errores):
             f"interior `{tipo}` (las que hay: {', '.join(sorted(conocidas))}). El "
             "vocabulario es cerrado: una primitiva nueva se añade al motor, con ADR."
         )
+
+    # Las interfaces que el interior nombra TIENEN que existir en el invitado. Un CHR que
+    # declara configurar `ether2` necesita dos patas, y sin la segunda RouterOS contesta
+    # `400 input does not match any value of interface` A MITAD de la convergencia (medido:
+    # con el intercambio de la dirección de gestión ya mandado y el equipo a medias).
+    # Aquí se ve antes de tocar nada.
+    patas = patas_declaradas(invitado)
+    for area, datos in declarado.items():
+        entradas = datos if isinstance(datos, list) else ([datos] if isinstance(datos, dict) else [])
+        for entrada in entradas:
+            if not isinstance(entrada, dict):
+                continue
+            numero = re.match(r"^eth(?:er)?(\d+)$", str(entrada.get("interfaz") or ""))
+            if numero and int(numero.group(1)) > len(patas):
+                errores.append(
+                    f"`{etiqueta}` ({rol}) declara configurar `{entrada['interfaz']}` en "
+                    f"'{area}', pero el invitado sólo tiene {len(patas)} pata(s) "
+                    f"({', '.join(patas) or 'ninguna'}): añade a `bridges` los bridges que "
+                    "falten, en orden (las patas se deciden al crear y no se cambian en "
+                    "caliente)"
+                )
 
     # Y la dirección: un invitado con config tiene que ser alcanzable.
     direccion = invitado.get("direccion")
@@ -268,6 +304,23 @@ def _validar_linux(declarado, etiqueta, rol, errores):
                     )
     if "reenvio" in declarado and not isinstance(declarado["reenvio"], bool):
         errores.append(f"`{etiqueta}` ({rol}): `reenvio` tiene que ser true o false")
+    # `direcciones` (Linux): las patas EXTRA del invitado, una por bridge del lab. Se
+    # declaran una a una porque el motor no adivina direcciones (regla 11) y porque un
+    # puesto de control sin dirección en un bridge no puede llegar a lo que cuelga de él.
+    if "direcciones" in declarado:
+        patas = declarado["direcciones"]
+        if not isinstance(patas, list) or not patas:
+            errores.append(
+                f"`{etiqueta}` ({rol}): `direcciones` tiene que ser una lista de "
+                "`{interfaz, direccion}`"
+            )
+        else:
+            for pata in patas:
+                if not isinstance(pata, dict) or not pata.get("interfaz") or not pata.get("direccion"):
+                    errores.append(
+                        f"`{etiqueta}` ({rol}): cada entrada de `direcciones` necesita "
+                        "`interfaz` y `direccion`"
+                    )
     servidor = declarado.get("dhcp_servidor")
     if servidor is not None:
         if not isinstance(servidor, dict) or not servidor.get("interfaz"):
@@ -512,8 +565,13 @@ def declaracion_validar(declaracion, carpeta=None):
                     "de la identidad (regla 4.8). Quítalo de la declaración."
                 )
 
+        # Un invitado de VARIAS patas declara `bridges:` (la lista) en vez de `bridge:`.
+        # Las dos formas dicen lo mismo; la lista es la que deja nombrar `ether2`, etc.
+        tiene_patas = isinstance(invitado.get("bridges"), list) and bool(invitado["bridges"])
         for campo, esperado in CAMPOS_INVITADO.items():
             if campo not in invitado:
+                if campo == "bridge" and tiene_patas:
+                    continue
                 errores.append(f"`{etiqueta}` ({rol}) no declara `{campo}`")
                 continue
             valor = invitado[campo]
@@ -523,7 +581,16 @@ def declaracion_validar(declaracion, carpeta=None):
             elif not isinstance(valor, str) or not valor.strip():
                 errores.append(f"`{etiqueta}` ({rol}): `{campo}` tiene que ser texto no vacío")
 
-        if invitado.get("bridge") and invitado["bridge"] not in nombres_bridge:
+        if tiene_patas:
+            if len(set(invitado["bridges"])) != len(invitado["bridges"]):
+                errores.append(f"`{etiqueta}` ({rol}): `bridges` repite un bridge")
+            for nombre in invitado["bridges"]:
+                if not isinstance(nombre, str) or nombre not in nombres_bridge:
+                    errores.append(
+                        f"`{etiqueta}` ({rol}) usa el bridge '{nombre}', "
+                        "que el lab no declara en `lab.bridges`"
+                    )
+        elif invitado.get("bridge") and invitado["bridge"] not in nombres_bridge:
             errores.append(
                 f"`{etiqueta}` ({rol}) usa el bridge '{invitado['bridge']}', "
                 "que el lab no declara en `lab.bridges`"
@@ -656,7 +723,11 @@ def declaracion_normalizar(declaracion, carpeta=None):
                     "cores": invitado["cores"],
                     "memoria": invitado["memoria"],
                     "disco": invitado["disco"],
-                    "bridge": invitado["bridge"],
+                    # Las patas declaradas, EN ORDEN: `bridges:` (varias) o `bridge:`
+                    # (una). `bridge` se mantiene (la primera) porque el resto del motor
+                    # lee ese campo desde la fase 1.
+                    "bridges": patas_declaradas(invitado),
+                    "bridge": (invitado.get("bridge") or patas_declaradas(invitado)[0]),
                     # `direccion` puede NO estar declarada (equipo sin dirección: un
                     # conmutador puro). Se normaliza a None para que nadie tenga que
                     # distinguir "no está la clave" de "está vacía".

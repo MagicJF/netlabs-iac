@@ -53,9 +53,31 @@
     - (item.via | default('api')) == 'interior'
     - (item.parametros.tipo | default('')) == 'linux'
 
-# Y la SONDA del escalón (que un escalón SIRVA de verdad antes de tocar el siguiente,
-# regla 18). Mientras no esté, el paso siguiente la caza y el verbo PARA con su nombre:
-# es la capa que está en construcción, dicha en voz alta.
+- name: "PASO {{ item.orden }} · INTERIOR de '{{ item.rol }}' (RouterOS): {{ item.parametros.area | default('todo lo declarado') }}"
+  ansible.builtin.include_tasks: ../tasks/configurar_routeros.yml
+  vars:
+    interior_rol: "{{ item.rol }}"
+    interior_porque: "{{ item.porque }}"
+  when:
+    - (item.via | default('api')) == 'interior'
+    - (item.parametros.tipo | default('')) == 'routeros'
+
+# La SONDA del escalón: que un escalón SIRVA de verdad antes de tocar el siguiente (regla
+# 18). Mira y no cambia nada: pregunta en la dirección declarada, desde el puesto de
+# control, y si no contesta se para con el nombre del rol.
+- name: "PASO {{ item.orden }} · SONDA del escalón {{ item.escalon }}: ¿sirve '{{ item.rol }}'?"
+  ansible.builtin.include_tasks: ../tasks/sonda.yml
+  vars:
+    sonda_rol: "{{ item.rol }}"
+    sonda_escalon: "{{ item.escalon }}"
+    sonda_tipo: "{{ item.parametros.tipo }}"
+    sonda_direccion: "{{ item.parametros.direccion }}"
+    sonda_puerto: "{{ item.parametros.puerto }}"
+    sonda_porque: "{{ item.porque }}"
+  when: (item.via | default('api')) == 'sonda'
+
+# Y lo que este motor TODAVÍA no sabe ejecutar para aquí, con su nombre en la boca: es la
+# capa que está en construcción, dicha en voz alta (nunca se salta un paso en silencio).
 - name: "PASO {{ item.orden }} · parar si este paso no tiene ejecutor todavía"
   ansible.builtin.fail:
     msg: |-
@@ -72,8 +94,8 @@
       ese ejecutor exista sigue exactamente desde aquí--, y ninguno posterior se ha
       tocado.
   when:
-    - (item.via | default('api')) not in ['api', 'camino']
+    - (item.via | default('api')) not in ['api', 'camino', 'sonda']
     # El interior se da por despachado SÓLO si su driver existe y lo ha cogido la rama
     # de arriba: lo que no tenga driver cae aquí y para con su nombre.
     - not ((item.via | default('api')) == 'interior'
-           and (item.parametros.tipo | default('')) in ['linux'])
+           and (item.parametros.tipo | default('')) in ['linux', 'routeros'])

@@ -51,23 +51,29 @@
   },
   "docs/decisiones/0005-el-driver-del-interior.md": {
     "citados": {
-      "deployment_engine/filter_plugins/interior.py": "1e2dfdb1d2adcf13572a45ef9b116640ba055d531d08811ad914ec06306be8aa"
+      "deployment_engine/filter_plugins/interior.py": "00b1fae767dd1a9ad466e5097a1134aa895c563050f2201b4c1e1e1e1948bc27"
+    }
+  },
+  "docs/decisiones/0006-escribir-en-routeros.md": {
+    "citados": {
+      "deployment_engine/filter_plugins/interior.py": "00b1fae767dd1a9ad466e5097a1134aa895c563050f2201b4c1e1e1e1948bc27",
+      "deployment_engine/tasks/ros_api.yml": "2d9f36b5d60792a6f20d91a7ea7eb38226bd0da7a9e18b5b55ebeb0bfcee15a8"
     }
   },
   "labs/ejemplo-topologia/ejemplo-topologia.md": {
     "citados": {
-      "deployment_engine/filter_plugins/identidad.py": "4f882c0786d0635cdaa8797450c9a7a1236aaf6f40c656b7e82c1fa9c4e5bed0",
-      "deployment_engine/tasks/pve_api.yml": "b9d61716521edcced9db80c37854a2d6c922ef48c0ffc46cd2715ba9e7117c56",
-      "deployment_engine/tools/framework_check.py": "f5c5045ade258b4aa0b5364b161346b44172ffccbea666759072c139f82223b6",
-      "deployment_engine/tools/plan.py": "8ff52fdf4ae81a026cfb8fcdf9f61f08d6ed7e30b97c408c98e9c2f94e061a32"
+      "deployment_engine/filter_plugins/identidad.py": "b12e05a5b1c386ec0933b3497ecde90c469c00d1c235c0a223a0c94a3f1c324b",
+      "deployment_engine/tasks/pve_api.yml": "832a5c0c9fe41d33e4f781c1d0b336144cabd7777e05895d0e813a4b09fa0a54",
+      "deployment_engine/tools/framework_check.py": "3a5e68672b2350bc8aaa7990c28f7535f9becdc88d3087f4e9469303c9933e9b",
+      "deployment_engine/tools/plan.py": "c572f9f947e2f79b17850690837ac7a53ab811ce82ab0719b94535e7475f38c1"
     }
   },
   "labs/lab-dos-redes/lab-dos-redes.md": {
     "citados": {
-      "deployment_engine/filter_plugins/identidad.py": "4f882c0786d0635cdaa8797450c9a7a1236aaf6f40c656b7e82c1fa9c4e5bed0",
-      "deployment_engine/tasks/pve_api.yml": "b9d61716521edcced9db80c37854a2d6c922ef48c0ffc46cd2715ba9e7117c56",
-      "deployment_engine/tools/framework_check.py": "f5c5045ade258b4aa0b5364b161346b44172ffccbea666759072c139f82223b6",
-      "deployment_engine/tools/plan.py": "8ff52fdf4ae81a026cfb8fcdf9f61f08d6ed7e30b97c408c98e9c2f94e061a32"
+      "deployment_engine/filter_plugins/identidad.py": "b12e05a5b1c386ec0933b3497ecde90c469c00d1c235c0a223a0c94a3f1c324b",
+      "deployment_engine/tasks/pve_api.yml": "832a5c0c9fe41d33e4f781c1d0b336144cabd7777e05895d0e813a4b09fa0a54",
+      "deployment_engine/tools/framework_check.py": "3a5e68672b2350bc8aaa7990c28f7535f9becdc88d3087f4e9469303c9933e9b",
+      "deployment_engine/tools/plan.py": "c572f9f947e2f79b17850690837ac7a53ab811ce82ab0719b94535e7475f38c1"
     }
   },
   "labs/lab-minimo/lab-minimo.md": {

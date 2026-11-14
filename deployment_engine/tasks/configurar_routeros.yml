@@ -1,0 +1,336 @@
+---
+# PROPÓSITO:   EL DRIVER DE UN ROUTEROS. Misma forma que el de Linux y por la misma
+#              razón -- un driver es un PROCEDIMIENTO, no un guion suelto:
+#
+#                 leer dentro -> decidir la diferencia (en los DOS sentidos) ->
+#                 escribir lo que falta -> RELEER y comprobar.
+#
+#              Lo que cambia respecto de Linux es la PUERTA: a un RouterOS no se entra
+#              por SSH (regla 13), se le habla por su REST (`tasks/ros_api.yml`), y esa
+#              puerta se habla DESDE EL PUESTO DE CONTROL, que es el único que tiene una
+#              pata en cada bridge del lab. Por eso este driver, antes de nada, pone el
+#              puesto de control en el inventario de esta ejecución.
+#
+# INVARIANTES: se escribe SÓLO por la puerta del REST, y se relee lo mismo que se leyó:
+#              un paso que escribe y no comprueba es una promesa, no una convergencia.
+#              Nunca se escribe a ciegas: si al equipo no se le pudo preguntar, PARA.
+#              La credencial del motor se pone la ÚLTIMA (el área `identidad` va al final
+#              del plan del invitado): hasta ese momento el equipo contesta con la de
+#              fábrica, y si algo fallara a mitad, el equipo sigue teniendo su camino de
+#              vuelta en vez de quedarse con una contraseña que nadie conoce.
+# LÍMITES:     no se toca el servicio `www`: es donde vive el REST, o sea el camino de
+#              vuelta del motor. Y no se adivinan contraseñas: si el equipo no acepta ni
+#              la del motor ni la de fábrica, se para y se dice (regla 16).
+#              El HTTP va en claro porque un CHR de fábrica no trae certificado
+#              (docs/decisiones/0006-*.md); cuando el lab lo declare, esta puerta es la
+#              primera que cambia.
+# VER:         docs/decisiones/0006-*.md; filter_plugins/interior.py (escrituras_routeros);
+#              tasks/ros_api.yml; tasks/inventario_invitados.yml
+
+# --- 0. POR DÓNDE SE ENTRA, y qué declara este invitado ------------------------------
+- name: "DRIVER ROUTEROS · por dónde se entra a '{{ interior_rol }}' y qué declara"
+  ansible.builtin.include_tasks: inventario_invitados.yml
+
+- name: "DRIVER ROUTEROS · qué áreas hay que leer en '{{ interior_rol }}'"
+  ansible.builtin.set_fact:
+    interior_areas_declaradas: "{{ interior_declarado_invitado | interior_areas }}"
+  changed_when: false
+
+# El puesto de control, al inventario EN MEMORIA de esta ejecución. Es lo que permite
+# `delegate_to` en la puerta: la llamada sale DE ÉL, no del nodo de control. Se entra a
+# él como al invitado que es (por el puerto del camino, que sale de su vmid: nada que
+# guardar), y con la clave del camino del lab.
+- name: "DRIVER ROUTEROS · poner el puesto de control en el inventario de esta ejecución"
+  ansible.builtin.add_host:
+    name: "{{ ros_puesto }}"
+    ansible_host: 127.0.0.1
+    ansible_port: "{{ ros_puesto_puerto }}"
+    # Se entra al puesto como se entra a CUALQUIER invitado Linux del lab (su usuario y
+    # la clave del camino del lab): el puerto del camino desemboca en su sshd, no en el
+    # de la máquina donde corre el motor. Confundir esto da «Permission denied» y se
+    # pierde media hora.
+    ansible_user: "{{ engine_usuario_invitado }}"
+    ansible_ssh_private_key_file: "{{ parametros_motor.camino_clave | expanduser }}"
+    # Los invitados nacen y mueren: no hay huella estable que fijar, y `BatchMode` es lo
+    # que hace que esto sea un motor y no un humano esperando una contraseña. Las
+    # opciones se piden, no se escriben: quien es dueño del protocolo SSH es
+    # `inventario_invitados.yml` (regla 12), y si se escribieran aquí habría dos sitios
+    # donde se decide cómo se entra a un invitado.
+    ansible_ssh_common_args: "{{ interior_ssh_comunes }}"
+  vars:
+    ros_puesto: "puesto-{{ pve_lab }}"
+    # NADA que guardar: el puerto sale del vmid del puesto de control (regla 11).
+    ros_puesto_puerto: >-
+      {{ (parametros_motor.camino_puerto_base | int) + (identidad.invitados
+         | selectattr('rol', 'equalto', (declaracion | interior_puesto_control)) | list | first).vmid | int }}
+
+- name: "DRIVER ROUTEROS · con qué se llama, y quién llama"
+  ansible.builtin.set_fact:
+    ros_intermediario: "{{ ros_puesto }}"
+    # La dirección DECLARADA del invitado, y la única por la que se habla: el intercambio de
+    # la dirección de gestión no da pasos desde fuera --lo hace el router entero y de una
+    # vez, con un guion (ver `_intercambio_de_la_gestion`)--, así que la convergencia nunca
+    # se queda hablando a una dirección que ya no es.
+    ros_direccion_declarada: "{{ interior_direccion }}"
+    ros_direccion: "{{ interior_direccion }}"
+    ros_invitado: "{{ interior_rol }}"
+    ros_usuario_motor: "{{ engine_routeros_usuario }}"
+    ros_clave_motor: "{{ routeros_clave | default('') }}"
+    # El vacío es un VALOR, no un descuido: un RouterOS de fábrica tiene el usuario
+    # `admin` sin contraseña (medido en un CHR 7.25). Se declara aquí para que el día
+    # que cambie se cambie en un sitio.
+    ros_clave_fabrica: "{{ engine_routeros_clave_fabrica | default('') }}"
+    ros_clave_publica: "{{ camino_clave_publica | default('') }}"
+    ros_leidos: {}
+  vars:
+    ros_puesto: "puesto-{{ pve_lab }}"
+
+# --- 1. CON QUÉ CREDENCIAL SE CONVERGE ------------------------------------------------
+# Primero la del motor. Si el equipo la rechaza (401) es lo NORMAL la primera vez --un
+# CHR nace con la de fábrica-- y se sigue con esa; la del motor se pone al final. Un -1
+# (no se llegó) NO es lo mismo: eso PARA, porque no se escribe a ciegas.
+- name: "DRIVER ROUTEROS · ¿ya vale la credencial del motor en '{{ interior_rol }}'?"
+  ansible.builtin.include_tasks: ros_api.yml
+  vars:
+    ros_metodo: GET
+    ros_ruta: /system/identity
+    ros_usuario: "{{ ros_usuario_motor }}"
+    ros_clave: "{{ ros_clave_motor }}"
+    ros_tolerar_error: true
+    ros_etiqueta: "comprobar si la credencial del motor vale en '{{ interior_rol }}'"
+
+- name: "DRIVER ROUTEROS · decidir con cuál se converge"
+  ansible.builtin.set_fact:
+    ros_credencial: "{{ 'motor' if (ros_ultimo_status | int) < 400 else 'fabrica' }}"
+  changed_when: false
+
+- name: "DRIVER ROUTEROS · probar la credencial de fábrica (el equipo todavía no tiene la del motor)"
+  ansible.builtin.include_tasks: ros_api.yml
+  vars:
+    ros_metodo: GET
+    ros_ruta: /system/identity
+    ros_usuario: "{{ engine_routeros_usuario }}"
+    ros_clave: "{{ ros_clave_fabrica }}"
+    ros_tolerar_error: true
+    ros_etiqueta: "comprobar la credencial de fábrica en '{{ interior_rol }}'"
+  when: ros_credencial == 'fabrica'
+
+- name: "DRIVER ROUTEROS · parar si el equipo no acepta ninguna credencial conocida"
+  ansible.builtin.fail:
+    msg: |-
+      No se puede entrar en '{{ interior_rol }}' ({{ ros_direccion }}) por su REST:
+      {{ ros_ultimo_error }}
+
+      {% if (ros_ultimo_status | int) == -1 %}
+      No se llegó a preguntarle. El motor no sigue a ciegas (regla 16). Lo que hay que
+      mirar, en orden: que el paso anterior del plan lo haya arrancado y le haya puesto
+      su dirección, que su bridge sea el que declara el lab, y que el puesto de control
+      esté en pie (el camino: `./lab --lab {{ pve_lab }} apply`).
+      {% else %}
+      El equipo CONTESTA, pero no acepta ni la credencial del motor
+      ({{ engine_routeros_usuario }} en secrets.yml) ni la de fábrica. Eso sólo pasa si
+      alguien lo ha configurado a mano, y el motor no adivina contraseñas: se pone la
+      que sea en `deployment_engine/secrets.yml` (`routeros_clave`) y se vuelve a lanzar
+      `./lab --lab {{ pve_lab }} apply`.
+      {% endif %}
+      Las llamadas que se han hecho están en {{ pve_carpeta_logs }}/api.jsonl.
+  when: >-
+    (ros_ultimo_status | int) == -1
+    or (ros_credencial == 'fabrica' and (ros_ultimo_status | int) >= 400)
+
+- name: "DRIVER ROUTEROS · con qué credencial se converge de verdad"
+  ansible.builtin.set_fact:
+    ros_usuario_efectivo: >-
+      {{ ros_usuario_motor if ros_credencial == 'motor' else engine_routeros_usuario }}
+    ros_clave_efectiva: >-
+      {{ ros_clave_motor if ros_credencial == 'motor' else ros_clave_fabrica }}
+  changed_when: false
+
+# --- 2. LEER (todo por la puerta del REST) --------------------------------------------
+- name: "DRIVER ROUTEROS · leer dentro de '{{ interior_rol }}' por su REST"
+  ansible.builtin.include_tasks: ros_api.yml
+  loop: "{{ interior_declarado_invitado | interior_lecturas_routeros }}"
+  loop_control:
+    loop_var: ros_llamada
+    label: "leer {{ ros_llamada.area }}: {{ ros_llamada.ruta }}"
+  vars:
+    ros_metodo: "{{ ros_llamada.metodo }}"
+    ros_ruta: "{{ ros_llamada.ruta }}"
+    ros_area: "{{ ros_llamada.area }}"
+    ros_acumular: true
+    ros_usuario: "{{ ros_usuario_efectivo }}"
+    ros_clave: "{{ ros_clave_efectiva }}"
+    ros_etiqueta: "leer {{ ros_llamada.area }}: {{ ros_llamada.descripcion }}"
+    # Una lectura que falla no para el verbo: el estado «no se pudo preguntar» es una
+    # RESPUESTA que el analizador puro sabe leer (`alcanzable`), y para el verbo quien
+    # tiene que pararlo es la decisión, no el transporte.
+    ros_tolerar_error: true
+
+- name: "DRIVER ROUTEROS · qué se encontró dentro de '{{ interior_rol }}'"
+  ansible.builtin.set_fact:
+    interior_leido: >-
+      {{ ros_leidos | interior_leido_routeros(interior_declarado_invitado,
+         engine_routeros_usuario, ros_clave_publica, ros_credencial) }}
+  changed_when: false
+
+- name: "DRIVER ROUTEROS · parar si al router no se le pudo PREGUNTAR"
+  ansible.builtin.fail:
+    msg: |-
+      No se ha podido leer el interior de '{{ interior_rol }}' ({{ ros_direccion }}) por
+      su REST: {{ interior_leido.motivo }}
+
+      El motor no escribe a ciegas (regla 16). Un RouterOS de este motor se configura
+      por su REST, y su REST se habla desde el puesto de control: si no contesta, lo
+      primero es comprobar que el router está arrancado con su dirección y que el
+      camino está en pie (`./lab --lab {{ pve_lab }} apply` reconstruye el camino).
+  when: not interior_leido.alcanzable
+
+# --- 3. DECIDIR (función pura) --------------------------------------------------------
+- name: "DRIVER ROUTEROS · (declarado, leído) -> lo que hay que cambiar"
+  ansible.builtin.set_fact:
+    interior_pasos: >-
+      {{ interior_declarado_invitado
+         | interior_pasos(identidad, declaracion, interior_leido, parametros_motor) }}
+    ros_operaciones: >-
+      {{ (interior_declarado_invitado
+          | interior_pasos(identidad, declaracion, interior_leido, parametros_motor)
+          | interior_operaciones) }}
+    ros_escrituras: >-
+      {{ (interior_declarado_invitado
+          | interior_pasos(identidad, declaracion, interior_leido, parametros_motor)
+          | interior_operaciones)
+         | interior_escrituras_routeros(interior_declarado_invitado, declaracion,
+                                       identidad, parametros_routeros, interior_leido) }}
+  vars:
+    parametros_routeros:
+      usuario: "{{ engine_routeros_usuario }}"
+      clave: "{{ ros_clave_motor }}"
+      clave_publica: "{{ ros_clave_publica }}"
+  changed_when: false
+
+# Antes de tocar nada: lo que el plan pide y esta traducción NO sabe pedir. Una llamada
+# sin traducir se marcaría como hecha y el motor diría «convergido» habiendo ignorado
+# algo -- la forma más silenciosa de mentir. Se para ANTES de escribir.
+- name: "DRIVER ROUTEROS · parar si el plan pide algo que esta puerta no sabe pedir"
+  ansible.builtin.fail:
+    msg: |-
+      El plan pide operaciones del interior de '{{ interior_rol }}' que la traducción a
+      REST de RouterOS todavía NO sabe pedir:
+
+        {% for llamada in ros_sin_traducir %}- [{{ llamada.area }}] {{ llamada.op }}
+        {% endfor %}
+
+      No se ignora en silencio: se implementa su traducción en
+      `filter_plugins/interior.py` (`escrituras_routeros`) o se dice en voz alta qué
+      falta. El vocabulario del lab y lo que sabe el driver son dos listas que tienen
+      que cuadrar.
+  vars:
+    ros_sin_traducir: "{{ ros_escrituras | selectattr('accion', 'equalto', 'sin_traducir') | list }}"
+  when: ros_sin_traducir | length > 0
+
+- name: "DRIVER ROUTEROS · lo que este router necesita, dicho en claro"
+  ansible.builtin.debug:
+    msg: >-
+      '{{ interior_rol }}': {{ interior_pasos | length }} paso(s) -- {% for paso in interior_pasos %}
+      [{{ paso.parametros.area }}] {{ paso.porque.split(':')[0] }};{% endfor %}
+  when: interior_pasos | length > 0
+
+# --- 4. ESCRIBIR ---------------------------------------------------------------------
+- name: "DRIVER ROUTEROS · escribir en '{{ interior_rol }}' lo que de verdad cambia"
+  ansible.builtin.include_tasks: ros_api.yml
+  loop: "{{ ros_escrituras | selectattr('accion', 'in', ['escribir']) | list }}"
+  loop_control:
+    loop_var: ros_llamada
+    label: "{{ ros_llamada.descripcion }}"
+  vars:
+    ros_metodo: "{{ ros_llamada.metodo }}"
+    ros_ruta: "{{ ros_llamada.ruta }}"
+    ros_cuerpo: "{{ ros_llamada.cuerpo }}"
+    ros_area: "{{ ros_llamada.area }}"
+    ros_usuario: "{{ ros_usuario_efectivo }}"
+    ros_clave: "{{ ros_clave_efectiva }}"
+    ros_etiqueta: "escribir {{ ros_llamada.area }}: {{ ros_llamada.descripcion }}"
+    ros_direccion: "{{ ros_llamada.direccion | default(ros_direccion_declarada) }}"
+    # Y al escribir se toleran errores SOLO en las llamadas que la capa pura marcó
+    # (`tolerar_sin_respuesta`): es el guion del intercambio de la dirección de gestión, que
+    # puede dejar al equipo sin contestar un instante. No es seguir a ciegas: la
+    # convergencia la decide la RELECTURA del final, y si el efecto no ocurrió, la
+    # operación sigue pendiente y el paso falla con su razón.
+    ros_tolerar_error: "{{ ros_llamada.tolerar_sin_respuesta | default(false) }}"
+  when: ros_escrituras | length > 0
+
+# --- 5. RELEER y comprobar ------------------------------------------------------------
+# Se vuelve a preguntar lo MISMO, y con la credencial que debe valer al final: si el área
+# `identidad` se declaró, el contrato es que el equipo acepte ya la del motor -- y
+# releerlo CON ELLA es la prueba de que la credencial quedó puesta (no hay otra forma de
+# medirlo sin escribir). Si no se declaró, se sigue con la que funcionaba.
+- name: "DRIVER ROUTEROS · releer '{{ interior_rol }}' después de escribir"
+  ansible.builtin.set_fact:
+    ros_leidos: {}
+    ros_credencial_final: "{{ 'motor' if 'identidad' in interior_areas_declaradas else ros_credencial }}"
+    ros_usuario_relectura: >-
+      {{ ros_usuario_motor if ('identidad' in interior_areas_declaradas or ros_credencial == 'motor')
+         else engine_routeros_usuario }}
+    ros_clave_relectura: >-
+      {{ ros_clave_motor if ('identidad' in interior_areas_declaradas or ros_credencial == 'motor')
+         else ros_clave_fabrica }}
+  changed_when: false
+  when: ros_escrituras | length > 0
+
+- name: "DRIVER ROUTEROS · releer por el REST lo mismo que se leyó"
+  ansible.builtin.include_tasks: ros_api.yml
+  loop: "{{ interior_declarado_invitado | interior_lecturas_routeros }}"
+  loop_control:
+    loop_var: ros_llamada
+    label: "releer {{ ros_llamada.area }}: {{ ros_llamada.ruta }}"
+  vars:
+    ros_metodo: "{{ ros_llamada.metodo }}"
+    ros_ruta: "{{ ros_llamada.ruta }}"
+    ros_area: "{{ ros_llamada.area }}"
+    ros_acumular: true
+    ros_usuario: "{{ ros_usuario_relectura }}"
+    ros_clave: "{{ ros_clave_relectura }}"
+    ros_etiqueta: "releer {{ ros_llamada.area }}: {{ ros_llamada.descripcion }}"
+    ros_tolerar_error: true
+  when: ros_escrituras | length > 0
+
+- name: "DRIVER ROUTEROS · comprobar que quedó como se declaró"
+  ansible.builtin.set_fact:
+    interior_pendiente: >-
+      {{ (interior_declarado_invitado
+          | interior_pasos(identidad, declaracion,
+             (ros_leidos | interior_leido_routeros(interior_declarado_invitado,
+               engine_routeros_usuario, ros_clave_publica, ros_credencial_final)),
+             parametros_motor)
+          | interior_operaciones) }}
+  when: ros_escrituras | length > 0
+  changed_when: false
+
+- name: "DRIVER ROUTEROS · '{{ interior_rol }}' ha quedado como se declara"
+  ansible.builtin.assert:
+    # La comprobación de verdad es la REELECTURA: se vuelve a leer por el REST y se vuelve a
+    # decidir. Si algo sigue pendiente, el equipo no ha convergido, diga lo que diga el
+    # código de las llamadas. (Un `fail` con `success_msg` NO vale: esta versión de Ansible
+    # rechaza esa opción y el verbo se caería justo al ir bien -- medido.)
+    that: interior_pendiente | length == 0
+    fail_msg: |-
+      '{{ interior_rol }}' NO ha convergido en esta pasada: sigue habiendo
+      {{ interior_pendiente | length }} operación(es) pendiente(s):
+
+        {% for operacion in interior_pendiente %}- [{{ operacion.area }}] {{ operacion.op }}
+        {% endfor %}
+
+      La lectura con la que se ha decidido, en `direcciones` (para no tener que
+      adivinar qué vio el motor):
+
+        {{ ((ros_leidos | default({})).get('/ip/address') or {}).get('json') | to_json }}
+
+      Lo que pasó en cada llamada está en {{ pve_carpeta_logs }}/api.jsonl (las rutas
+      su REST son de RouterOS). No se repite a ciegas: se mira el diario y se arregla la
+      causa. Un caso MEDIDO y conocido: un RouterOS de fábrica que ha tenido un cliente
+      DHCP conserva su dirección y su ruta dinámicas aunque se le deshabilite el
+      cliente -- la API no las borra, y eso lo resuelve el paso `reiniciar_invitado`
+      que el plan emite para el residuo.
+    success_msg: >-
+      '{{ interior_rol }}': comprobado releyendo por su REST, y coincide con lo declarado.
+  when: ros_escrituras | length > 0

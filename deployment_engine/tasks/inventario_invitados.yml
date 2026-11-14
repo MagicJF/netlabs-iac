@@ -108,3 +108,10 @@
          + (['-o', 'ProxyJump=' ~ interior_conexion.bastion ~ ':' ~ interior_conexion.puerto_bastion]
             if interior_conexion.bastion | length > 0 else []) }}
     interior_destino: "{{ interior_conexion.usuario ~ '@' ~ interior_conexion.host }}"
+    # Las mismas opciones, en la forma que pide el inventario EN MEMORIA (`add_host`):
+    # `ansible_ssh_common_args` es una cadena, no una lista. Vive aquí, con la otra, por
+    # la misma razón: el protocolo SSH tiene UN dueño (regla 12), y así ningún otro
+    # fichero tiene que escribirlo ni el check `puerta` tiene que hacer excepciones.
+    interior_ssh_comunes: >-
+      -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
+      -o ConnectTimeout={{ engine_timeout_ssh | int }} -o BatchMode=yes

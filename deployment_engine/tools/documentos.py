@@ -108,7 +108,9 @@ def renderizar_region(directorio_lab):
                 i["cores"],
                 i["memoria"],
                 i["disco"],
-                i["bridge"],
+                # Las patas del invitado, en orden. Un invitado de varias (`bridges`) las
+                # enseña todas: la tabla es la lectura rápida de la topología.
+                " + ".join(i.get("bridges") or [i.get("bridge") or ""]),
                 i["direccion"],
             ]
             for i in invitados

@@ -71,7 +71,11 @@ vms:
     # La imagen de fábrica del CHR. Se adjunta SÓLO al crear el invitado: una imagen
     # importada no se puede añadir después (habría que recrear la VM).
     imagen: chr-7.25.1.raw
-    bridge: vmb_gestion
+    # DOS patas, en este orden: la de gestión (por donde pide su primera dirección y por
+    # donde el motor entra a configurarlo) y la LAN que sirve. El orden ES la numeración
+    # de las interfaces: `vmb_gestion` -> ether1, `vmb_lan1` -> ether2. Por eso el motor
+    # comprueba en la declaración que no se configure una interfaz que no exista.
+    bridges: [vmb_gestion, vmb_lan1]
     direccion: 10.40.0.11/24
     config:
       routeros:
@@ -106,7 +110,9 @@ vms:
     memoria: 512
     disco: 1
     imagen: chr-7.25.1.raw
-    bridge: vmb_lan1
+    # Otra vez dos patas, y en orden: la del escalón anterior (por donde pide su
+    # dirección y su ruta por defecto al primer CHR) y la LAN que sirve este.
+    bridges: [vmb_lan1, vmb_lan2]
     direccion: 10.40.1.11/24
     config:
       routeros:
@@ -141,6 +147,14 @@ containers:
         # Vacío a propósito: que hay camino lo dice la clave, no su contenido. Por
         # dónde sale es entorno (secrets.yml).
         camino: {}
+        # Las patas EXTRA del puesto de control, una por bridge del lab: `eth0` es la de
+        # gestión (el campo `direccion`, arriba) y ésta es la LAN. El motor no adivina
+        # direcciones (regla 11), y sin una aquí no alcanza a lo que cuelga de ese bridge
+        # (medido: el CHR del segundo escalón, 10.40.1.11, no contesta al REST y su
+        # convergencia no se puede ni empezar).
+        direcciones:
+          - interfaz: eth1
+            direccion: 10.40.1.2/24
         # El que da la PRIMERA dirección: reserva, por la MAC derivada de cada CHR,
         # la dirección que ese CHR declara. Es lo que cierra el círculo del arranque
         # en frío.

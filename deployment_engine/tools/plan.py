@@ -30,6 +30,7 @@ if _FILTROS not in _sys.path:
     _sys.path.insert(0, _FILTROS)
 
 import interior as modulo_interior  # noqa: E402  (la ruta se ajusta justo arriba)
+import identidad as modulo_identidad  # noqa: E402  (la MAC de cada pata, derivada)
 
 ACCION_POOL = "crear_pool"
 ACCION_BRIDGE = "crear_bridge"
@@ -89,6 +90,20 @@ def _paso(accion, metodo, ruta, parametros, porque, escalon=None, rol=None, via=
     return paso
 
 
+def _esperado_del_invitado(invitado):
+    """Lo declarado, más lo que decide el MOTOR y también se comprueba.
+
+    `cmode` no lo declara ningún lab: lo pone el motor para que la consola del puesto
+    de control dé una SHELL y no un `login` (§5). Se compara como cualquier otro campo
+    porque lo que el motor decide, el motor lo converge: un invitado que nació con el
+    `tty` de fábrica se corrige con un `PUT .../config`, sin recrearlo.
+    """
+    esperado = dict(invitado)
+    if modulo_interior.tiene_camino(invitado):
+        esperado["cmode"] = "shell"
+    return esperado
+
+
 def campos_que_difieren(esperado, actual):
     """Qué campos declarados no coinciden con lo que hay en Proxmox.
 
@@ -98,10 +113,18 @@ def campos_que_difieren(esperado, actual):
     API no la ve: eso es un límite, y `verify` lo dice en voz alta.
     """
     diferencias = {}
-    for campo in ("nombre", "cores", "memoria", "bridge", "descripcion", "mac"):
+    # `cmode` entra en la comparación porque lo DECIDE EL MOTOR (no el lab): la consola
+    # del puesto de control tiene que dar una shell, y si un invitado nació con el
+    # `tty` de fábrica eso se corrige con un `PUT .../config`, sin recrearlo.
+    for campo in ("nombre", "cores", "memoria", "bridge", "descripcion", "mac", "cmode"):
         if campo not in actual:
             continue
         if actual[campo] is None:
+            continue
+        # Un campo que el motor NO decide para este invitado no se compara: `cmode` sólo
+        # lo fija el motor en el puesto de control (para que su consola dé una shell);
+        # el resto de contenedores se quedan con el `tty` de fábrica.
+        if campo not in esperado:
             continue
         if str(actual[campo]) != str(esperado[campo]):
             diferencias[campo] = {"esperado": esperado[campo], "encontrado": actual[campo]}
@@ -195,7 +218,7 @@ def construir_plan(declaracion, estado, identidad, parametros):
                     ACCION_CREAR,
                     "POST",
                     ruta_crear,
-                    _parametros_creacion(invitado, lab, parametros),
+                    _parametros_creacion(invitado, lab, declaracion, estado, parametros),
                     f"el rol '{invitado['rol']}' no está desplegado: se crea con el vmid "
                     f"{invitado['vmid']} (el menor libre del clúster)",
                     escalon=invitado["escalon"],
@@ -204,7 +227,7 @@ def construir_plan(declaracion, estado, identidad, parametros):
             )
             continue
 
-        diferencias = campos_que_difieren(invitado, actual)
+        diferencias = campos_que_difieren(_esperado_del_invitado(invitado), actual)
         if diferencias:
             pasos.append(
                 _paso(
@@ -286,6 +309,63 @@ def construir_plan(declaracion, estado, identidad, parametros):
     return pasos
 
 
+def _prefijo_mac(parametros):
+    """El OUI de las MAC del motor, que viene de `vars/engine.yml` (no se incrusta).
+
+    Está en un solo sitio porque las MAC se derivan en dos: la de un invitado de una pata
+    (`identidad_mac`, al asignar la identidad) y la de cada pata de un invitado del
+    interior (`identidad_mac_de_pata`). Si falta, se dice: con un prefijo inventado las
+    MAC cambiarían sin que nadie lo haya pedido.
+    """
+    prefijo = str(parametros.get("mac_prefijo") or "").strip()
+    if not prefijo:
+        raise modulo_interior.ErrorMotor(
+            "falta el prefijo de las MAC del motor (`engine_prefijo_mac`): sin él no se "
+            "puede derivar la identidad de las patas de un invitado del interior"
+        )
+    return prefijo
+
+
+def _red_del_invitado(invitado, declaracion, estado, parametros):
+    """TODAS las patas de un invitado que declara camino, como claves `net<índice>`.
+
+    Un invitado del interior NACE COMPLETO: una pata por cada bridge del lab y una en el
+    bridge de gestión del nodo, la última (por ahí sale hacia casa). Cambiarle las patas
+    a un invitado en marcha obliga a reiniciarlo, y aquí no se reinicia la máquina que
+    está trabajando (§5): por eso todas se declaran al crear.
+
+    **Cada pata lleva su MAC derivada** (`mac_de_la_pata`): la 0 es la de siempre y las
+    demás salen del mismo sitio. Dejárselas a Proxmox sería estado que el motor no
+    controla, y el plan las vería distintas en cada pasada.
+
+    Las claves `netN` NO son un campo suelto (se reescriben enteras), así que esta misma
+    función vale para crear y para actualizar. `_net0` sigue siendo la red de un invitado
+    de una sola pata: los de la fase 1, que no declaran camino.
+    """
+    if not modulo_interior.tiene_camino(invitado):
+        return {}
+    red = {}
+    for indice, pata in enumerate(
+        modulo_interior.patas_del_puesto_control(invitado, declaracion, estado, parametros)
+    ):
+        mac = modulo_identidad.identidad_mac_de_pata(
+            invitado["vmid"], indice, _prefijo_mac(parametros)
+        )
+        if invitado["tipo"] == "lxc":
+            # En un contenedor la dirección se declara en la propia interfaz. La pata
+            # del bridge de gestión del NODO lleva PUERTA (es por donde sale hacia
+            # casa); las del lab no, porque la gestión no puede depender de los routers
+            # que el motor está desplegando.
+            red[f"net{indice}"] = (
+                f"name=eth{indice},bridge={pata['bridge']},hwaddr={mac}"
+                + (f",ip={pata['direccion']}" if pata.get("direccion") else "")
+                + (f",gw={pata['puerta']}" if pata.get("puerta") else "")
+            )
+        else:
+            red[f"net{indice}"] = f"virtio={mac},bridge={pata['bridge']}"
+    return red
+
+
 def _net0(invitado):
     """La cadena de red de la config de Proxmox para este invitado.
 
@@ -309,7 +389,7 @@ PARAMETRO_API = {
 }
 
 
-def _parametros_creacion(invitado, lab, parametros):
+def _parametros_creacion(invitado, lab, declaracion, estado, parametros):
     """Los parámetros de la API para crear un invitado de este tipo.
 
     Se separa para que la diferencia entre una VM y un contenedor esté en un solo
@@ -323,15 +403,46 @@ def _parametros_creacion(invitado, lab, parametros):
         "memory": invitado["memoria"],
         "net0": _net0(invitado),
     }
+
+    # El invitado del interior NACE COMPLETO: una pata por cada bridge del lab y una en
+    # el bridge de gestión del NODO, la última (por ahí sale hacia casa). Cambiarle las
+    # patas a un invitado en marcha obliga a reiniciarlo, y aquí no se reinicia la
+    # máquina que está trabajando (§5): por eso todas se declaran al crear.
+    comunes.update(_red_del_invitado(invitado, declaracion, estado, parametros))
+
     if invitado["tipo"] == "lxc":
         # En un contenedor el nombre va en `hostname` y hace falta la plantilla.
-        return {
+        creado = {
             **comunes,
             "hostname": invitado["nombre"],
             "ostemplate": parametros["ostemplate_lxc"],
         }
+        # La clave pública del motor se deja DENTRO del invitado al crearlo
+        # (`ssh-public-keys`): Proxmox la escribe en el rootfs, sin `snippets` ni
+        # cloud-init. Es la otra mitad del camino: sin clave no hay por dónde entrar
+        # aunque el túnel esté en pie.
+        if modulo_interior.tiene_camino(invitado) and parametros.get("camino_clave_publica"):
+            creado["ssh-public-keys"] = parametros["camino_clave_publica"]
+        # Y su consola tiene que dar una SHELL, no un `login`. Es por donde el motor le
+        # pone el arranque del camino, UNA vez (§5): con el `cmode` de fábrica (`tty`)
+        # la consola pide usuario y contraseña, y la línea se quedaría escrita en un
+        # prompt de login sin que nadie la leyera. Medido en el código de PVE:
+        # `cmode: shell` entrega la shell de root directamente en la consola.
+        if modulo_interior.tiene_camino(invitado):
+            creado["cmode"] = "shell"
+        return creado
+
     # En una VM el nombre va en `name` y no hay plantilla que valga.
-    return {**comunes, "name": invitado["nombre"]}
+    creado = {**comunes, "name": invitado["nombre"]}
+
+    # La imagen de fábrica se adjunta SÓLO al crear: `import-from` no se acepta
+    # después (medido). De ahí que la declaración de `imagen` sea una promesa que se
+    # cumple al nacer el invitado, o no se cumple nunca.
+    if invitado.get("imagen"):
+        almacen = parametros["almacenamiento_imagen"]
+        creado["scsi0"] = f"{almacen}:0,import-from={almacen}:import/{invitado['imagen']}"
+        creado["bootdisk"] = "scsi0"
+    return creado
 
 
 def _parametros_actualizacion(invitado, diferencias):
@@ -345,6 +456,7 @@ def _parametros_actualizacion(invitado, diferencias):
         "descripcion": invitado["descripcion"],
         "cores": invitado["cores"],
         "memoria": invitado["memoria"],
+        "cmode": "shell",
     }
     parametros = {}
     for campo in diferencias:
@@ -352,7 +464,19 @@ def _parametros_actualizacion(invitado, diferencias):
             parametros[PARAMETRO_API[campo]] = valor[campo]
         elif campo == "nombre":
             parametros["hostname" if invitado["tipo"] == "lxc" else "name"] = invitado["nombre"]
+        elif campo == "cmode":
+            # La consola, en la clave literal de la API.
+            parametros["cmode"] = valor["cmode"]
         elif campo in ("bridge", "mac"):
+            if modulo_interior.tiene_camino(invitado):
+                # Las patas se decidieron al nacer y una pata nueva sólo existe tras
+                # arrancar el invitado: aquí no se finge una convergencia que no se
+                # puede hacer. Se dice el remedio y se para.
+                raise modulo_interior.ErrorMotor(
+                    f"las patas del invitado {invitado['rol']} cambiaron y eso no se "
+                    "cambia en caliente: hay que rehacerlo (`destroy` de ese invitado "
+                    "y `apply`), que es como lo crea el motor: entero"
+                )
             # La red no es un campo suelto: se reescribe `net0` entero.
             parametros["net0"] = _net0(invitado)
     return parametros

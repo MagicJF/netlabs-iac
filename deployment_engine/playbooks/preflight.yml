@@ -42,6 +42,18 @@
       ansible.builtin.set_fact:
         informe: "{{ declaracion | estado_verificar(estado, identidad) }}"
 
+    # La clave PÚBLICA del camino se necesita ANTES de calcular el plan: el plan la
+    # inyecta al CREAR el puesto de control (`ssh-public-keys`) y después ya no se
+    # puede. `apply` puede generarla (es un verbo de escritura); `plan` y `preflight`
+    # sólo la leen: mirar qué haría el motor no escribe nada, ni en su propia máquina.
+    - name: "PREFLIGHT · preparar la clave del camino (antes de planificar)"
+      ansible.builtin.include_tasks: ../tasks/camino.yml
+      vars:
+        camino_solo_clave: true
+        camino_clave_generar: false
+        camino_clave: "{{ engine_camino_clave_base }}_{{ pve_lab }}_ed25519"
+      when: (declaracion.camino | default({}, true) | length) > 0
+
     - name: "PREFLIGHT · parámetros del entorno"
       ansible.builtin.set_fact:
         parametros_motor:
@@ -60,8 +72,18 @@
           camino_puerto: "{{ pve_camino_salida_puerto | default(443) }}"
           camino_usuario: "{{ pve_camino_usuario | default('') }}"
           camino_puerto_base: "{{ engine_camino_puerto_base }}"
-          camino_clave: "{{ engine_camino_clave }}"
+          # El prefijo de las MAC: la identidad de un invitado con varias patas
+          # sale de aquí (una MAC por pata, derivada del vmid; ver
+          # `identidad_mac_de_pata`).
+          mac_prefijo: "{{ engine_prefijo_mac }}"
+          camino_clave: "{{ engine_camino_clave_base }}_{{ pve_lab }}_ed25519"
           rol_control: "{{ engine_rol_control }}"
+          # Dónde vive la imagen de fábrica que importa una VM al nacer (el
+          # contenido `import` del almacenamiento). Es del ENTORNO, no de ningún lab.
+          almacenamiento_imagen: "{{ engine_almacenamiento_imagen }}"
+          # La clave pública del camino, que lee `tasks/camino.yml` antes de planificar
+          # y que el plan mete en la creación del puesto de control.
+          camino_clave_publica: "{{ camino_clave_publica | default('') }}"
 
     - name: "PREFLIGHT · cuántas llamadas haría apply"
       ansible.builtin.set_fact:

@@ -38,6 +38,18 @@
           crear un invitado encima de otro. No se aplica nada.
       when: (pve_mundo_error | default('') | length) > 0
 
+    # La clave PÚBLICA del camino se necesita ANTES de calcular el plan: el plan la
+    # inyecta al CREAR el puesto de control (`ssh-public-keys`) y después ya no se
+    # puede. `apply` puede generarla (es un verbo de escritura); `plan` y `preflight`
+    # sólo la leen: mirar qué haría el motor no escribe nada, ni en su propia máquina.
+    - name: "APPLY · preparar la clave del camino (antes de planificar)"
+      ansible.builtin.include_tasks: ../tasks/camino.yml
+      vars:
+        camino_solo_clave: true
+        camino_clave_generar: true
+        camino_clave: "{{ engine_camino_clave_base }}_{{ pve_lab }}_ed25519"
+      when: (declaracion.camino | default({}, true) | length) > 0
+
     - name: "APPLY · parámetros del entorno"
       ansible.builtin.set_fact:
         parametros_motor:
@@ -56,8 +68,18 @@
           camino_puerto: "{{ pve_camino_salida_puerto | default(443) }}"
           camino_usuario: "{{ pve_camino_usuario | default('') }}"
           camino_puerto_base: "{{ engine_camino_puerto_base }}"
-          camino_clave: "{{ engine_camino_clave }}"
+          # El prefijo de las MAC: la identidad de un invitado con varias patas
+          # sale de aquí (una MAC por pata, derivada del vmid; ver
+          # `identidad_mac_de_pata`).
+          mac_prefijo: "{{ engine_prefijo_mac }}"
+          camino_clave: "{{ engine_camino_clave_base }}_{{ pve_lab }}_ed25519"
           rol_control: "{{ engine_rol_control }}"
+          # Dónde vive la imagen de fábrica que importa una VM al nacer (el
+          # contenido `import` del almacenamiento). Es del ENTORNO, no de ningún lab.
+          almacenamiento_imagen: "{{ engine_almacenamiento_imagen }}"
+          # La clave pública del camino, que lee `tasks/camino.yml` antes de planificar
+          # y que el plan mete en la creación del puesto de control.
+          camino_clave_publica: "{{ camino_clave_publica | default('') }}"
 
     # El plan se recalcula aquí con la misma función que usa `plan`: mismo código,
     # mismos datos, misma decisión.
@@ -79,38 +101,32 @@
           '{{ pve_lab }}': {{ plan_pasos | length }} paso(s) por ejecutar
           (estado del mundo de {{ pve_mundo_origen }})
 
-    # Los pasos que NO son llamadas REST (el camino y el interior) todavía no tienen
-    # quien los ejecute: la capa de configuración está en construcción. Se dice CUÁLES
-    # y no se salta ninguno en silencio -- aplicar medio plan deja el lab a medias y
-    # un paso que se salta sin decirlo es un plan que miente.
-    - name: "APPLY · parar si hay pasos que este motor todavía no sabe ejecutar"
-      ansible.builtin.fail:
+    # Los pasos que este motor TODAVÍA no sabe ejecutar se dicen ANTES de empezar: se
+    # ejecutará lo que va antes y se parará en el primero de ellos, nombrando cuál.
+    - name: "APPLY · avisar de los pasos que el motor todavía no sabe ejecutar"
+      ansible.builtin.debug:
         msg: |-
-          El plan del lab '{{ pve_lab }}' tiene pasos que NO son llamadas REST y que
-          todavía no tienen ejecutor (el camino y los drivers del interior están en
-          construcción):
-          {% for paso in plan_pasos if paso.via | default('api') != 'api' %}
-            - paso {{ paso.orden }} ({{ paso.accion }}, via {{ paso.via }}): {{ paso.porque }}
+          AVISO: este plan tiene pasos que el motor todavía no sabe ejecutar (la capa de
+          configuración del interior está en construcción). Se ejecutará lo que va antes
+          y se parará ahí, diciendo cuál falta:
+          {% for paso in pasos_sin_ejecutor %}
+            - paso {{ paso.orden }} ({{ paso.accion }}, vía '{{ paso.via }}'): {{ paso.porque }}
           {% endfor %}
-          No se ejecuta ningún paso ya: aplicar parte del plan dejaría el lab a medias.
-      when: >-
-        (plan_pasos | selectattr('via', 'defined') | selectattr('via', 'ne', 'api')
-         | list | length) > 0
-
-    # Cada paso del plan es una llamada a la PUERTA: mismo diario, mismas reglas.
-    # Una respuesta de error aquí para el verbo con un mensaje legible.
-    - name: "APPLY · ejecutar el plan, paso a paso"
-      ansible.builtin.include_tasks: ../tasks/pve_api_y_esperar.yml
       vars:
-        pve_api_metodo: "{{ item.metodo }}"
-        pve_api_ruta: "{{ item.ruta }}"
-        pve_api_cuerpo: "{{ item.parametros }}"
-        pve_api_etiqueta: "paso {{ item.orden }}: {{ item.accion }} -- {{ item.porque }}"
+        pasos_sin_ejecutor: "{{ plan_pasos | rejectattr('via', 'in', ['api', 'camino']) | list }}"
+      when: (pasos_sin_ejecutor | length) > 0
+
+    # El plan se ejecuta EN ORDEN, paso a paso, y cada paso va por SU puerta (lo elige
+    # `tasks/paso.yml` por el campo `via`). Un solo bucle, para que el orden del plan
+    # sea el orden de verdad: si fueran dos bucles (uno para la API y otro para el
+    # interior), el interior se haría al final, y el escalón 2 arrancaría antes de que
+    # el escalón 1 esté convergido.
+    - name: "APPLY · ejecutar el plan, paso a paso"
+      ansible.builtin.include_tasks: ../tasks/paso.yml
       loop: "{{ plan_pasos }}"
       loop_control:
         label: "{{ item.orden }}/{{ plan_pasos | length }}  {{ item.accion }}"
-      when: >-
-        (plan_pasos | length) > 0 and (item.via | default('api')) == 'api'
+      when: (plan_pasos | length) > 0
 
 # La verificación va como segundo play, en la misma ejecución: `apply` converge Y
 # comprueba. Es el mismo `verify.yml` que se puede lanzar solo -- y por eso no puede

@@ -49,6 +49,29 @@ def identidad_mac(vmid, prefijo_mac):
     )
 
 
+# Cuánto se separa una pata de la siguiente en el espacio de vmids: 2**20. Un vmid de
+# Proxmox no pasa de 999.999 (menos de 2**20), así que la pata `n` de un invitado nunca
+# puede chocar con la pata 0 de otro. Ver `identidad_mac_de_pata`.
+ESPACIO_DE_PATAS = 1 << 20
+
+
+def identidad_mac_de_pata(vmid, indice, prefijo_mac):
+    """La MAC de la pata `indice` de un invitado con varias interfaces.
+
+    La pata 0 es **exactamente** la de siempre (`identidad_mac`), así que los labs de la
+    fase 1 y los invitados de una sola interfaz no cambian ni un bit. Las demás se
+    derivan del mismo sitio: `f(vmid + índice * 2**20)`.
+
+    Por qué se derivan en vez de dejárselas a Proxmox: una MAC que inventa otro es estado
+    que el motor no controla, y el plan la vería distinta en cada pasada (la segunda
+    ejecución escribiría y la idempotencia se caería). Aquí no se guarda nada: se vuelve
+    a derivar, igual que la de la pata 0.
+    """
+    if int(indice) < 0:
+        raise ErrorMotor(f"no hay pata negativa: {indice!r}")
+    return identidad_mac(int(vmid) + int(indice) * ESPACIO_DE_PATAS, prefijo_mac)
+
+
 def rol_de_descripcion(descripcion):
     """Extrae `rol=<x>` de la descripción de un invitado. None si no está.
 

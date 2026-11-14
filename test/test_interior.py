@@ -247,19 +247,47 @@ except motor.ErrorMotor:
 
 patas = motor.patas_del_puesto_control(CONTROL, DECLARACION, ESTADO_NODO, PARAMETROS)
 igual(len(patas), 3, "el puesto de control tiene una pata por bridge, más la de gestión del nodo")
-igual(patas[0]["bridge"], "vmbr1", "la primera pata es la del bridge de gestión del nodo")
-igual(patas[0]["direccion"], "10.10.10.253/24", "su dirección en el nodo la DERIVA el motor")
-igual(patas[0]["puerta"], "10.10.10.1", "su puerta es la dirección del nodo en ese bridge")
+# El ORDEN es el orden de `eth0, eth1, ...` dentro del invitado: primero las del LAB (la
+# declarada la primera, porque es el `eth0` que citan las áreas del lab) y la de gestión
+# del nodo la ÚLTIMA, que es la única con puerta.
 igual(
-    patas[1]["bridge"], "vmb_gen", "después, una pata por cada bridge del lab"
+    patas[0]["bridge"], "vmb_gen",
+    "la primera pata es la declarada: es el `eth0` que el lab cita en sus áreas",
 )
 igual(
-    patas[1]["direccion"], "10.60.0.10/24", "la pata declarada del lab lleva su dirección declarada"
+    patas[0]["direccion"], "10.60.0.10/24", "la pata declarada del lab lleva su dirección declarada"
 )
+igual(patas[0]["puerta"], "", "una pata de un bridge del lab no lleva puerta")
 igual(
-    patas[2]["direccion"], "10.60.1.254/24",
+    patas[1]["direccion"], "10.60.1.254/24",
     "la pata no declarada la deriva el motor por arriba, esquivando lo declarado",
 )
+igual(patas[2]["bridge"], "vmbr1", "la ÚLTIMA pata es la del bridge de gestión del nodo: la salida")
+igual(patas[2]["direccion"], "10.10.10.253/24", "su dirección en el nodo la DERIVA el motor")
+igual(patas[2]["puerta"], "10.10.10.1", "y es la única con puerta: la dirección del nodo")
+# Y sin bridge de gestión no se inventa nada: un puesto sin salida no se puede converger,
+# así que se dice y se para (en vez de crear el invitado y descubrirlo tres pasos después).
+try:
+    motor.patas_del_puesto_control(
+        CONTROL, DECLARACION, ESTADO_NODO, {"camino_puerto_base": 20000}
+    )
+    comprobar(False, "sin bridge de gestión el motor falla en vez de crear un puesto sin salida")
+except motor.ErrorMotor as error:
+    comprobar(
+        "pve_bridge_gestion" in str(error),
+        "sin bridge de gestión el motor falla diciendo la clave que falta",
+    )
+# Y si ese bridge existe en el nodo pero NO tiene dirección, tampoco hay puerta por la que
+# salir: se dice, no se crea una pata muda.
+try:
+    motor.patas_del_puesto_control(
+        CONTROL, DECLARACION, {"bridges_direcciones": {}, "direcciones_usadas": []}, PARAMETROS
+    )
+    comprobar(False, "un bridge de gestión sin dirección da error, no una pata sin puerta")
+except motor.ErrorMotor as error:
+    comprobar(
+        "vmbr1" in str(error), "el error dice QUÉ bridge de gestión no tiene dirección"
+    )
 
 # ---------------------------------------------------------------------------
 # El puerto del camino y la línea que se manda por consola
@@ -697,7 +725,7 @@ comprobar(
 print("\nLOS PASOS DEL CAMINO\n")
 
 CONTROL_CON_VMID = dict(CONTROL, vmid=200, escalon=1)
-pasos_camino = motor.pasos_del_camino(CONTROL_CON_VMID, DECLARACION, {}, PARAMETROS)
+pasos_camino = motor.pasos_del_camino(CONTROL_CON_VMID, DECLARACION, ESTADO_NODO, PARAMETROS)
 igual(
     [paso["accion"] for paso in pasos_camino],
     ["construir_camino", "comprobar_camino"],
@@ -724,7 +752,8 @@ igual(
     [
         paso["accion"]
         for paso in motor.pasos_del_camino(
-            CONTROL_CON_VMID, DECLARACION, {"camino": {"responde": True}}, PARAMETROS
+            CONTROL_CON_VMID, DECLARACION,
+            dict(ESTADO_NODO, camino={"responde": True}), PARAMETROS
         )
     ],
     ["comprobar_camino"],

@@ -27,6 +27,12 @@ engine_vmid_maximo: 999999
 # almacenamiento del nodo). Por eso vive aquí y no en la declaración.
 engine_ostemplate_lxc: "local:vztmpl/debian-13-standard_13.6-1_amd64.tar.zst"
 
+# Almacenamiento donde vive la IMAGEN DE FÁBRICA que una VM importa al nacer. Se
+# importa con `import-from` SÓLO al crear (§9.3), así que el almacenamiento tiene que
+# ofrecer el contenido `import`. Es del ENTORNO --qué hay en el nodo--, no de ningún
+# lab: el lab declara el NOMBRE del fichero, no dónde está.
+engine_almacenamiento_imagen: "local"
+
 # Nombre del nodo que se usa cuando NO hay credenciales: `plan` sin `--api`
 # planifica contra un clúster vacío simulado, y las rutas REST necesitan un nombre
 # de nodo. No es un valor de ningún lab ni de ningún Proxmox real: es el nombre del
@@ -125,10 +131,28 @@ engine_clave_camino: "camino"
 engine_camino_puerto_base: 20000
 # Ruta, dentro del nodo de control, del par de claves del camino. Fuera del
 # repositorio (nunca se versiona una clave privada) y fuera de `~/.ssh/config`.
-engine_camino_clave: "~/.ssh/netlabs_camino_ed25519"
+# La clave del camino es UNA POR LAB, y no por capricho: en el `authorized_keys` del nodo
+# de control, OpenSSH usa la PRIMERA línea cuya clave case, así que con una sola clave y
+# una línea por lab (cada lab tiene su puerto) sólo funcionaría el primer lab y los demás
+# se quedarían mudos -- medido: `Remote: port forwarding refused`. Una clave por lab es
+# una línea por clave, y no hay sombras posibles. El nombre del lab forma parte de la
+# ruta, así que no hay nada que guardar: se vuelve a derivar.
+engine_camino_clave_base: "~/.ssh/netlabs_camino"
 # Cuántos segundos se espera a que el puerto reenviado conteste antes de decir
 # que el camino no está en pie.
 engine_camino_espera: 45
+# La consola de un invitado es la puerta más frágil del motor: el invitado puede estar
+# arrancado y su consola todavía no dar shell, así que la MISMA línea se reintenta.
+# Medido: recién arrancado el contenedor, la primera línea se pierde (la consola devuelve
+# el eco del terminal, no la salida de la shell) y unos segundos después entra. El guion
+# es idempotente, así que repetirlo no hace daño: la unidad de systemd se reescribe igual.
+engine_camino_intentos: 3
+engine_camino_reintento: 12
+
+# Cuánto se espera antes de empezar a sondear el puerto reenviado. El guion duerme 4
+# segundos dentro del invitado antes de imprimir su marca, y el sshd tarda un poco
+# más en aceptar: sondear sin este respiro sólo sirve para gastar el tiempo de espera.
+engine_camino_retardo: 3
 
 # Tamaño máximo, en caracteres, del cuerpo de la respuesta que se guarda en el
 # diario. El diario es prueba de lo ocurrido, no una copia del cluster.

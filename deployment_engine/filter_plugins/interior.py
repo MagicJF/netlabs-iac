@@ -179,34 +179,38 @@ def patas_del_puesto_control(invitado, declaracion, estado, parametros):
     Nace completo porque cambiarle las patas a un invitado en marcha obliga a
     reiniciarlo, y aquí no se reinicia la máquina que está trabajando (§5).
 
-      * La PRIMERA pata va en el bridge de gestión del NODO (valor de entorno, no
-        del lab): es por donde el puesto sale hacia casa. Su dirección la elige el
-        motor de entre las libres, leyendo las que ya usa cada invitado del nodo.
-        Su puerta es la dirección que el nodo tiene en ese bridge.
-      * Después, una pata por cada bridge del LAB. La del bridge que el invitado
-        declara lleva su dirección DECLARADA (la gestión no puede depender de los
-        routers que está desplegando); las demás las elige el motor por arriba,
-        esquivando las direcciones que el lab declara y las que están en uso.
+    **El ORDEN es el orden de `eth0, eth1, ...` dentro del invitado**, y por eso no es
+    libre: primero las patas del LAB (la del bridge que el invitado declara la primera,
+    porque es la que la declaración llama `eth0` en sus áreas --el servidor DHCP del
+    puesto sirve por `eth0`--) y **la pata del bridge de gestión del NODO la ÚLTIMA**.
+    Así el nombre de interfaz que escribe el lab sigue significando lo mismo en
+    cualquier nodo, y el valor de entorno (qué bridge da salida) no se filtra a la
+    declaración.
+
+      * Una pata por cada bridge del LAB. La del bridge que el invitado declara lleva
+        su dirección DECLARADA (la gestión no puede depender de los routers que está
+        desplegando); las demás las elige el motor por arriba, esquivando las
+        direcciones que el lab declara y las que están en uso.
+      * La ÚLTIMA pata va en el bridge de gestión del NODO (valor de entorno, no del
+        lab): es por donde el puesto sale hacia casa, y es la única que lleva PUERTA
+        (la dirección que el nodo tiene en ese bridge). Su dirección la elige el motor
+        de entre las libres, leyendo las que ya usa cada invitado del nodo.
+
+    Si el invitado declara camino y no hay bridge de gestión, esto **falla**: un puesto
+    de control sin salida es un lab que no se puede converger, y decirlo es más útil
+    que crear el invitado y descubrirlo tres pasos después.
     """
     puente_gestion = str(parametros.get("bridge_gestion") or "")
     direcciones_bridge = estado.get("bridges_direcciones") or {}
     usadas = estado.get("direcciones_usadas") or []
+    if not puente_gestion:
+        raise ErrorMotor(
+            f"el invitado {invitado.get('rol')} declara camino y el motor no sabe por "
+            "dónde da salida este nodo: falta `pve_bridge_gestion` en secrets.yml "
+            "(el bridge del nodo con dirección y salida, hoy `vmbr1`)"
+        )
 
     patas = []
-    if puente_gestion:
-        subred = str(direcciones_bridge.get(puente_gestion) or "")
-        direccion = direccion_libre(subred, usadas) if subred else ""
-        patas.append(
-            {
-                "bridge": puente_gestion,
-                "direccion": f"{direccion}/{subred.split('/')[1]}" if direccion else "",
-                # La puerta de la pata de gestión es la dirección que el NODO tiene
-                # en ese bridge (10.10.10.1 en vmbr1): por ahí sale hacia casa. No es
-                # un valor del lab: se lee de la red del nodo.
-                "puerta": subred.split("/")[0] if subred else "",
-                "papel": "salida hacia casa",
-            }
-        )
     # Las direcciones que el lab declara en un bridge: ninguna pata de gestión puede
     # caer encima de un router o de un servidor que el lab ya ha reservado.
     declaradas_por_bridge = {}
@@ -215,17 +219,21 @@ def patas_del_puesto_control(invitado, declaracion, estado, parametros):
         if direccion and direccion != "dhcp" and "/" in direccion:
             declaradas_por_bridge.setdefault(otro.get("bridge"), []).append(direccion)
 
+    # La pata DECLARADA va la primera: es `eth0` para el invitado, y así lo que el lab
+    # declara en sus áreas (`dhcp_servidor: interfaz: eth0`) dice lo mismo en cualquier
+    # nodo. Es la única cuya dirección no decide el motor.
+    if invitado.get("bridge") and invitado.get("direccion"):
+        patas.append(
+            {
+                "bridge": invitado["bridge"],
+                "direccion": invitado["direccion"],
+                "puerta": "",
+                "papel": "pata declarada del puesto de control",
+            }
+        )
     for bridge in declaracion.get("bridges", []):
         nombre = bridge.get("nombre")
-        if nombre == invitado.get("bridge") and invitado.get("direccion"):
-            patas.append(
-                {
-                    "bridge": nombre,
-                    "direccion": invitado["direccion"],
-                    "puerta": "",
-                    "papel": "pata declarada del puesto de control",
-                }
-            )
+        if not nombre or nombre == invitado.get("bridge"):
             continue
         subred = bridge.get("direccion")
         usadas_aqui = list(usadas) + declaradas_por_bridge.get(nombre, [])
@@ -238,6 +246,30 @@ def patas_del_puesto_control(invitado, declaracion, estado, parametros):
                 "papel": "pata del puesto de control en un bridge del lab",
             }
         )
+
+    # Y la ÚLTIMA, la salida: el bridge de gestión del nodo, con su puerta.
+    subred = str(direcciones_bridge.get(puente_gestion) or "")
+    if not subred:
+        raise ErrorMotor(
+            f"el bridge de gestión `{puente_gestion}` no tiene dirección en este nodo: "
+            "sin dirección no hay puerta por la que salir hacia casa"
+        )
+    usadas_salida = list(usadas) + [
+        p["direccion"] for p in patas if p.get("direccion")
+    ]
+    direccion = direccion_libre(subred, usadas_salida)
+    patas.append(
+        {
+            "bridge": puente_gestion,
+            "direccion": f"{direccion}/{subred.split('/')[1]}",
+            # La puerta de la pata de gestión es la dirección que el NODO tiene en ese
+            # bridge (10.10.10.1 en vmbr1): por ahí sale hacia casa. No es un valor del
+            # lab: se lee de la red del nodo.
+            "puerta": subred.split("/")[0],
+            "papel": "salida hacia casa",
+        }
+    )
+    return patas
     return patas
 
 
@@ -321,9 +353,15 @@ def linea_consola(guion):
     return f"echo {codificado} | base64 -d | sh"
 
 
-def marca_camino():
+def marca_camino(_entrada=None):
     """Lo que el guion imprime al final: la consola no devuelve código de salida, se
-    reconoce el ECO. Sin marca, el motor no sabe si la línea se ejecutó."""
+    reconoce el ECO. Sin marca, el motor no sabe si la línea se ejecutó.
+
+    Recibe un argumento que IGNORA porque se usa como filtro de Ansible
+    (`'' | interior_marca_camino`): un filtro siempre recibe lo de su izquierda. El
+    valor de la marca no depende de nada: es una constante que el guion y el motor
+    tienen que decir igual, y por eso vive en un solo sitio (aquí).
+    """
     return "NETLABS_CAMINO_PUESTO_42"
 
 

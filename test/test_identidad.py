@@ -103,6 +103,33 @@ def caso_1_dos_labs_disjuntos():
         modulo_identidad.identidad_mac(100, PREFIJO_MAC) == "BC:24:11:00:00:64",
         "la MAC es función pura del vmid (100 -> BC:24:11:00:00:64)",
     )
+    # Un invitado del interior tiene VARIAS patas (una por bridge más la de gestión), y
+    # cada una lleva su MAC derivada: la 0 es exactamente la de siempre, para que los
+    # invitados de una sola interfaz no cambien ni un bit.
+    comprobar(
+        modulo_identidad.identidad_mac_de_pata(100, 0, PREFIJO_MAC)
+        == modulo_identidad.identidad_mac(100, PREFIJO_MAC)
+        == "BC:24:11:00:00:64",
+        "la pata 0 de un invitado conserva la MAC de siempre",
+    )
+    macs_patas = [modulo_identidad.identidad_mac_de_pata(100, i, PREFIJO_MAC) for i in range(4)]
+    comprobar(len(set(macs_patas)) == 4, f"cada pata tiene su MAC, y ninguna se repite: {macs_patas}")
+    comprobar(
+        all(maca.startswith(PREFIJO_MAC + ":") for maca in macs_patas),
+        "todas las patas salen del mismo prefijo (el OUI del motor)",
+    )
+    # Y la pata 1 de un invitado no puede chocar con la pata 0 de otro: los vmids de
+    # Proxmox no pasan de 999.999 y las patas se separan 2**20.
+    comprobar(
+        modulo_identidad.identidad_mac_de_pata(100, 1, PREFIJO_MAC)
+        != modulo_identidad.identidad_mac(100 + modulo_identidad.ESPACIO_DE_PATAS - 1, PREFIJO_MAC),
+        "la pata 1 no choca con la pata 0 del vmid de al lado",
+    )
+    try:
+        modulo_identidad.identidad_mac_de_pata(100, -1, PREFIJO_MAC)
+        comprobar(False, "una pata negativa es un error, no una MAC inventada")
+    except Exception as error:
+        comprobar("pata negativa" in str(error), "una pata negativa se dice, no se deriva")
 
 
 def caso_2_vmid_ocupado():

@@ -10,11 +10,11 @@
 #              una dirección de gestión que se creía libre es un fallo; el informe lo
 #              dice. Las direcciones de los bridges del nodo (las puertas de cada
 #              subred) vienen ya dentro del estado, de `GET /nodes/<nodo>/network`.
-# LÍMITES:     una VM QEMU no tiene endpoint de interfaces en la API: su dirección es
-#              INVISIBLE desde el host (haría falta el agente de invitado, que aquí no
-#              hay). Por eso el motor elige contando por ARRIBA (`.254`, `.253`…) y por
-#              eso el informe dice que esto no está probado del todo. Lo que no se
-#              puede saber, se dice; no se finge.
+# LÍMITES:     una VM QEMU sólo expone sus interfaces al host si tiene agente de
+#              invitado, y aquí no lo hay: su dirección es INVISIBLE desde el host. Por
+#              eso el motor elige contando por ARRIBA (`.254`, `.253`…) y por eso el
+#              informe dice que esto no está probado del todo. Lo que no se puede
+#              saber, se dice; no se finge.
 # VER:         docs/camino-del-puesto-de-control.md; AGENTS.md §Reglas duras (11, 12)
 
 # Sólo contenedores: son los únicos que declaran sus direcciones a la API. Se mira TODO

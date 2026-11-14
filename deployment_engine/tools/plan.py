@@ -1,6 +1,7 @@
-# PROPÓSITO:   calcula el PLAN: la lista ORDENADA de llamadas REST que llevan el
-#              mundo desde su estado actual hasta la declaración. Es el único
-#              sitio donde se decide "qué hay que hacer": `plan` lo imprime y
+# PROPÓSITO:   calcula el PLAN: la lista ORDENADA de pasos (por la API de Proxmox, por
+#              el camino, por el interior de un invitado o por la sonda de un escalón)
+#              que llevan el mundo desde su estado actual hasta la declaración. Es el
+#              único sitio donde se decide "qué hay que hacer": `plan` lo imprime y
 #              `apply` lo ejecuta. No hay una segunda lógica de decisión.
 # INVARIANTES: es una FUNCIÓN PURA: recibe la declaración, el estado del mundo y
 #              la identidad ya asignada, y devuelve la lista. No habla con la API,

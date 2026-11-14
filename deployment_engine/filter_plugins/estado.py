@@ -24,7 +24,7 @@ import sys
 
 # `estado.py` es el filtro que Ansible ve; el cálculo del plan (mucho más grande)
 # vive en tools/plan.py para poder probarse sin Ansible. El módulo se importa por
-# ruta, no por PYTHONPATH: el motor no depende de variables de entorno (regla 4.4).
+# ruta, no por PYTHONPATH: el motor no depende de variables de entorno (regla 3).
 _DIRECTORIO_FILTROS = os.path.dirname(os.path.abspath(__file__))
 _TOOLS = os.path.join(os.path.dirname(_DIRECTORIO_FILTROS), "tools")
 for _ruta in (_TOOLS, _DIRECTORIO_FILTROS):

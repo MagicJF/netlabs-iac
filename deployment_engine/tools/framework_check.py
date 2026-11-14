@@ -698,6 +698,10 @@ def check_readme():
     # que el README afirma por su cuenta.
     texto = _fuera_de_bloques_de_codigo(_leer(ruta))
     fallos = []
+    # `dhcp` es la PALABRA del vocabulario (una forma de `direccion`), no un valor de un
+    # lab: el README, que describe el motor, puede nombrarla sin filtrar la topología de
+    # nadie. Se excluye del conjunto de tokens, igual que se excluirían `linux`/`routeros`.
+    vocabulario_reservado = {"dhcp"}
     for lab in directorios_de_labs():
         declaracion = declaracion_de(lab)
         tokens = {lab}
@@ -705,7 +709,9 @@ def check_readme():
             tokens.add(bridge["nombre"])
         for seccion in ("vms", "containers"):
             for invitado in declaracion.get(seccion) or []:
-                tokens.add(str(invitado["direccion"]))
+                direccion = str(invitado["direccion"])
+                if direccion not in vocabulario_reservado:
+                    tokens.add(direccion)
                 tokens.add(f"{lab}-{invitado['rol']}")
         for token in sorted(tokens):
             if token in texto:

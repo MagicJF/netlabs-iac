@@ -110,7 +110,7 @@
         dest: "{{ pve_carpeta_logs }}/plan.txt"
         mode: '0640'
       # Escribir en logs/ NO es cambiar el mundo: si lo fuera, la promesa de
-      # idempotencia (regla 4.9) sería falsa por un fichero de log.
+      # idempotencia (regla 6) sería falsa por un fichero de log.
       changed_when: false
 
     - name: "PLAN · resumen"

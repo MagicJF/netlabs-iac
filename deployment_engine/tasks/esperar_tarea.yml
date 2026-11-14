@@ -8,7 +8,7 @@
 #              éxito ("OK" o "WARNINGS: N"), también falla (y lo dice).
 # LÍMITES:     sólo sondea tareas de Proxmox. No cancela la tarea, no reintenta la
 #              operación original y no adivina la causa de un fallo.
-# VER:         README.md §Una sola puerta hacia la API; AGENTS.md §Reglas duras (4.6)
+# VER:         README.md §Las cuatro puertas, y un diario de cada una; AGENTS.md §Reglas duras (4.6)
 #
 # Espera: pve_tarea_upid, pve_tarea_nodo (hechos, ya anotados por
 #         `pve_api_y_esperar.yml`).

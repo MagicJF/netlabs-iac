@@ -9,7 +9,7 @@
 #              (las vueltas de más son no-op, sin tocar la API).
 # LÍMITES:     sólo sabe leer /nodes/<nodo>/tasks/<upid>/status. No cancela tareas
 #              ni interpreta su salida (eso lo hace `esperar_tarea.yml`).
-# VER:         README.md §Una sola puerta hacia la API; AGENTS.md §Reglas duras (4.6)
+# VER:         README.md §Las cuatro puertas, y un diario de cada una; AGENTS.md §Reglas duras (4.6)
 #
 # Espera: pve_tarea_upid, pve_tarea_nodo, pve_tarea_intento (lo pone el bucle).
 # Deja:   pve_tarea_estado, pve_tarea_exitstatus, pve_tarea_terminada.

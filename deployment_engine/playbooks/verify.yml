@@ -94,7 +94,7 @@
         content: "{{ informe | combine({'ts': sello_tiempo, 'estado_del_mundo': pve_mundo_origen}) | to_nice_json }}\n"
         dest: "{{ pve_carpeta_logs }}/verify-{{ sello_tiempo }}.json"
         mode: '0640'
-      # La evidencia es un log: escribirla no cambia el mundo (regla 4.9).
+      # La evidencia es un log: escribirla no cambia el mundo (regla 6).
       changed_when: false
 
     - name: "VERIFY · escribir el resumen humano (para la consola)"

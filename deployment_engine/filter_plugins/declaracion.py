@@ -2,7 +2,7 @@
 #              calcula en Jinja para saber si el estado deseado es coherente
 #              ANTES de tocar la API.
 # INVARIANTES: el lab declara roles y topología; NUNCA declara vmid ni MAC
-#              (regla 4.8) -- si aparecen en la declaración, esto es un error.
+#              (regla 11) -- si aparecen en la declaración, esto es un error.
 #              Toda referencia cruzada tiene que resolver: un bridge citado tiene
 #              que existir en el lab, un rol no puede estar en dos listas, dos
 #              roles no pueden compartir dirección. Y el NOMBRE de cada bridge
@@ -575,7 +575,7 @@ def declaracion_validar(declaracion, carpeta=None):
             if clave in invitado:
                 errores.append(
                     f"`{etiqueta}` ({rol}) declara `{clave}`: eso lo deriva el motor "
-                    "de la identidad (regla 4.8). Quítalo de la declaración."
+                    "de la identidad (regla 11). Quítalo de la declaración."
                 )
 
         # Un invitado de VARIAS patas declara `bridges:` (la lista) en vez de `bridge:`.

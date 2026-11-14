@@ -3,13 +3,13 @@
 #              llamada lanzó una tarea asíncrona (Proxmox responde un UPID),
 #              espera a que termine antes de dar el paso por hecho.
 # INVARIANTES: la llamada y los sondeos pasan TODOS por `pve_api.yml`: una línea de
-#              diario por petición (regla 4.6), también las de espera. La detección
+#              diario por petición (regla 5), también las de espera. La detección
 #              de lo asíncrono es una REGLA, no una lista: si la respuesta es una
 #              cadena que empieza por "UPID:", hay trabajo en segundo plano. Así
 #              cualquier paso nuevo que sea asíncrono queda cubierto sin tocar esto.
 # LÍMITES:     no reintenta la operación original si la tarea falla: la deja fallar.
 #              No decide QUÉ llamar (eso lo pone el llamante).
-# VER:         README.md §Una sola puerta hacia la API; AGENTS.md §Reglas duras (4.6)
+# VER:         README.md §Las cuatro puertas, y un diario de cada una; AGENTS.md §Reglas duras (4.6)
 #
 # Espera las mismas variables que `pve_api.yml` (pve_api_metodo, pve_api_ruta,
 # pve_api_cuerpo, pve_api_etiqueta...) y deja lo mismo en `pve_api_ultimo_*`.

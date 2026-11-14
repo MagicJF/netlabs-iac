@@ -2275,7 +2275,7 @@ def escrituras_routeros(operaciones, invitado, declaracion, identidad, parametro
 # lo comprueba, para que no puedan divergir sin que nadie se entere.
 DRIVERS = {
     "interior": {"linux", "routeros"},   # `tasks/configurar_linux.yml`, `tasks/configurar_routeros.yml`
-    "sonda": set(),          # `tasks/sondar_servicio.yml` (todavía no)
+    "sonda": set(),          # `tasks/sonda.yml` (esta vía no elige tipo: el conjunto va vacío)
 }
 
 

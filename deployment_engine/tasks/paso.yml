@@ -77,7 +77,8 @@
   when: (item.via | default('api')) == 'sonda'
 
 # Y lo que este motor TODAVÍA no sabe ejecutar para aquí, con su nombre en la boca: es la
-# capa que está en construcción, dicha en voz alta (nunca se salta un paso en silencio).
+# vía o el tipo que no tiene ejecutor --no la capa, que ya está construida--, dicho en voz
+# alta (nunca se salta un paso en silencio).
 - name: "PASO {{ item.orden }} · parar si este paso no tiene ejecutor todavía"
   ansible.builtin.fail:
     msg: |-
@@ -88,8 +89,8 @@
         {{ item.porque }}
 
       Lo que falta es el ejecutor de la vía '{{ item.via | default('api') }}'
-      {% if (item.via | default('api')) == 'interior' %}para el tipo '{{ item.parametros.tipo }}'{% endif %} (la capa
-      de configuración del interior está en construcción). Los pasos anteriores a este
+      {% if (item.via | default('api')) == 'interior' %}para el tipo '{{ item.parametros.tipo }}'{% endif %} (las vías y
+      tipos que ya sabe están en `DRIVERS`, en `filter_plugins/interior.py`). Los pasos anteriores a este
       ya se han dado --el plan es idempotente, así que volver a lanzar `apply` cuando
       ese ejecutor exista sigue exactamente desde aquí--, y ninguno posterior se ha
       tocado.

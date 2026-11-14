@@ -3,7 +3,7 @@
 #              MAC y descripción. Es el corazón del encargo (regla §5).
 # INVARIANTES: es una FUNCIÓN PURA: no lee ficheros, no habla con la API y no
 #              guarda nada. Dadas las mismas dos entradas, da la misma salida.
-#              Ningún valor derivado se escribe en el repo (regla 4.8).
+#              Ningún valor derivado se escribe en el repo (regla 11).
 #              Un vmid ya usado en CUALQUIER punto del clúster jamás se reutiliza.
 #              Un rol que ya existe en el pool del lab CONSERVA su vmid (si no,
 #              `apply` no sería idempotente).

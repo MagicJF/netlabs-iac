@@ -4,7 +4,7 @@
 # INVARIANTES: no hay una segunda lógica de decisión. Si `plan` y `apply` pudieran
 #              hacer cosas distintas, revisar el plan no serviría de nada.
 #              Es idempotente: lo que ya coincide NO genera llamada, así que una
-#              segunda ejecución seguida no cambia nada (regla 4.9).
+#              segunda ejecución seguida no cambia nada (regla 6).
 #              Nunca borra un invitado que no esté en la declaración.
 # LÍMITES:     la API de Proxmox crea, borra y recarga la red de forma asíncrona;
 #              el motor ESPERA cada tarea sondeando la API (tasks/esperar_tarea.yml)
@@ -112,9 +112,9 @@
     - name: "APPLY · avisar de los pasos que el motor todavía no sabe ejecutar"
       ansible.builtin.debug:
         msg: |-
-          AVISO: de este plan hay pasos que el motor todavía no sabe ejecutar (la capa
-          de configuración está en construcción). Se ejecutará todo lo anterior y se
-          parará en el primero de estos, diciendo cuál falta:
+          AVISO: de este plan hay pasos que el motor todavía no sabe ejecutar (una vía
+          o un tipo sin ejecutor). Se ejecutará todo lo anterior y se parará en el
+          primero de estos, diciendo cuál falta:
           {% for paso in pasos_sin_ejecutor %}
             - paso {{ paso.orden }} ({{ paso.accion }}, vía '{{ paso.via }}'): {{ paso.porque }}
           {% endfor %}

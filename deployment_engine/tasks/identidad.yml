@@ -4,7 +4,7 @@
 #              mapa rol->vmid que necesitan `preflight`, `apply` y `verify`.
 # INVARIANTES: el estado sale de la API (o de un fixture, en `plan` sin
 #              credenciales) y NUNCA de un fichero de asignaciones propio: no hay
-#              estado en disco (regla 4.8). La identidad se RE-DERIVA en cada
+#              estado en disco (regla 11). La identidad se RE-DERIVA en cada
 #              ejecución con la misma función pura.
 # LÍMITES:     si la API no responde, aquí no se inventa nada: se deja
 #              `pve_mundo_error` puesto y el verbo que llama decide qué decir.

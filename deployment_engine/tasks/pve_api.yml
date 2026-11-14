@@ -1,9 +1,10 @@
 ---
-# PROPÓSITO:   LA PUERTA. Es el único sitio del repositorio que llama a la API de
-#              Proxmox, y es a la vez el que escribe la línea del diario. Hacer la
-#              petición y diarizarla son UNA sola cosa: por eso viven en el mismo
-#              fichero y no se puede hacer lo uno sin lo otro.
-# INVARIANTES: una línea JSON por petición, SIEMPRE, salga bien o mal (regla 4.6:
+# PROPÓSITO:   LA PUERTA REST A PROXMOX. Es la puerta del motor a la API de Proxmox
+#              --y la que escribe la línea del diario--: hacer la petición y
+#              diarizarla son UNA sola cosa. El cliente de consola (`tools/consola.py`)
+#              viaja por la MISMA puerta (mismo host, puerto y token) para pedir su
+#              billete de consola; fuera de eso, nadie más llama a la API.
+# INVARIANTES: una línea JSON por petición, SIEMPRE, salga bien o mal (regla 5:
 #              "si una ejecución no dejó diario, no ocurrió"). La cabecera
 #              Authorization NO se escribe nunca en el diario ni en ningún log.
 #              El diario es un log: crezca lo que crezca, no es "cambiar el mundo"
@@ -12,7 +13,7 @@
 #              qué orden (eso es el plan) y no interpreta el resultado (eso son los
 #              filtros de estado). Si la API no está, no lo arregla: lo diariza y lo
 #              dice en claro.
-# VER:         README.md §Una sola puerta hacia la API; ./lab check puerta
+# VER:         README.md §Las cuatro puertas, y un diario de cada una; ./lab check puerta
 #
 # Variables que espera:
 #   pve_api_metodo   GET | POST | PUT | DELETE
@@ -59,7 +60,7 @@
   no_log: true
   failed_when: false
   # Una lectura (GET) no cambia nada; una escritura (POST/PUT/DELETE) sí. Es lo que
-  # hace VERDADERA la promesa de idempotencia (regla 4.9): la segunda ejecución de un
+  # hace VERDADERA la promesa de idempotencia (regla 6): la segunda ejecución de un
   # verbo ya convergido no contiene más que GET, así que su recuento es changed=0.
   # El módulo `uri` no lo sabe por su cuenta (informa changed=False siempre que no
   # escriba un fichero), así que se declara aquí, que es donde se sabe el método.

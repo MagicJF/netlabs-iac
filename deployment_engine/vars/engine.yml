@@ -1,15 +1,15 @@
 ---
 # PROPÓSITO:   los valores por defecto del MOTOR: lo que es igual para cualquier
-#              lab y para cualquier Proxmox. Nada de ningún lab concreto (regla 4.7).
+#              lab y para cualquier Proxmox. Nada de ningún lab concreto (regla 7).
 # INVARIANTES: aquí no puede aparecer el nombre de un lab, ni una banda de vmids,
 #              ni el nombre de un bridge. Lo comprueba `./lab check pureza-lab`.
 # LÍMITES:     no son credenciales (esas van en secrets.yml) ni topología (esa va
 #              en la declaración del lab).
-# VER:         README.md §Identidad asignada; AGENTS.md §Identidad
+# VER:         README.md §Identidad: quién pone los números; AGENTS.md §Identidad: quién pone los números
 
 # --- Identidad ------------------------------------------------------------
 # Prefijo de la MAC derivada. Los 3 bytes bajos los pone el vmid: la MAC es
-# función pura del vmid, así que no se guarda ni se declara nunca (regla 4.8).
+# función pura del vmid, así que no se guarda ni se declara nunca (regla 11).
 # El prefijo BC:24:11 es el OUI que Proxmox documenta para MACs generadas.
 engine_prefijo_mac: "BC:24:11"
 

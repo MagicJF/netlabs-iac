@@ -12,7 +12,7 @@
 #              que pedir; que Proxmox lo acepte sólo lo dirá `apply`.
 # VER:         README.md §Cómo se usa; labs/<lab>/<lab>.md
 
-- name: "PLAN · qué llamadas haría el motor, en qué orden"
+- name: "PLAN · qué pasos daría el motor, en qué orden"
   hosts: proxmox_api
   gather_facts: false
   vars_files:
@@ -57,6 +57,16 @@
           # es la prueba de propiedad que `destroy` busca antes de borrar un bridge
           # (Proxmox no mete interfaces de red en pools, así que no hay pool que valga).
           comentario_bridge: "{{ engine_plantilla_comentario_bridge }}"
+          # El CAMINO (§5): por dónde sale el puesto de control hacia casa. Es ENTORNO
+          # --la casa es una y los labs son muchos--, así que vive en secrets.yml y no
+          # en la declaración de ningún lab. Vacío = este lab no tiene camino.
+          bridge_gestion: "{{ pve_bridge_gestion | default('') }}"
+          camino_host: "{{ pve_camino_salida_host | default('') }}"
+          camino_puerto: "{{ pve_camino_salida_puerto | default(443) }}"
+          camino_usuario: "{{ pve_camino_usuario | default('') }}"
+          camino_puerto_base: "{{ engine_camino_puerto_base }}"
+          camino_clave: "{{ engine_camino_clave }}"
+          rol_control: "{{ engine_rol_control }}"
 
     - name: "PLAN · calcular el plan ordenado"
       ansible.builtin.set_fact:
@@ -78,6 +88,6 @@
     - name: "PLAN · resumen"
       ansible.builtin.debug:
         msg: >-
-          plan de '{{ pve_lab }}': {{ plan_pasos | length }} llamada(s) REST,
+          plan de '{{ pve_lab }}': {{ plan_pasos | length }} paso(s) por dar,
           estado del mundo leído de {{ pve_mundo_origen }}.
           Detalle en {{ pve_carpeta_logs }}/plan.txt

@@ -17,6 +17,20 @@
 # salida de `plan` se pueda revisar sin abrir el código.
 # ---------------------------------------------------------------------------
 
+# El interior (áreas, camino, reservas derivadas) lo decide `interior.py`, que es
+# puro como este fichero: importarlo no lo ensucia (no habla con nadie, no escribe
+# nada). Se importa por RUTA y no por PYTHONPATH porque el motor no depende de
+# variables de entorno (regla 3): la ruta se calcula desde este mismo fichero.
+import os as _os
+import sys as _sys
+
+_AQUI = _os.path.dirname(_os.path.abspath(__file__))
+_FILTROS = _os.path.join(_os.path.dirname(_AQUI), "filter_plugins")
+if _FILTROS not in _sys.path:
+    _sys.path.insert(0, _FILTROS)
+
+import interior as modulo_interior  # noqa: E402  (la ruta se ajusta justo arriba)
+
 ACCION_POOL = "crear_pool"
 ACCION_BRIDGE = "crear_bridge"
 ACCION_RECARGAR_RED = "recargar_red"
@@ -24,11 +38,45 @@ ACCION_CREAR = "crear_invitado"
 ACCION_ACTUALIZAR = "actualizar_invitado"
 ACCION_ARRANCAR = "arrancar_invitado"
 
+# Cada paso dice POR DÓNDE va, porque el plan ya no es sólo llamadas REST:
+#   * `api`      -- una llamada a la API del hipervisor (la puerta de siempre);
+#   * `interior` -- leer/escribir DENTRO de un invitado (REST de RouterOS o SSH);
+#   * `camino`   -- el camino del lab (§5): la consola y la comprobación del túnel;
+#   * `sonda`    -- comprobar que un escalón sirve, sin cambiar nada.
+VIA_API = "api"
 
-def _paso(accion, metodo, ruta, parametros, porque, escalon=None, rol=None):
-    """Un paso del plan. `porque` es obligatorio: un paso sin razón es un bug."""
-    return {
+
+def _orden_de_arranque(invitado):
+    """Dentro de un escalón: primero quien DA la primera dirección, después los demás.
+
+      * **0** -- el puesto de control: sin él no hay camino, y es quien da la PRIMERA
+        dirección (a los CHR del bridge de gestión). Va el primero de todos.
+      * **1** -- un router: reparte direcciones en sus LANs, así que se converge antes
+        que quien va a pedírselas.
+      * **2** -- el resto: quien pide dirección a alguien que ya está sirviendo.
+
+    Es la regla 18 un nivel más abajo: un invitado que pide dirección a quien todavía
+    no la reparte se queda esperando -- y un LXC deja de pedirla al rato y se queda
+    inalcanzable (medido en v3). `sorted` es estable: dentro de cada clase se conserva
+    el orden de la declaración.
+    """
+    if modulo_interior.tiene_camino(invitado):
+        return 0
+    if "dhcp" in modulo_interior.areas_de(invitado):
+        return 1
+    return 2
+
+
+def _paso(accion, metodo, ruta, parametros, porque, escalon=None, rol=None, via=VIA_API, detalle=None):
+    """Un paso del plan. `porque` es obligatorio: un paso sin razón es un bug.
+
+    `detalle` son las sub-líneas de un paso que se hace en varias piezas (el camino).
+    Se imprime debajo y no cambia el `parametros`: lo que hay que hacer sigue estando
+    en un solo sitio.
+    """
+    paso = {
         "accion": accion,
+        "via": via,
         "metodo": metodo,
         "ruta": ruta,
         "parametros": parametros,
@@ -36,6 +84,9 @@ def _paso(accion, metodo, ruta, parametros, porque, escalon=None, rol=None):
         "escalon": escalon,
         "rol": rol,
     }
+    if detalle:
+        paso["detalle"] = list(detalle)
+    return paso
 
 
 def campos_que_difieren(esperado, actual):
@@ -168,12 +219,22 @@ def construir_plan(declaracion, estado, identidad, parametros):
                 )
             )
 
-    # Fase 2 — arrancar, escalón a escalón. Los invitados de un escalón superior no
-    # arrancan hasta que el inferior está en marcha.
+    # Fase 2 — arrancar, escalón a escalón, y CONVERGER SU INTERIOR antes de tocar el
+    # escalón siguiente. El orden dentro de un escalón es el que mata la carrera del
+    # DHCP por construcción (regla 18), no por suerte:
+    #
+    #   arrancar los invitados del escalón  ->  construir el camino (si el escalón
+    #   trae el puesto de control)  ->  converger el interior de cada invitado  ->
+    #   comprobar que el escalón SIRVE (contesta en el puerto por el que se deja ver).
+    #
+    # Por qué este orden y no otro (§10): el puesto de control da la primera
+    # dirección a los CHR, y un puesto `direccion: dhcp` no arranca hasta que su
+    # router está convergido y sirviendo. Un lab SIN interior no genera ni un paso de
+    # más: los invitados se arrancan igual que siempre, en el mismo orden.
     for escalon in declaracion["escalones"]:
-        for invitado in identidad["invitados"]:
-            if invitado["escalon"] != escalon:
-                continue
+        del_escalon = [i for i in identidad["invitados"] if i["escalon"] == escalon]
+
+        for invitado in del_escalon:
             actual = (estado.get("invitados") or {}).get(str(invitado["vmid"]))
             if actual is not None and actual.get("arrancado"):
                 continue
@@ -188,6 +249,37 @@ def construir_plan(declaracion, estado, identidad, parametros):
                     rol=invitado["rol"],
                 )
             )
+
+        # (a) El camino, PRIMERO y para todos los invitados del escalón que lo traen:
+        #     sin camino no se entra en el puesto de control, y sin el puesto de control
+        #     no se entra en ningún otro invitado. Va antes de tocar el interior de
+        #     nadie, incluido el suyo.
+        for invitado in del_escalon:
+            pasos.extend(modulo_interior.pasos_del_camino(invitado, declaracion, estado, parametros))
+
+        # (b) El interior del escalón. Sin `config:` no se entra: el motor lo despliega
+        #     y se calla, exactamente como en la fase 1.
+        #
+        #     Dentro del escalón, primero quien DA dirección (el puesto de control con
+        #     su servidor DHCP, y los routers) y después quien la PIDE: es la misma
+        #     razón que ordena los escalones, un nivel más abajo. Un invitado que pide
+        #     dirección a quien todavía no la reparte se queda esperando -- y un LXC
+        #     deja de pedirla al rato y se queda inalcanzable (medido en v3).
+        interiores = [i for i in del_escalon if modulo_interior.declara_interior(i)]
+        for invitado in sorted(interiores, key=_orden_de_arranque):
+            leido = (estado.get("interior") or {}).get(str(invitado["vmid"])) or {}
+            pasos.extend(
+                modulo_interior.pasos_de_convergencia(invitado, identidad, declaracion, leido, parametros)
+            )
+
+        # (c) La sonda del escalón: sólo se pasa al siguiente si este SIRVE. Se sondea
+        #     lo que declara interior (lo que no se configura no se promete).
+        for invitado in del_escalon:
+            if not (modulo_interior.declara_interior(invitado) or modulo_interior.tiene_camino(invitado)):
+                continue
+            sonda = modulo_interior.espera_de_servicio(invitado)
+            if sonda is not None:
+                pasos.append(sonda)
 
     for indice, paso in enumerate(pasos, start=1):
         paso["orden"] = indice
@@ -296,10 +388,24 @@ def formatear_plan(plan, declaracion, estado, identidad):
         lineas.append(f"({len(declaracion['invitados'])} invitados declarados, todos presentes y coincidentes)")
         return "\n".join(lineas)
 
-    lineas.append(f"Llamadas REST que se harían, en orden ({len(plan)}):")
+    # La cabecera sólo cambia si el plan lleva algo que NO es una llamada REST. Así
+    # los planes de un lab sin interior --que están congelados y se comparan línea a
+    # línea contra su copia de referencia-- salen exactamente igual que ayer.
+    solo_api = all(paso.get("via", VIA_API) == VIA_API for paso in plan)
+    if solo_api:
+        lineas.append(f"Llamadas REST que se harían, en orden ({len(plan)}):")
+    else:
+        lineas.append(f"Pasos del plan (API, interior y camino), en orden ({len(plan)}):")
     lineas.append("")
     for paso in plan:
-        lineas.append(f"  {paso['orden']:>2}. {paso['metodo']:<4} {paso['ruta']}")
+        if paso["metodo"]:
+            lineas.append(f"  {paso['orden']:>2}. {paso['metodo']:<4} {paso['ruta']}")
+        else:
+            # Un paso sin método no es una llamada REST: es una acción del motor
+            # (converger un área, esperar a que un escalón sirva, construir el camino).
+            lineas.append(f"  {paso['orden']:>2}. {paso['accion']}   [via {paso.get('via', VIA_API)}]")
+        for linea in paso.get("detalle") or []:
+            lineas.append(f"      - {linea}")
         if paso["parametros"]:
             for clave in sorted(paso["parametros"]):
                 lineas.append(f"      {clave} = {paso['parametros'][clave]}")

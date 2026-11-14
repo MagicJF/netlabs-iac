@@ -48,6 +48,16 @@
           # es la prueba de propiedad que `destroy` busca antes de borrar un bridge
           # (Proxmox no mete interfaces de red en pools, así que no hay pool que valga).
           comentario_bridge: "{{ engine_plantilla_comentario_bridge }}"
+          # El CAMINO (§5): por dónde sale el puesto de control hacia casa. Es ENTORNO
+          # --la casa es una y los labs son muchos--, así que vive en secrets.yml y no
+          # en la declaración de ningún lab. Vacío = este lab no tiene camino.
+          bridge_gestion: "{{ pve_bridge_gestion | default('') }}"
+          camino_host: "{{ pve_camino_salida_host | default('') }}"
+          camino_puerto: "{{ pve_camino_salida_puerto | default(443) }}"
+          camino_usuario: "{{ pve_camino_usuario | default('') }}"
+          camino_puerto_base: "{{ engine_camino_puerto_base }}"
+          camino_clave: "{{ engine_camino_clave }}"
+          rol_control: "{{ engine_rol_control }}"
 
     # El plan se recalcula aquí con la misma función que usa `plan`: mismo código,
     # mismos datos, misma decisión.
@@ -66,8 +76,26 @@
     - name: "APPLY · resumen de lo que se va a hacer"
       ansible.builtin.debug:
         msg: >-
-          '{{ pve_lab }}': {{ plan_pasos | length }} llamada(s) REST por ejecutar
+          '{{ pve_lab }}': {{ plan_pasos | length }} paso(s) por ejecutar
           (estado del mundo de {{ pve_mundo_origen }})
+
+    # Los pasos que NO son llamadas REST (el camino y el interior) todavía no tienen
+    # quien los ejecute: la capa de configuración está en construcción. Se dice CUÁLES
+    # y no se salta ninguno en silencio -- aplicar medio plan deja el lab a medias y
+    # un paso que se salta sin decirlo es un plan que miente.
+    - name: "APPLY · parar si hay pasos que este motor todavía no sabe ejecutar"
+      ansible.builtin.fail:
+        msg: |-
+          El plan del lab '{{ pve_lab }}' tiene pasos que NO son llamadas REST y que
+          todavía no tienen ejecutor (el camino y los drivers del interior están en
+          construcción):
+          {% for paso in plan_pasos if paso.via | default('api') != 'api' %}
+            - paso {{ paso.orden }} ({{ paso.accion }}, via {{ paso.via }}): {{ paso.porque }}
+          {% endfor %}
+          No se ejecuta ningún paso ya: aplicar parte del plan dejaría el lab a medias.
+      when: >-
+        (plan_pasos | selectattr('via', 'defined') | selectattr('via', 'ne', 'api')
+         | list | length) > 0
 
     # Cada paso del plan es una llamada a la PUERTA: mismo diario, mismas reglas.
     # Una respuesta de error aquí para el verbo con un mensaje legible.
@@ -80,8 +108,9 @@
         pve_api_etiqueta: "paso {{ item.orden }}: {{ item.accion }} -- {{ item.porque }}"
       loop: "{{ plan_pasos }}"
       loop_control:
-        label: "{{ item.orden }}/{{ plan_pasos | length }}  {{ item.metodo }} {{ item.ruta }}"
-      when: (plan_pasos | length) > 0
+        label: "{{ item.orden }}/{{ plan_pasos | length }}  {{ item.accion }}"
+      when: >-
+        (plan_pasos | length) > 0 and (item.via | default('api')) == 'api'
 
 # La verificación va como segundo play, en la misma ejecución: `apply` converge Y
 # comprueba. Es el mismo `verify.yml` que se puede lanzar solo -- y por eso no puede

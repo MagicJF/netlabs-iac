@@ -74,6 +74,13 @@ MAC_EN_TEXTO = re.compile(r"([0-9a-fA-F]{2}[:-]){5}[0-9a-fA-F]{2}")
 # en `secrets.yml`: un lab no lleva contraseñas dentro.
 CLAVES_CREDENCIAL = ("contrasena", "contraseña", "password", "clave_secreta", "token")
 
+# Una clave (o un certificado) reconocible por su FORMA, no por el nombre de la clave
+# del YAML: así no se cuela una clave pegada dentro de un campo llamado de otra cosa.
+# Las claves del motor son suyas y viven fuera del repo; el lab no declara ninguna.
+CLAVE_EN_TEXTO = re.compile(
+    r"-----BEGIN |BEGIN CERTIFICATE|PRIVATE KEY|^ssh-(rsa|ed25519|dss) |^ecdsa-sha2-"
+)
+
 # Una dirección IPv4 con máscara, y un rango `a-b` de un pool DHCP.
 IP_PATRON = re.compile(r"^\d{1,3}(\.\d{1,3}){3}(/\d{1,2})?$")
 
@@ -100,10 +107,10 @@ def _direccion_valida(direccion):
 def _ip_en_supernet(ip, supernet):
     """¿Cae `ip` (con o sin máscara) dentro de la supernet declarada?
 
-    Se comparan los PREFIJOS enteros: 10.40.1.5/24 está en 10.40.0.0/16 porque los
-    16 primeros bits coinciden. No se hace aritmética de red más fina que esa: con
-    IPv4 y prefijos de laboratorio sobra, y un cálculo complicado aquí sería otra
-    cosa que puede estar mal sin que nadie lo note.
+    Se comparan los PREFIJOS enteros, octeto a octeto: 10.40.1.5/24 está en
+    10.40.0.0/16 porque los 16 primeros bits coinciden. No se hace aritmética de red
+    más fina que esa: con IPv4 y prefijos de laboratorio sobra, y un cálculo
+    complicado aquí sería otra cosa que puede estar mal sin que nadie lo note.
     """
     base, _, prefijo = str(supernet).partition("/")
     if not prefijo:
@@ -114,8 +121,13 @@ def _ip_en_supernet(ip, supernet):
         return False
     if bits % 8 != 0:
         return True  # no se opina: prefijos que no caen en un octeto no se vigilan
-    return str(ip).split("/")[0].rsplit(".", max(0, 3 - bits // 8))[0] == ".".join(
-        base.split(".")[: bits // 8]
+    octetos = bits // 8
+    if octetos < 1 or octetos > 4:
+        return True  # /0 no acota nada; un prefijo imposible no se vigila aquí
+    # Se conservan los `octetos` primeros de cada dirección y se comparan: es la
+    # comparación de prefijo que se lee de un vistazo, sin aritmética de bits.
+    return ".".join(str(ip).split("/")[0].split(".")[:octetos]) == ".".join(
+        base.split(".")[:octetos]
     )
 
 
@@ -332,12 +344,20 @@ def _buscar_prohibidos(valor, ruta, errores):
         for indice, hijo in enumerate(valor):
             _buscar_prohibidos(hijo, f"{ruta}[{indice}]", errores)
         return
-    if isinstance(valor, str) and (MAC_PATRON.match(valor.strip()) or MAC_EN_TEXTO.search(valor)):
-        errores.append(
-            f"`{ruta}` declara una MAC ({valor}): la MAC se DERIVA del vmid "
-            "(regla 14) y no se declara nunca. Si hace falta una reserva DHCP, se "
-            "declara `reservas: derivadas` o `{rol, direccion}`, nunca la MAC."
-        )
+    if isinstance(valor, str):
+        if MAC_PATRON.match(valor.strip()) or MAC_EN_TEXTO.search(valor):
+            errores.append(
+                f"`{ruta}` declara una MAC ({valor}): la MAC se DERIVA del vmid "
+                "(regla 14) y no se declara nunca. Si hace falta una reserva DHCP, se "
+                "declara `reservas: derivadas` o `{rol, direccion}`, nunca la MAC."
+            )
+        elif CLAVE_EN_TEXTO.search(valor):
+            errores.append(
+                f"`{ruta}` parece una CLAVE (o un certificado): las claves del motor son "
+                "suyas y viven fuera del repo (regla 3); el lab no declara ninguna. "
+                "La clave del camino la genera el motor y la deja él mismo dentro del "
+                "puesto de control."
+            )
 
 
 def _direcciones_declaradas(declaracion):
@@ -452,6 +472,12 @@ def declaracion_validar(declaracion, carpeta=None):
         if not isinstance(escalon, int) or escalon < 1:
             errores.append(f"escalón inválido {escalon!r}: tienen que ser enteros >= 1")
 
+    # --- lo que no se declara nunca, también fuera de los invitados ---------
+    # La sección `lab` no es un rincón libre: una MAC o una clave escondida ahí sigue
+    # siendo algo que una declaración no lleva (las claves del motor son suyas y viven
+    # fuera del repo). Se busca en TODA la sección, no sólo en las claves conocidas.
+    _buscar_prohibidos(lab, "lab", errores)
+
     # --- invitados ---------------------------------------------------------
     invitados = []
     for seccion, tipo in (("vms", "qemu"), ("containers", "lxc")):
@@ -535,7 +561,6 @@ def declaracion_validar(declaracion, carpeta=None):
 
         # --- lo que no se declara nunca: MACs y credenciales -------------------
         _buscar_prohibidos(invitado, f"{etiqueta}", errores)
-
         # --- el vocabulario del interior (cerrado) ----------------------------
         _validar_interior(invitado, etiqueta, rol, errores)
         if modulo_interior.tiene_camino(invitado):

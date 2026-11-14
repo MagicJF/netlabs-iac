@@ -76,6 +76,12 @@ CLAVE_CAMINO = "camino"
 RUTA_GUION_CAMINO = "/usr/local/sbin/netlabs-camino"
 UNIDAD_CAMINO = "netlabs-camino.service"
 
+# Las dos acciones del camino, con nombre propio: el plan las nombra y el ejecutor
+# las despacha, y una cadena suelta en dos sitios es una cadena que se separa.
+ACCION_CAMINO = "construir_camino"
+ACCION_COMPROBAR_CAMINO = "comprobar_camino"
+ACCION_INTERIOR = "converger_interior"
+
 
 class ErrorMotor(Exception):
     """Mismo nombre que el error de Ansible: este módulo se prueba sin Ansible."""
@@ -319,6 +325,111 @@ def marca_camino():
     """Lo que el guion imprime al final: la consola no devuelve código de salida, se
     reconoce el ECO. Sin marca, el motor no sabe si la línea se ejecutó."""
     return "NETLABS_CAMINO_PUESTO_42"
+
+
+def camino_responde(estado):
+    """¿El túnel del camino está en pie, según lo último que el motor comprobó?
+
+    Se lee del ESTADO (que lo trae una lectura: el puerto reenviado del nodo de
+    control contesta o no), no de una marca que el motor se hubiera dejado: una
+    marca se queda pegada cuando el puesto se reinicia, y un puerto que no contesta
+    no se puede fingir. Ausente = no responde: en un clúster simulado (un `plan` sin
+    credenciales) no hay camino, y el plan lo dice.
+    """
+    return bool((estado or {}).get("camino", {}).get("responde"))
+
+
+def pasos_del_camino(invitado, declaracion, estado, parametros):
+    """Los pasos del CAMINO de este invitado (el puesto de control), en orden.
+
+    El camino es lo que hace ENTRAR a Ansible en la red del lab, así que va antes de
+    converger nada: sin él no se llega a ningún invitado. Tiene dos mitades:
+
+      1. `construir_camino` -- el arranque: el motor deja su clave pública dentro del
+         invitado (al crear, por API), escribe UNA línea en su propio
+         `authorized_keys` con `restrict,port-forwarding,permitlisten=<puerto>`, y
+         manda por la consola UNA línea en base64 que levanta el túnel hacia casa.
+      2. `comprobar_camino` -- la prueba de punta a punta: que el puerto reenviado del
+         nodo de control conteste. Eso demuestra la cadena entera (casa -> 443 ->
+         puesto -> vuelta), no una parte.
+
+    Si el camino YA responde, la mitad 1 no se emite: reconstruir un túnel que
+    funciona en cada `apply` sería justo el error que este plan viene a evitar. La
+    comprobación se emite siempre: es una LECTURA, y `apply` tiene que poder decir
+    que el camino está en pie ahora, no que lo estuvo.
+
+    La clave privada del camino NO viaja en el paso: el plan no lleva secretos. El
+    paso lleva lo que hay que hacer (dónde, en qué puerto, hacia quién) y el guion se
+    arma al ejecutarlo, con la clave que el motor lee de su propio `~/.ssh`.
+    """
+    if not tiene_camino(invitado):
+        return []
+
+    declarado = (invitado.get("config") or {}).get("linux") or {}
+    salida = (declarado.get(CLAVE_CAMINO) or {}).get("salida") or {}
+    puerto_local = puerto_camino(invitado["vmid"], parametros)
+    host_salida = str(salida.get("host") or parametros.get("camino_host") or "")
+    puerto_salida = int(salida.get("puerto") or parametros.get("camino_puerto") or 443)
+
+    pasos = []
+    if not camino_responde(estado):
+        patas = patas_del_puesto_control(invitado, declaracion, estado, parametros)
+        pasos.append(
+            {
+                "accion": ACCION_CAMINO,
+                "via": "camino",
+                "rol": invitado.get("rol"),
+                "escalon": invitado.get("escalon"),
+                "metodo": None,
+                "ruta": None,
+                "parametros": {
+                    "vmid": invitado["vmid"],
+                    "puerto": puerto_local,
+                    "salida_host": host_salida,
+                    "salida_puerto": puerto_salida,
+                    "patas": [
+                        {"bridge": pata["bridge"], "direccion": pata["direccion"]} for pata in patas
+                    ],
+                },
+                "detalle": [
+                    "la clave pública del motor se deja en el invitado al CREARLO (ssh-public-keys):",
+                    "  por ahí entra Ansible, y sin eso no habría forma de llegar a configurarlo",
+                    f"en casa se añade UNA línea a authorized_keys con restrict,port-forwarding,"
+                    f"permitlisten=\"{puerto_local}\" (la clave del camino no da shell, sólo el reenvío)",
+                    f"por la consola del invitado se manda UNA línea (base64) que levanta "
+                    f"ssh -R {puerto_local}:127.0.0.1:22 hacia {host_salida}:{puerto_salida}",
+                    "la consola no devuelve código de salida: el guion termina imprimiendo una MARCA "
+                    "y el motor la busca en el eco",
+                ],
+                "porque": (
+                    f"el rol '{invitado['rol']}' es el puesto de control de este lab: hasta que su "
+                    f"túnel no esté en pie no se puede entrar en ningún invitado, así que va antes "
+                    f"de converger nada"
+                ),
+            }
+        )
+
+    pasos.append(
+        {
+            "accion": ACCION_COMPROBAR_CAMINO,
+            "via": "camino",
+            "rol": invitado.get("rol"),
+            "escalon": invitado.get("escalon"),
+            "metodo": None,
+            "ruta": None,
+            "parametros": {
+                "puerto": puerto_local,
+                "salida_host": host_salida,
+                "salida_puerto": puerto_salida,
+                "vmid": invitado["vmid"],
+            },
+            "porque": (
+                f"comprueba la cadena entera: si el puerto {puerto_local} del nodo de control "
+                f"contesta, el camino casa -> {host_salida}:{puerto_salida} -> puesto -> vuelta funciona"
+            ),
+        }
+    )
+    return pasos
 
 
 # ---------------------------------------------------------------------------

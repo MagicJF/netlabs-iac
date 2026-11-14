@@ -691,6 +691,51 @@ comprobar(
 )
 
 # ---------------------------------------------------------------------------
+# Los pasos del camino (§5): el plan los emite, el ejecutor los hace
+# ---------------------------------------------------------------------------
+
+print("\nLOS PASOS DEL CAMINO\n")
+
+CONTROL_CON_VMID = dict(CONTROL, vmid=200, escalon=1)
+pasos_camino = motor.pasos_del_camino(CONTROL_CON_VMID, DECLARACION, {}, PARAMETROS)
+igual(
+    [paso["accion"] for paso in pasos_camino],
+    ["construir_camino", "comprobar_camino"],
+    "sin camino en pie, se construye y se comprueba (en este orden)",
+)
+igual(pasos_camino[0]["via"], "camino", "los dos pasos del camino van por el camino, no por la API")
+igual(
+    pasos_camino[0]["parametros"]["puerto"], 20200,
+    "el puerto del túnel se DERIVA del vmid del puesto: nada que guardar",
+)
+comprobar(
+    len(pasos_camino[0].get("detalle") or []) >= 4,
+    "el paso del camino se explica por piezas (clave, authorized_keys, consola, marca)",
+)
+igual(
+    len(pasos_camino[0]["parametros"]["patas"]), 3,
+    "y lleva sus patas: el puesto nace completo, con todas",
+)
+comprobar(
+    "CLAVE-PRIVADA" not in __import__("json").dumps(pasos_camino).upper(),
+    "el plan NO lleva secretos: la clave del camino se lee al ejecutar, no viaja en el paso",
+)
+igual(
+    [
+        paso["accion"]
+        for paso in motor.pasos_del_camino(
+            CONTROL_CON_VMID, DECLARACION, {"camino": {"responde": True}}, PARAMETROS
+        )
+    ],
+    ["comprobar_camino"],
+    "si el camino YA responde no se reconstruye: sólo se comprueba (que es una lectura)",
+)
+igual(
+    motor.pasos_del_camino(BORDE, DECLARACION, {}, PARAMETROS), [],
+    "un invitado que no es el puesto de control no genera pasos de camino",
+)
+
+# ---------------------------------------------------------------------------
 
 if FALLOS:
     print(f"\nRESULTADO: {len(FALLOS)} fallo(s).")

@@ -110,6 +110,15 @@
     - (pve_estado_fixture | default('') | length) == 0
     - (pve_mundo_error | default('') | length) == 0
 
+# Y AHORA las direcciones que ya usa alguien en el nodo. No es un detalle: el puesto de
+# control necesita una pata en el bridge de gestión del nodo con una dirección LIBRE
+# elegida por el motor (§5), y para elegirla hay que saber cuáles están cogidas.
+- name: "MUNDO · averiguar qué direcciones están en uso en la red del nodo"
+  ansible.builtin.include_tasks: direcciones.yml
+  when:
+    - (pve_estado_fixture | default('') | length) == 0
+    - (pve_mundo_error | default('') | length) == 0
+
 # --- Identidad: siempre, salga el estado de donde salga ---------------------
 - name: "IDENTIDAD · asignar el vmid, el nombre y la MAC de cada rol"
   ansible.builtin.set_fact:

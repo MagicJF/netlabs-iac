@@ -115,29 +115,45 @@ está en los `escalones` de la declaración, y el plan lo respeta (regla 18).
   Medido dentro del invitado: sin `dnsmasq` ni `ethtool` en `/usr/sbin`, y
   `ip link set dev eth0 tx off / gso off / tso off` rechazado por iproute2. El motor los
   instala **en su aparato** (el puesto de control) y escribe la configuración con la
-  reserva derivada del vmid: quedó medido dentro, `dhcp-host=BC:24:11:00:00:6C,10.40.0.11`
-  (el CHR `borde` es el vmid 108), `dnsmasq` escuchando en `eth0:67` y los tres offloads
-  en `off`.
+  reserva derivada del vmid: quedó medido dentro, la reserva del CHR con su MAC derivada y
+  su dirección (el vmid sale del asignador, no se escribe), `dnsmasq` escuchando en
+  `eth0:67` y los tres offloads en `off`.
 - **La segunda pasada del interior no escribe NADA.** El 14-nov-2026, `apply` dos veces
   seguidas: la segunda dejó en el diario del interior **cuatro lecturas y cero
   escrituras**. Es la prueba de la idempotencia que la regla 6 pide, hecha sobre el
   invitado de verdad y no sobre el plan. Costó encontrarla: el motor pedía reescribir el
   fichero del DHCP y recargar el servicio en cada pasada porque no leía el estado del
   servicio ni normalizaba el rango declarado contra el que escribe dnsmasq (ver ADR 0005).
-- **El driver de RouterOS ya lee y decide contra el CHR de verdad; lo que lo para es una
-  ley del propio RouterOS.** El 14-nov-2026, con el `apply` llegando por fin al escalón
-  de `borde`, el diario de la API dejó **once lecturas, todas 200** (identidad, usuarios,
-  claves, direcciones, servicios, cliente DHCP, rutas, servidores DHCP, rangos, redes y
-  concesiones) y el baile de credenciales funcionando: **401** con la clave del motor y
-  **200** con la de fábrica, que es como el driver sabe con cuál converger. La primera
-  escritura es la que pincha: `POST /ip/address/add` con la dirección de gestión que el
-  cliente de fábrica ya tiene puesta devuelve **400 `failure: already have such address`**,
-  y no se puede apagar ese cliente antes porque **se lleva la dirección y con ella el
-  REST** (medido: la escritura llegó, el CHR se quedó sin dirección y la llamada murió sin
-  respuesta a los 34 s; desde el puesto, `ping KO`). El motor para y lo dice, en vez de
-  escribir a ciegas o dejarse un `ignore_errors`: las dos salidas posibles —entrar primero
-  por otra pata declarada, o una dirección temporal derivada— están escritas en el
-  **ADR 0006 §5** y ninguna está implementada a propósito.
+- **La ley de RouterOS se resolvió por el camino que el ADR 0006 §5 tenía escrito: el
+  intercambio lo hace el ROUTER, entero y de una vez.** El driver de RouterOS lee y decide
+  contra el CHR de verdad (identidad, usuarios, claves, direcciones, servicios, cliente DHCP,
+  rutas, servidores/rangos/redes/concesiones) y el baile de credenciales funciona (**401** con
+  la clave del motor, **200** con la de fábrica). La escritura de la dirección de gestión de
+  `borde` pinchaba con **400 `already have such address`** (el cliente de fábrica ya la tiene
+  puesta, y apagarlo antes se lleva la dirección y con ella el REST). El arreglo no fue ni
+  `ignore_errors` ni entrar por otra pata: fue **intercambiar la gestión de sitio** — se entra
+  por `POST /execute` con la dirección nueva (que NO revalida la de gestión, sólo el token) y
+  desde dentro se reescribe el direccionamiento entero, para que el cliente pase a la nueva y
+  la vieja quede libre. Medido el 14-nov-2026: `borde` converge en UNA pasada.
+- **La sonda del escalón va DELANTE del interior, y ésa fue la última pared.** Con la
+  dirección de gestión resuelta, `apply` seguía muriendo al converger el SEGUNDO CHR
+  (`nucleo`, su dirección en `vmb_lan1`) con **`No route to host`**: el plan lo convergía
+  NADA MÁS ARRANCARLO, y un CHR tarda en bootear y en pedir su dirección por DHCP. La pata del
+  puesto de control en esa LAN ya estaba bien (y la dirección reservada, también): el muro era
+  el **tiempo**, no la red. El arreglo es del plan (`tools/plan.py`): `esperar_servicio` se
+  antepone a `pasos_de_convergencia` de cada invitado (orden de arranque), así que sólo se
+  converge lo que ya contesta. Medido el 14-nov-2026: `nucleo` converge.
+- **Un invitado que sólo declara una dirección dinámica NO se entra.** `servidor` y los
+  puestos declaran `config: linux: {}` con `direccion: dhcp`: su única área es una dirección
+  que **se lee del host** (`GET /nodes/<nodo>/lxc/<vmid>/interfaces`, §6.3), no algo que se
+  configure dentro — y además no se sabe a dónde conectar para entrar (un círculo). El motor
+  no entra a ciegas (regla 16), así que no se emite paso para él. Un `dhcp` **con** áreas que
+  pidan entrar lo caza la validación antes de tocar nada.
+- **El ciclo completo, verde y en UNA pasada (14-nov-2026, contra el VPS).**
+  `destroy --yes` → `apply` → `verify` dio **«verificación CORRECTA: 6 invitados existen,
+  coinciden y están arrancados»** (`logs/verify-*.json`), con `./lab check` en verde. La
+  **segunda** pasada de `apply` no cambia el mundo: el diario de la API queda **sólo con
+  `GET`** y el del interior **sin una sola escritura** (regla 6).
 - **Dos trampas del transporte, las dos medidas, y las dos dan «timeout» en vez de error.**
   Un GET con `body_format: json` (aunque el cuerpo se omita) deja al CHR **sin contestar**,
   y el disco de la VM en `scsi0` deja al equipo **sin arrancar** (SeaBIOS: `Load system /
@@ -149,9 +165,8 @@ está en los `escalones` de la declaración, y el plan lo respeta (regla 18).
 - **El orden de las áreas lo manda el motor, no el lab.** `AREAS` (`interior.py`) pone
   `direcciones` antes de `cliente_dhcp` justo por eso, y `test/test_routeros.py` compara la
   lista de operaciones entera para que nadie lo deshaga sin enterarse.
-- **Lo que falta, dicho en voz alta.** El `apply` para hoy en la escritura de la dirección
-  de gestión de `borde` (la ley de arriba, con su decisión pendiente en el ADR 0006 §5); la
-  **sonda** que comprueba que un escalón sirve antes de tocar el siguiente tampoco está. Los
-  escalones 2 y 3 quedan **parados** en el hipervisor, que es exactamente la barrera que el
-  lab quiere demostrar: no se arranca lo siguiente hasta que lo anterior esté convergido y
-  sirviendo.
+- **Lo que queda, dicho en voz alta.** `verify` todavía NO comprueba el interior (no entra
+  a leer las áreas para cotejarlas): verifica el mundo de la API. La comprobación de un
+  invitado dinámico por el host y sus concesiones (§6.3) y la del interior por áreas (§11)
+  son el tramo siguiente; el ciclo verde de hoy lo es sin ellas, y eso se dice, no se
+  maquilla.

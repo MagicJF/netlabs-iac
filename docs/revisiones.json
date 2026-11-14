@@ -26,6 +26,14 @@
       "deployment_engine/vars/engine.yml": "b54e16305a2cbc2f5992ed91948bf65a86788c73e4e22393e3257382d8c763ce"
     }
   },
+  "docs/camino-del-puesto-de-control.md": {
+    "citados": {
+      "deployment_engine/tasks/camino.yml": "13214e99de0a1caebbaec102aaf0ce3d10590a3ee2f396f9adf82d7a587850ae",
+      "deployment_engine/tasks/camino_consola.yml": "b57884ee2ec84f1f4183b732a6abf43b49b99a8b714aa544619cef16fee32e91",
+      "deployment_engine/tasks/camino_mundo.yml": "372948c92a288246149e1203b5032d0602dc4a410ee1b2fb78dd1ce4ee879255",
+      "deployment_engine/tools/consola.py": "0b4a81b1bc9f9e08090382fba4125b3325f3f42511572beb882c2831218afc65"
+    }
+  },
   "docs/decisiones/0001-solo-api-de-proxmox.md": {
     "citados": {
       "deployment_engine/tasks/pve_api.yml": "b9d61716521edcced9db80c37854a2d6c922ef48c0ffc46cd2715ba9e7117c56"
@@ -58,6 +66,12 @@
     "citados": {
       "deployment_engine/filter_plugins/interior.py": "00b1fae767dd1a9ad466e5097a1134aa895c563050f2201b4c1e1e1e1948bc27",
       "deployment_engine/tasks/ros_api.yml": "2d9f36b5d60792a6f20d91a7ea7eb38226bd0da7a9e18b5b55ebeb0bfcee15a8"
+    }
+  },
+  "docs/decisiones/0008-una-direccion-por-pata.md": {
+    "citados": {
+      "deployment_engine/filter_plugins/interior.py": "8ae0b9975abe0aafc019b22f186f2690a28578aada128d54b9e245f259f05238",
+      "deployment_engine/tools/plan.py": "e75be629421c13555f05e3f20f080a6851885258d28a82f5af648951ae2d1c1b"
     }
   },
   "labs/ejemplo-topologia/ejemplo-topologia.md": {

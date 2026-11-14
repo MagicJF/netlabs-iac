@@ -5,9 +5,9 @@
 #              ninguna MAC: los deriva el motor (regla 4.8). El nombre tiene que
 #              coincidir con el de la carpeta, porque el pool de Proxmox se llama
 #              como la carpeta y es la frontera de propiedad.
-# LÍMITES:     declarar el interior de los invitados (sistema operativo, DHCP, VPN)
-#              está fuera de alcance: este motor despliega, no configura. El
-#              interior del conmutador no se toca.
+# LÍMITES:     este lab no declara `config:` (el motor SÍ sabe configurar el interior
+#              --vocabulario de la fase 2, `config:` e `imagen:`--, y lo ejerce el lab
+#              de aceptación). El interior del conmutador no se toca.
 # VER:         labs/ejemplo-topologia/ejemplo-topologia.md; README.md §Identidad
 
 # ---------------------------------------------------------------------------

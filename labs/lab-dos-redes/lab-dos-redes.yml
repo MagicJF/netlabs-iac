@@ -9,14 +9,14 @@
 #              ninguna MAC: los deriva el motor (regla 4.8). El nombre tiene que
 #              coincidir con el de la carpeta, porque el pool de Proxmox se llama
 #              como la carpeta y es la frontera de propiedad.
-# LÍMITES:     cada invitado declara UN bridge y UNA dirección, así que este lab NO
-#              puede declarar un cortafuegos con una pata en cada red: la
-#              interconexión entre las dos redes no se declara (ver «Un límite que
-#              se ve al leer la topología» en el documento del lab). Y el interior
-#              de los invitados (sistema operativo, direccionamiento estático,
-#              DHCP) está fuera de alcance: este motor despliega, no configura.
-#              `disco` se declara y se valida, pero la API no recibe todavía
-#              ninguna orden de disco (límite escrito en tools/plan.py).
+# LÍMITES:     ESTE lab declara un bridge y una dirección por invitado, así que no
+#              declara un cortafuegos con una pata en cada red (ver «Un límite que se
+#              ve al leer la topología» en el documento del lab). No es un límite del
+#              motor: el esquema admite varias patas por invitado (`bridges:` como
+#              lista) y el lab de aceptación las usa. Tampoco declara `config:`; el
+#              motor SÍ sabe configurar el interior (vocabulario de la fase 2), y lo
+#              ejerce ese lab de aceptación. `disco` se declara y se valida, pero la
+#              API no recibe todavía ninguna orden de disco (límite en tools/plan.py).
 # VER:         labs/lab-dos-redes/lab-dos-redes.md; README.md §Identidad
 #
 # QUÉ HAY QUE SUSTITUIR PARA LLEVARLO A UN PROXMOX REAL

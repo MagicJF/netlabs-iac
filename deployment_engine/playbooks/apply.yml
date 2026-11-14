@@ -133,3 +133,4 @@
 # haber dos formas de verificar.
 - name: "APPLY · verificación final del mismo verify.yml"
   ansible.builtin.import_playbook: verify.yml
+

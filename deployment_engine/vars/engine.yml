@@ -62,42 +62,59 @@ engine_plantilla_comentario_bridge: "lab={lab} gestionado por netlabs_v4_b"
 engine_timeout_api: 30
 
 # --- Privilegios: lo que el motor EXIGE y lo que VEDA ---------------------
-# No son valores del entorno: son la lista de lo que el motor necesita hacer y de
-# lo que nunca debe poder hacer. `pve_rol` (en secrets.yml) es el rol del token;
-# `preflight` lee lo que ese rol tiene concedido y lo compara con estas dos
-# listas, y además hace sobre él la OPERACIÓN NULA (PUT con la misma lista de
-# privilegios) exigiendo un 403: un mínimo privilegio que no se prueba es una
-# intención. El detalle de por qué cada privilegio está donde está, en
-# docs/decisiones/0004.
+# No son valores del entorno: son la lista de lo que el motor necesita hacer y de lo
+# que nunca debe poder hacer. Van POR ROL, y un rol por RUTA: conceder un solo rol en
+# cinco rutas da la UNIÓN de todo en todas partes (medido: así estaba el nodo, y en
+# `/vms` el token tenía además `Sys.Modify` y `Datastore.AllocateSpace`, que no pinta
+# nada ahí). `guardia_privilegios.yml` lee lo que el nodo tiene concedido y lo compara
+# con este mapa, rol a rol, y además hace sobre CADA rol la OPERACIÓN NULA (PUT con la
+# misma lista de privilegios) exigiendo un 403: un mínimo privilegio que no se prueba
+# es una intención. El detalle de por qué cada privilegio está donde está, y los
+# comandos `pveum` que crean esto, en docs/decisiones/0004.
 #
-# `VM.Console` está en la lista porque el motor entra UNA vez por la consola de
-# un invitado para poner en marcha el camino (ver §El camino). Sin él, el motor
-# no puede salir de casa hacia la red del lab.
-engine_privilegios_exigidos:
-  - VM.Allocate
-  - VM.Config.CDROM
-  - VM.Config.CPU
-  - VM.Config.Cloudinit
-  - VM.Config.Disk
-  - VM.Config.HWType
-  - VM.Config.Memory
-  - VM.Config.Network
-  - VM.Config.Options
-  - VM.PowerMgmt
-  - VM.Audit
-  - VM.Snapshot
-  - VM.Snapshot.Rollback
-  - VM.Backup
-  - VM.Console
-  - Pool.Allocate
-  - Pool.Audit
-  - Sys.Modify
-  - Sys.Audit
-  - Datastore.AllocateSpace
-  - Datastore.AllocateTemplate
-  - Datastore.Audit
-  - SDN.Use
-  - SDN.Audit
+# Los NOMBRES de los roles son los del nodo; si el operador los llama de otro modo, se
+# cambian aquí (una línea) y en las ACLs del nodo. El motor no los concede: los vigila.
+#
+# `VM.Console` está en el rol de `/vms` porque el motor entra UNA vez por la consola de
+# un invitado para poner en marcha el camino (§El camino). Sin él, el motor no puede
+# salir de casa hacia la red del lab; con él, root dentro de un invitado Linux es root
+# DENTRO de ese invitado -- y por eso todo invitado nace `unprivileged` (check
+# `privilegios`).
+engine_privilegios_por_rol:
+  # Crear, configurar, arrancar, copiar y ENTRAR POR CONSOLA (dentro de un invitado).
+  NetlabsMotorVms:
+    - VM.Allocate
+    - VM.Config.CDROM
+    - VM.Config.CPU
+    - VM.Config.Cloudinit
+    - VM.Config.Disk
+    - VM.Config.HWType
+    - VM.Config.Memory
+    - VM.Config.Network
+    - VM.Config.Options
+    - VM.PowerMgmt
+    - VM.Audit
+    - VM.Snapshot
+    - VM.Snapshot.Rollback
+    - VM.Backup
+    - VM.Console
+  # El pool es la frontera de propiedad del lab (regla: el pool se llama como el lab).
+  NetlabsMotorPool:
+    - Pool.Allocate
+    - Pool.Audit
+  # Los bridges del nodo y su red: `Sys.Modify` AQUÍ, nunca en `/`.
+  NetlabsMotorNodo:
+    - Sys.Modify
+    - Sys.Audit
+  # Los discos (y, en el roadmap, la plantilla del aparato).
+  NetlabsMotorAlmacen:
+    - Datastore.AllocateSpace
+    - Datastore.AllocateTemplate
+    - Datastore.Audit
+  # Las redes virtuales que ya se usan.
+  NetlabsMotorSdn:
+    - SDN.Use
+    - SDN.Audit
 
 # Lo que el token del motor NO puede tener. `Sys.Modify` sobre la ruta de
 # administración de permisos es el importante: con él, el token reescribe su propio

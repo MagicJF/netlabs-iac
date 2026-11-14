@@ -1,0 +1,64 @@
+---
+# PROPÓSITO:   la operación NULA sobre UN rol del motor: `PUT /access/roles/<rol>`
+#              con la MISMA lista de privilegios que el rol ya tiene. No cambia
+#              nada si se permite; por eso es la prueba: si responde 200, el token
+#              puede reescribir su propio rol y darse lo que quiera en la siguiente
+#              llamada. Se espera 403, y eso es lo que se afirma aquí.
+#
+#              Fichero aparte de `guardia_privilegios.yml` por una razón de Ansible,
+#              no de diseño: el `loop` va sobre `include_tasks`, y el cuerpo de un
+#              bucle (con su `assert`) tiene que estar en un fichero.
+#
+# INVARIANTES: el cuerpo que se manda es EXACTAMENTE el que el rol ya tiene (sale de
+#              vars/engine.yml, que es lo que la guarda acaba de comparar contra el
+#              nodo): así, si algún día esto devolviera 200, no habría cambiado nada
+#              -- y aun así sería un fallo, porque abriría la puerta a cambiarlo.
+# LÍMITES:     es una petición de ESCRITURA que se espera PROHIBIDA. Si el nodo
+#              respondiera 5xx en vez de 403, esto no se da por bueno: un fallo del
+#              nodo no es una garantía.
+# VER:         docs/decisiones/0004-*.md; tasks/guardia_privilegios.yml
+
+# `pve_api_tolerar_error` porque un 403 aquí NO es un fallo de la puerta: es
+# EXACTAMENTE lo que se espera, y hay que poder diarizarlo y decidirlo en la tarea
+# siguiente.
+- name: "PRIVILEGIOS · operación nula sobre «{{ pve_rol_vigilado }}» (debe ser 403)"
+  ansible.builtin.include_tasks: pve_api.yml
+  vars:
+    pve_api_metodo: "PUT"
+    pve_api_ruta: "/access/roles/{{ pve_rol_vigilado }}"
+    pve_api_cuerpo:
+      privs: "{{ engine_privilegios_por_rol[pve_rol_vigilado] | join(',') }}"
+    pve_api_etiqueta: "guarda de mínimos privilegios: operación NULA sobre {{ pve_rol_vigilado }}"
+    pve_api_tolerar_error: true
+
+- name: "PRIVILEGIOS · el token NO puede reescribir su rol «{{ pve_rol_vigilado }}»"
+  ansible.builtin.assert:
+    that: pve_api_ultimo_status | int == 403
+    quiet: true
+    fail_msg: |
+      El token «{{ pve_token_id }}» HA PODIDO reescribir su rol
+      «{{ pve_rol_vigilado }}»: la operación NULA respondió
+      {{ pve_api_ultimo_status }} en vez de 403.
+
+      Eso significa que los mínimos privilegios no están puestos: con esa misma
+      llamada, y sólo cambiando la lista, el token puede darse `VM.Console`,
+      `Sys.Console` o `Permissions.Modify`.
+
+      La causa es casi siempre la misma: una ACL en `/` (o en `/access`) que
+      propaga `Sys.Modify` hasta los roles. Lo que hay que hacer, UNA vez, en el
+      nodo -- quitarla de donde propague y dejarla POR RUTA:
+
+        pveum acl list | grep {{ pve_token_id }}
+        pveum acl delete <la ruta que propaga: `/` o `/access`> --roles <ese rol> \
+              --tokens {{ pve_token_id }}
+        pveum acl delete <la ruta que propaga: `/` o `/access`> --roles <ese rol> \
+              --users {{ pve_token_id.split('!') | first }}
+
+      Nota medida en Proxmox VE 9.2: con `privsep=1` los privilegios efectivos del
+      token son la INTERSECCIÓN de los suyos y los de su usuario dueño, así que la
+      ACL hay que darla a los DOS (y quitarla también a los dos). Las rutas, los
+      privilegios exactos y por qué cada uno está donde está, en
+      docs/decisiones/0004-*.md.
+    success_msg: >-
+      PRIVILEGIOS · «{{ pve_rol_vigilado }}»: la operación nula respondió 403, el
+      token no puede reescribirlo.

@@ -1,106 +1,69 @@
 ---
 # PROPÓSITO:   LA GUARDA DE MÍNIMOS PRIVILEGIOS. Comprueba que el token del motor
-#              tiene EXACTAMENTE lo que necesita y NO tiene lo que podría usar
-#              para darse más. Un mínimo privilegio que no se prueba es una
-#              intención: por eso esto no es prosa, es una llamada.
+#              tiene EXACTAMENTE lo que necesita, repartido por ruta, y NO tiene lo
+#              que podría usar para darse más. Un mínimo privilegio que no se
+#              prueba es una intención: por eso esto no es prosa, es una llamada.
 #
 #              Son dos comprobaciones, y las dos son necesarias:
-#                1. LÓGICA: lo que el rol tiene concedido (GET /access/roles/<rol>)
-#                   contra lo que el motor exige y lo que veda (vars/engine.yml).
-#                2. NEGATIVA (la que de verdad prueba): la OPERACIÓN NULA sobre su
-#                   propio rol -- PUT /access/roles/<el suyo> con la MISMA lista de
-#                   privilegios que ya tiene -- DEBE responder 403. Es nula porque
-#                   no cambia nada si se permite; y es la prueba porque, si el
-#                   token pudiera hacerla, podría hacer la siguiente con otra lista
-#                   y concederse `VM.Console`, `Sys.Console` o `Permissions.Modify`
-#                   en una sola llamada.
+#                1. LÓGICA: lo que el nodo tiene concedido en cada rol del motor
+#                   (`GET /access/roles`, una sola lectura) contra el mapa del
+#                   motor (vars/engine.yml: un rol por RUTA). Se compara rol a rol
+#                   -- y no contra la unión -- porque un solo rol concedido en
+#                   cinco rutas da la UNIÓN de todo en todas partes: lo medimos
+#                   así en el nodo, con `Sys.Modify` y `Datastore.AllocateSpace`
+#                   metidos en la ruta de `/vms`, donde no pintan nada.
+#                2. NEGATIVA (la que de verdad prueba): la OPERACIÓN NULA sobre
+#                   CADA rol -- `PUT /access/roles/<el suyo>` con la MISMA lista
+#                   de privilegios que ya tiene -- DEBE responder 403. Es nula
+#                   porque no cambia nada si se permite; y es la prueba porque,
+#                   si el token pudiera hacerla, podría hacer la siguiente con
+#                   otra lista y concederse `VM.Console`, `Sys.Console` o
+#                   `Permissions.Modify` en una sola llamada.
 #
 # INVARIANTES: este fichero es el ÚNICO del motor autorizado a hablar con
 #              `/access/...` (regla 12), y lo incluye SÓLO `preflight`. No
 #              concede NADA: lee y hace una operación que no cambia nada. El motor
 #              no se auto-concede privilegios jamás (regla 16).
-# LÍMITES:     esto prueba que el token no puede reescribir SU rol. No prueba nada
-#              sobre lo que otro administrador pueda hacer con el nodo, ni sobre
-#              las ACLs de otras rutas: lee las del token y las compara.
+# LÍMITES:     prueba que el token no puede reescribir NINGUNO de sus roles, y que
+#              lo concedido coincide con lo exigido. No prueba nada sobre lo que
+#              otro administrador pueda hacer en el nodo, ni sobre las ACLs de
+#              rutas que el motor no declara.
 # VER:         docs/decisiones/0004-*.md; ./lab check privilegios; ./lab preflight
 
-- name: "PRIVILEGIOS · leer lo que tiene concedido el rol {{ pve_rol }}"
+- name: "PRIVILEGIOS · leer los roles del nodo (una sola lectura: GET /access/roles)"
   ansible.builtin.include_tasks: pve_api.yml
   vars:
     pve_api_metodo: "GET"
-    pve_api_ruta: "/access/roles/{{ pve_rol }}"
-    pve_api_etiqueta: "guarda de mínimos privilegios: leer el rol del motor"
-  # Si el rol no existe o no se puede leer, la API responde 4xx y la puerta para:
-  # un rol ilegible no se puede comprobar, así que no se da por bueno.
+    pve_api_ruta: "/access/roles"
+    pve_api_etiqueta: "guarda de mínimos privilegios: leer los roles del nodo"
 
-- name: "PRIVILEGIOS · comparar lo concedido con lo exigido y lo vedado"
+- name: "PRIVILEGIOS · comparar rol a rol con lo exigido y lo vedado"
   ansible.builtin.set_fact:
     pve_privilegios: >-
       {{ pve_api_ultimo_datos
-         | estado_privilegios(engine_privilegios_exigidos, engine_privilegios_vedados) }}
+         | estado_privilegios_roles(engine_privilegios_por_rol, engine_privilegios_vedados) }}
 
-- name: "PRIVILEGIOS · el rol tiene lo que el motor exige y nada de lo que veda"
+- name: "PRIVILEGIOS · cada rol del motor tiene lo suyo, y nada vedado ni de otra ruta"
   ansible.builtin.assert:
     that: pve_privilegios.ok
     quiet: true
     fail_msg: |
-      Los privilegios del rol «{{ pve_rol }}» NO son los mínimos que el motor
-      necesita ({{ pve_token_id }}):
+      Los privilegios de los roles del motor ({{ pve_token_id }}) NO son los
+      mínimos que el motor necesita:
 
       {{ pve_privilegios.texto }}
 
-      Es un cambio de UNA vez, en el hipervisor:
-
-        pveum role modify {{ pve_rol }} -privs "<la lista de engine_privilegios_exigidos>"
-
-      y, si sobra alguno de los vedados, quítalo de esa misma lista. La lista
-      exacta de lo que se concede, y por qué, está en docs/decisiones/0004-*.md.
-      No se afloja la lista para que pase: se corrige el rol.
+      Es un cambio de UNA vez, en el hipervisor, y va por RUTA (nunca en `/`, que
+      propaga y da a todas partes lo de una). Lo que el motor exige, con su porqué,
+      está en vars/engine.yml y en docs/decisiones/0004-*.md. No se afloja la lista
+      para que pase: se corrige el rol.
     success_msg: "  {{ pve_privilegios.texto | replace('\n', '\n  ') }}"
 
-# La operación nula. `pve_api_tolerar_error` porque un 403 aquí NO es un fallo de
-# la puerta: es EXACTAMENTE lo que se espera, y hay que poder diarizarlo y
-# decidirlo en la tarea siguiente.
-- name: "PRIVILEGIOS · operación nula sobre el propio rol (debe ser 403)"
-  ansible.builtin.include_tasks: pve_api.yml
-  vars:
-    pve_api_metodo: "PUT"
-    pve_api_ruta: "/access/roles/{{ pve_rol }}"
-    pve_api_cuerpo:
-      privs: "{{ pve_privilegios.concedidos | join(',') }}"
-    pve_api_etiqueta: "guarda de mínimos privilegios: operación NULA sobre el propio rol"
-    pve_api_tolerar_error: true
-
-- name: "PRIVILEGIOS · el token NO puede reescribir su propio rol"
-  ansible.builtin.assert:
-    that: pve_api_ultimo_status | int == 403
-    quiet: true
-    fail_msg: |
-      El token «{{ pve_token_id }}» HA PODIDO reescribir su propio rol: la
-      operación NULA sobre «{{ pve_rol }}» respondió {{ pve_api_ultimo_status }}
-      en vez de 403.
-
-      Eso significa que los mínimos privilegios no están puestos: con esa misma
-      llamada, y sólo cambiando la lista, el token puede darse
-      `VM.Console`, `Sys.Console` o `Permissions.Modify`.
-
-      La causa es casi siempre la misma: una ACL en `/` que propaga
-      `Sys.Modify` hasta `/access`. Lo que hay que hacer, UNA vez, en el nodo:
-
-        pveum acl delete / --roles {{ pve_rol }} --tokens {{ pve_token_id }}
-        pveum acl delete / --roles {{ pve_rol }} --users {{ pve_token_id | split('!') | first }}
-
-      y concederlo POR RUTA (nunca en `/`):
-
-        pveum acl modify /vms            --roles {{ pve_rol }} --tokens {{ pve_token_id }} --users <usuario> --propagate 1
-        pveum acl modify /pool           --roles {{ pve_rol }} --tokens {{ pve_token_id }} --users <usuario> --propagate 1
-        pveum acl modify /storage        --roles {{ pve_rol }} --tokens {{ pve_token_id }} --users <usuario> --propagate 1
-        pveum acl modify /sdn            --roles {{ pve_rol }} --tokens {{ pve_token_id }} --users <usuario> --propagate 1
-        pveum acl modify /nodes/{{ pve_nombre_nodo }} --roles {{ pve_rol }} --tokens {{ pve_token_id }} --users <usuario> --propagate 1
-
-      Nota medida en Proxmox VE 9.2: con `privsep=1` los privilegios efectivos del
-      token son la INTERSECCIÓN de los suyos y los de su usuario dueño, así que la
-      ACL hay que darla a los DOS.
-
-      Las rutas y los privilegios exactos están en docs/decisiones/0004-*.md.
-    success_msg: "  La operación nula sobre «{{ pve_rol }}» respondió 403: el token no puede reescribir su propio rol."
+# La operación nula, sobre CADA rol del motor. En un fichero aparte porque un `loop`
+# necesita un cuerpo: el bucle no puede llevar el `assert` dentro si no es así.
+- name: "PRIVILEGIOS · operación nula sobre cada rol del motor (todas deben ser 403)"
+  ansible.builtin.include_tasks: guardia_privilegios_rol.yml
+  loop: "{{ engine_privilegios_por_rol.keys() | list }}"
+  loop_control:
+    loop_var: pve_rol_vigilado
+    label: "{{ pve_rol_vigilado }}"

@@ -723,6 +723,83 @@ def estado_invitados_privilegiados(estado):
     return privilegiados
 
 
+def estado_privilegios_roles(roles_leidos, por_rol, vedados):
+    """Compara los roles del nodo con lo que el motor exige, **rol a rol**.
+
+    `roles_leidos` es lo que devuelve `GET /access/roles`: una lista de
+    `{roleid, privs}` (la `privs` viene como cadena separada por comas). `por_rol`
+    es el mapa del motor (vars/engine.yml: un rol por RUTA, con los privilegios de
+    esa ruta) y `vedados` es lo que el motor no puede tener en ninguna.
+
+    Se compara por rol y no contra la unión de todo: un solo rol concedido en cinco
+    rutas da la UNIÓN en todas partes, y eso es lo que hay que cazar -- «lo tiene,
+    pero donde no debe» es tan grave como «no lo tiene».
+
+    Devuelve `{ok, faltan, sobran, ausentes, texto}`. `ausentes` son los roles que el
+    motor espera y el nodo no tiene: eso también es un fallo, y con nombre.
+    """
+    def _lista(valor):
+        if valor is None:
+            return []
+        if isinstance(valor, str):
+            return sorted(p.strip() for p in valor.split(",") if p.strip())
+        if isinstance(valor, dict):
+            return sorted(str(p).strip() for p in valor if str(p).strip())
+        return sorted(str(p).strip() for p in valor if str(p).strip())
+
+    esperados = {str(rol): _lista(privs) for rol, privs in (por_rol or {}).items()}
+    no_permitidos = set(_lista(vedados))
+
+    en_el_nodo = {}
+    for rol in roles_leidos or []:
+        if isinstance(rol, dict):
+            en_el_nodo[str(rol.get("roleid"))] = _lista(rol.get("privs"))
+
+    faltan, sobran, ausentes = {}, {}, []
+    for rol, exigidos in esperados.items():
+        if rol not in en_el_nodo:
+            ausentes.append(rol)
+            continue
+        concedidos = set(en_el_nodo[rol])
+        if set(exigidos) - concedidos:
+            faltan[rol] = sorted(set(exigidos) - concedidos)
+        # Sobran DOS cosas: lo vedado y lo que es de otra ruta. Lo segundo se ve
+        # porque el rol de una ruta no debe tener privilegios que sólo otra ruta
+        # declara (p. ej. `Sys.Modify` en el rol de `/vms`).
+        de_otras_rutas = set().union(*[set(v) for k, v in esperados.items() if k != rol]) \
+            if len(esperados) > 1 else set()
+        de_mas = (concedidos & no_permitidos) | (concedidos - set(exigidos) - de_otras_rutas)
+        if de_mas:
+            sobran[rol] = sorted(de_mas)
+        # Y `de_otras_rutas` en el rol equivocado también sobra: en su ruta propia
+        # falta y aquí está de más.
+        mal_colocados = sorted((concedidos & de_otras_rutas) - set(exigidos))
+        if mal_colocados:
+            sobran[rol] = sorted(set(sobran.get(rol, [])) | set(mal_colocados))
+
+    lineas = [
+        f"El motor exige {len(esperados)} rol(es), uno por ruta: {', '.join(sorted(esperados))}.",
+    ]
+    for rol in sorted(ausentes):
+        lineas.append(f"  FALTA EL ROL «{rol}»: el nodo no lo tiene (esperado: {len(esperados[rol])} privilegio(s)).")
+    for rol in sorted(faltan):
+        lineas.append(f"  A «{rol}» le FALTAN: {', '.join(faltan[rol])}")
+    for rol in sorted(sobran):
+        lineas.append(f"  A «{rol}» le SOBRAN: {', '.join(sobran[rol])}")
+
+    ok = not ausentes and not faltan and not sobran
+    if ok:
+        lineas.append("  Cada rol tiene lo suyo y nada de lo vedado, ni lo de otra ruta.")
+
+    return {
+        "ok": ok,
+        "faltan": faltan,
+        "sobran": sobran,
+        "ausentes": ausentes,
+        "texto": "\n".join(lineas),
+    }
+
+
 class FilterModule:
     """Filtros que Ansible ve como `| estado_desde_api`, `| estado_verificar`…"""
     def filters(self):
@@ -730,6 +807,7 @@ class FilterModule:
             "estado_vacio": estado_vacio,
             "estado_normalizar": estado_normalizar,
             "estado_desde_api": estado_desde_api,
+            "estado_privilegios_roles": estado_privilegios_roles,
             "estado_con_direcciones": estado_con_direcciones,
             "pve_contenedores_cluster": pve_contenedores_cluster,
             "estado_resumen": estado_resumen,

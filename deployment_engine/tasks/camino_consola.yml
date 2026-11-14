@@ -121,8 +121,10 @@
       {% if camino_consola_rc | int == 1 and '403' in (camino_consola_resultado.motivo | default('')) %}
       La API respondió 403 al pedir el billete de consola: al token le falta `VM.Console`
       sobre /vms. Lo que hay que hacer, UNA vez, en el nodo:
-        pveum acl modify /vms --roles {{ pve_rol | default('MotorNetlabs') }} --tokens <el-token> --propagate 1
-        pveum acl modify /vms --roles {{ pve_rol | default('MotorNetlabs') }} --users <el-usuario> --propagate 1
+        pveum acl modify /vms --roles {{ engine_privilegios_por_rol.keys() | list | first }} \
+              --tokens {{ pve_token_id }} --propagate 1
+        pveum acl modify /vms --roles {{ engine_privilegios_por_rol.keys() | list | first }} \
+              --users {{ pve_token_id.split('!') | first }} --propagate 1
       El motor no se concede privilegios a sí mismo: los pide y para.
       {% else %}
       El detalle está en {{ pve_carpeta_logs }}/camino.jsonl (campo `eco`).

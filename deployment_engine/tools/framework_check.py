@@ -433,7 +433,14 @@ def check_puerta():
 # seguir siendo estricto sin excluirse a sí mismo.
 _GUARDA = "guardia_privilegios"
 _YML = ".yml"
-GUARDA_PRIVILEGIOS = "deployment_engine/tasks/" + _GUARDA + _YML
+# La guarda son DOS ficheros, y no es un capricho: la operación nula se hace UNA vez
+# por rol (cinco), y en Ansible el cuerpo de un `loop` sobre `include_tasks` tiene que
+# estar en un fichero propio. Los dos son la guarda, los dos sólo los incluye
+# `preflight`, y ninguno concede nada.
+GUARDA_PRIVILEGIOS = tuple(
+    "deployment_engine/tasks/" + nombre + _YML for nombre in (_GUARDA, _GUARDA + "_rol")
+)
+TEXTO_GUARDA = " y ".join(GUARDA_PRIVILEGIOS)
 # Y ese fichero sólo puede incluirlo `preflight`: un verbo que escribe nunca debe
 # llevar la guarda (no es una comprobación: es una lectura más una escritura nula,
 # y dejaría el diario de un apply con una escritura que no converge).
@@ -464,6 +471,22 @@ def _ficheros_del_motor():
     return rutas
 
 
+def _incluye_la_guarda(texto):
+    """¿Este fichero INCLUYE la guarda de privilegios (no sólo la nombra)?
+
+    En un `.yml` no vale cualquier mención: incluir un fichero de tareas es un acto
+    con una forma concreta -- `include_tasks:` o `import_tasks:`, las dos únicas
+    maneras que tiene Ansible de traerlo --, así que se mira esa forma. Un
+    comentario que nombre el fichero no lo está incluyendo, y una regla que no
+    distinguiera las dos cosas obligaría a escribir la prosa en clave.
+    """
+    for linea in texto.splitlines():
+        if "include_tasks:" in linea or "import_tasks:" in linea:
+            if (_GUARDA + _YML) in linea or (_GUARDA + "_rol" + _YML) in linea:
+                return True
+    return False
+
+
 def _menciona_access(texto, es_python):
     """¿Este texto llama (o podría llamar) a la API de permisos?"""
     if not es_python:
@@ -474,9 +497,10 @@ def _menciona_access(texto, es_python):
 def check_privilegios():
     """Dos afirmaciones, las dos comprobables, sobre los privilegios.
 
-    1. El motor NO concede privilegios: `/access/` sólo aparece en la guarda, y la
-       guarda sólo la incluye `preflight`. Tampoco construye invitados que escapen
-       del invitado (claves crudas de LXC, dispositivos).
+    1. El motor NO concede privilegios: `/access/` sólo aparece en la guarda (sus dos
+       ficheros), y la guarda sólo la incluye `preflight`. Tampoco construye invitados
+       que escapen del invitado (claves crudas de LXC, dispositivos), ni declarados
+       privilegiados.
     2. El motor SÍ detecta un invitado privilegiado: se llama a la función que lo
        lee y se comprueba con un caso que DEBE dar positivo. Una comprobación que
        no se prueba con un caso malo no prueba nada.
@@ -486,9 +510,9 @@ def check_privilegios():
         relativo = _relativo(ruta)
         texto = _leer(ruta)
         es_python = ruta.endswith(".py")
-        if _menciona_access(texto, es_python) and relativo != GUARDA_PRIVILEGIOS:
+        if _menciona_access(texto, es_python) and relativo not in GUARDA_PRIVILEGIOS:
             fallos.append(
-                f"{relativo}: habla con {RUTA_ACCESS}, y sólo puede hacerlo {GUARDA_PRIVILEGIOS}"
+                f"{relativo}: habla con {RUTA_ACCESS}, y sólo puede hacerlo {TEXTO_GUARDA}"
             )
         # Las comillas se quitan antes de buscar: la misma afirmación se escribe con
         # comillas alrededor del nombre en un diccionario Python y sin ellas en un
@@ -501,9 +525,9 @@ def check_privilegios():
     # La guarda sólo se incluye desde preflight.
     for ruta in _ficheros_del_motor():
         relativo = _relativo(ruta)
-        if relativo == GUARDA_PRIVILEGIOS:
+        if relativo in GUARDA_PRIVILEGIOS:
             continue
-        if (_GUARDA + _YML) in _leer(ruta) and relativo != UNICO_QUE_INCLUYE_LA_GUARDA:
+        if _incluye_la_guarda(_leer(ruta)) and relativo != UNICO_QUE_INCLUYE_LA_GUARDA:
             fallos.append(
                 f"{relativo}: incluye la guarda de privilegios, y sólo puede hacerlo "
                 f"{UNICO_QUE_INCLUYE_LA_GUARDA}"

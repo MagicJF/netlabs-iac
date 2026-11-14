@@ -1,0 +1,67 @@
+PLAN del lab 'ejemplo-topologia'
+============================================================
+
+Identidad asignada por el motor (no declarada, no guardada):
+  escalón 1  qemu  rol=switch           vmid=100    mac=BC:24:11:00:00:64  nuevo
+  escalón 2  lxc   rol=workstation-1    vmid=101    mac=BC:24:11:00:00:65  nuevo
+  escalón 2  lxc   rol=workstation-2    vmid=102    mac=BC:24:11:00:00:66  nuevo
+
+Llamadas REST que se harían, en orden (9):
+
+   1. POST /pools
+      comment = topología gestionada por netlabs_v4_b (motor por API)
+      poolid = ejemplo-topologia
+      porque: no existe el pool 'ejemplo-topologia': es la frontera de propiedad del lab
+
+   2. POST /nodes/nodo-simulado/network
+      autostart = 1
+      comments = lab=ejemplo-topologia gestionado por netlabs_v4_b
+      iface = vmb_ejemplo
+      type = bridge
+      porque: el bridge 'vmb_ejemplo' no existe en el nodo nodo-simulado: se crea y se marca como de este lab, para que `destroy` pueda borrarlo después
+
+   3. PUT  /nodes/nodo-simulado/network
+      porque: un bridge nuevo no entra en vigor hasta recargar la red del nodo
+
+   4. POST /nodes/nodo-simulado/qemu
+      cores = 2
+      description = lab=ejemplo-topologia rol=switch gestionado por netlabs_v4_b
+      memory = 512
+      name = ejemplo-topologia-switch
+      net0 = virtio=BC:24:11:00:00:64,bridge=vmb_ejemplo
+      pool = ejemplo-topologia
+      vmid = 100
+      porque: el rol 'switch' no está desplegado: se crea con el vmid 100 (el menor libre del clúster)
+
+   5. POST /nodes/nodo-simulado/lxc
+      cores = 1
+      description = lab=ejemplo-topologia rol=workstation-1 gestionado por netlabs_v4_b
+      hostname = ejemplo-topologia-workstation-1
+      memory = 256
+      net0 = name=eth0,bridge=vmb_ejemplo,hwaddr=BC:24:11:00:00:65
+      ostemplate = local:vztmpl/debian-13-standard_13.6-1_amd64.tar.zst
+      pool = ejemplo-topologia
+      vmid = 101
+      porque: el rol 'workstation-1' no está desplegado: se crea con el vmid 101 (el menor libre del clúster)
+
+   6. POST /nodes/nodo-simulado/lxc
+      cores = 1
+      description = lab=ejemplo-topologia rol=workstation-2 gestionado por netlabs_v4_b
+      hostname = ejemplo-topologia-workstation-2
+      memory = 256
+      net0 = name=eth0,bridge=vmb_ejemplo,hwaddr=BC:24:11:00:00:66
+      ostemplate = local:vztmpl/debian-13-standard_13.6-1_amd64.tar.zst
+      pool = ejemplo-topologia
+      vmid = 102
+      porque: el rol 'workstation-2' no está desplegado: se crea con el vmid 102 (el menor libre del clúster)
+
+   7. POST /nodes/nodo-simulado/qemu/100/status/start
+      porque: el rol 'switch' pertenece al escalón 1 y no está arrancado
+
+   8. POST /nodes/nodo-simulado/lxc/101/status/start
+      porque: el rol 'workstation-1' pertenece al escalón 2 y no está arrancado
+
+   9. POST /nodes/nodo-simulado/lxc/102/status/start
+      porque: el rol 'workstation-2' pertenece al escalón 2 y no está arrancado
+
+Resumen: arrancar_invitado=3, crear_bridge=1, crear_invitado=3, crear_pool=1, recargar_red=1

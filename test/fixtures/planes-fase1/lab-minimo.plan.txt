@@ -1,0 +1,38 @@
+PLAN del lab 'lab-minimo'
+============================================================
+
+Identidad asignada por el motor (no declarada, no guardada):
+  escalón 1  lxc   rol=workstation-1    vmid=100    mac=BC:24:11:00:00:64  nuevo
+
+Llamadas REST que se harían, en orden (5):
+
+   1. POST /pools
+      comment = topología gestionada por netlabs_v4_b (motor por API)
+      poolid = lab-minimo
+      porque: no existe el pool 'lab-minimo': es la frontera de propiedad del lab
+
+   2. POST /nodes/nodo-simulado/network
+      autostart = 1
+      comments = lab=lab-minimo gestionado por netlabs_v4_b
+      iface = vmb_lab_minimo
+      type = bridge
+      porque: el bridge 'vmb_lab_minimo' no existe en el nodo nodo-simulado: se crea y se marca como de este lab, para que `destroy` pueda borrarlo después
+
+   3. PUT  /nodes/nodo-simulado/network
+      porque: un bridge nuevo no entra en vigor hasta recargar la red del nodo
+
+   4. POST /nodes/nodo-simulado/lxc
+      cores = 1
+      description = lab=lab-minimo rol=workstation-1 gestionado por netlabs_v4_b
+      hostname = lab-minimo-workstation-1
+      memory = 256
+      net0 = name=eth0,bridge=vmb_lab_minimo,hwaddr=BC:24:11:00:00:64
+      ostemplate = local:vztmpl/debian-13-standard_13.6-1_amd64.tar.zst
+      pool = lab-minimo
+      vmid = 100
+      porque: el rol 'workstation-1' no está desplegado: se crea con el vmid 100 (el menor libre del clúster)
+
+   5. POST /nodes/nodo-simulado/lxc/100/status/start
+      porque: el rol 'workstation-1' pertenece al escalón 1 y no está arrancado
+
+Resumen: arrancar_invitado=1, crear_bridge=1, crear_invitado=1, crear_pool=1, recargar_red=1

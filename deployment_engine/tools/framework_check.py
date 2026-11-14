@@ -324,26 +324,98 @@ def _documentos_con_citas_al_motor():
 # ---------------------------------------------------------------------------
 
 def check_puerta():
-    """Nadie llama a la API fuera de la puerta común.
+    """Cada puerta tiene UN fichero, y el protocolo de cada puerta sólo vive en él.
 
     Se revisa el CÓDIGO (los .yml y .py del motor, y el wrapper): los documentos
     pueden hablar de la ruta de la API todo lo que quieran -- de hecho es su trabajo.
+
+    Desde la fase 2 hay CUATRO puertas (regla 12) y cada una habla su protocolo:
+
+      * la REST de Proxmox (`ansible.builtin.uri`, la ruta base de la API) -> tasks/pve_api.yml;
+      * la REST de RouterOS (su propia ruta base)                          -> tasks/ros_api.yml;
+      * el interior de un Linux (SSH a invitados)                           -> tasks/interior_ssh.yml
+                                                                               y tasks/inventario_invitados.yml;
+      * la consola de la API (el protocolo del navegador)                   -> tasks/camino_consola.yml
+                                                                               y su cliente tools/consola.py.
+
+    Dos de esos literales tienen MÁS DE UN dueño, y cada uno lleva su razón escrita
+    aquí al lado: la consola NO es una puerta nueva --viaja por el mismo host, el
+    mismo puerto y el mismo token que la REST--, y el guion del camino (que pone el
+    motor dentro del puesto de control) también usa SSH, porque es el invitado el
+    que llama a casa.
     """
     fallos = []
+
+    # Ruta base de la API de Proxmox: la puerta REST y el cliente de consola. Nadie más.
+    dueno_de_ruta_base = {
+        UNICA_PUERTA: "la puerta REST",
+        "deployment_engine/tools/" + "consola.py": (
+            "el cliente de la puerta de consola: mismo host, mismo puerto y mismo "
+            "token que la REST, protocolo distinto (regla 1, intacta)"
+        ),
+    }
+
     rutas = list(_ficheros_con_extension(".yml", os.path.join(RAIZ, "deployment_engine")))
     rutas += list(_ficheros_con_extension(".py", os.path.join(RAIZ, "deployment_engine")))
     rutas += [os.path.join(RAIZ, "lab"), os.path.join(RAIZ, ".githooks", "pre-commit")]
+
+    # Y ahora, los literales de cada protocolo, con sus dueños. Se arman por PIEZAS
+    # a propósito, igual que RUTA_BASE_API: así este fichero NO los contiene y el
+    # check puede ser estricto sin excluirse a sí mismo.
+    puerta_ros = "deployment_engine/tasks/" + "ros_api.yml"
+    puerta_interior = "deployment_engine/tasks/" + "interior_ssh.yml"
+    inventario = "deployment_engine/tasks/" + "inventario_invitados.yml"
+    puerta_consola = "deployment_engine/tasks/" + "camino_consola.yml"
+    cliente_consola = "deployment_engine/tools/" + "consola.py"
+    guion_camino = "deployment_engine/filter_plugins/" + "interior.py"
+
+    # literal -> (dueño principal, otros dueños con su motivo)
+    literales = {
+        # La ruta base de la REST de RouterOS. El HTTP en claro es deliberado y
+        # temporal (el CHR de fábrica no tiene certificado): va al ADR 0006.
+        "/" + "rest": (puerta_ros, ()),
+        # Parámetros de conexión SSH: la puerta del interior los declara, el
+        # inventario los construye, y el guion del camino lleva los suyos porque en
+        # el camino es el INVITADO el que llama a casa.
+        "StrictHostKey" + "Checking": (puerta_interior, (inventario, guion_camino)),
+        "Proxy" + "Jump": (inventario, (puerta_interior,)),
+        # El protocolo de consola: la puerta que lo usa y el cliente que lo habla.
+        "term" + "proxy": (puerta_consola, (cliente_consola,)),
+        "vnc" + "websocket": (puerta_consola, (cliente_consola,)),
+    }
+
     for ruta in rutas:
         if not os.path.exists(ruta):
             continue
-        if RUTA_BASE_API in _leer(ruta) and _relativo(ruta) != UNICA_PUERTA:
-            fallos.append(_relativo(ruta))
+        relativo = _relativo(ruta)
+        texto = _leer(ruta)
+        if RUTA_BASE_API in texto and relativo not in dueno_de_ruta_base:
+            fallos.append(
+                f"{relativo}: llama a la API de Proxmox y no es "
+                f"{UNICA_PUERTA} ni el cliente de consola"
+            )
+        for literal, (dueno, otros) in literales.items():
+            permitidos = (dueno,) + otros
+            if literal in texto and relativo not in permitidos:
+                fallos.append(
+                    f"{relativo}: habla el protocolo de '{literal}', que sólo puede "
+                    f"aparecer en {dueno}"
+                )
+
     if fallos:
-        print("FALLA puerta: alguien llama a la API fuera de " + UNICA_PUERTA + ":")
+        print("FALLA puerta: alguien habla por una puerta que no es la suya:")
         for fallo in sorted(set(fallos)):
             print(f"  - {fallo}")
+        print("      (cada puerta tiene un fichero, y su protocolo no sale de ahí)")
         return 1
-    print(f"OK    puerta: la única llamada a la API está en {UNICA_PUERTA}")
+    print(
+        "OK    puerta: la REST de Proxmox sólo en "
+        + UNICA_PUERTA
+        + " (+ el cliente de consola, que usa la misma puerta), la de RouterOS sólo en "
+        + puerta_ros
+        + ", el SSH a invitados sólo en la puerta del interior, y el protocolo de "
+        "consola sólo en la puerta de consola"
+    )
     return 0
 
 
@@ -624,6 +696,95 @@ def check_readme():
 
 
 # ---------------------------------------------------------------------------
+# check supernet — todo lo del lab vive dentro de su supernet, y los supernets de
+#                 dos labs no se solapan
+# ---------------------------------------------------------------------------
+
+# Una red con máscara, para el supernet. Se escribe aquí (y no se importa de
+# `declaracion.py`) porque este fichero comprueba sin cargar los filtros: un check
+# que dependiera del código que vigila no podría verlo roto.
+_IP_PATRON_FUERTE = re.compile(r"^\d{1,3}(\.\d{1,3}){3}/\d{1,2}$")
+
+
+def _red_de(supernet):
+    """(octetos de red, prefijo) de una red con máscara, para comparar prefijos."""
+    base, _, prefijo = str(supernet).partition("/")
+    octetos = [int(o) for o in base.split(".")]
+    bits = int(prefijo)
+    return octetos, bits
+
+
+def _se_solapan(una, otra):
+    """¿Dos redes se pisan? Se comparan los octetos que el prefijo cubre."""
+    octetos_una, bits_una = _red_de(una)
+    octetos_otra, bits_otra = _red_de(otra)
+    bits = min(bits_una, bits_otra)
+    cuantos = bits // 8
+    return octetos_una[:cuantos] == octetos_otra[:cuantos]
+
+
+def check_supernet():
+    """La supernet es lo que hace IMPOSIBLE que dos labs se pisen por accidente.
+
+    Es opcional (un lab de la fase 1 no la declara y no se le exige), pero cuando
+    un lab la declara, se comprueban las dos cosas que promete: que todo lo suyo
+    cae dentro --de eso se encarga `declaracion_validar`, que es donde vive el
+    vocabulario-- y que dos labs del mismo repositorio no la comparten.
+    """
+    import yaml
+
+    declaraciones = []
+    labs = os.path.join(RAIZ, "labs")
+    for carpeta in sorted(os.listdir(labs)):
+        ruta = os.path.join(labs, carpeta, f"{carpeta}.yml")
+        if not os.path.isfile(ruta):
+            continue
+        with open(ruta, encoding="utf-8") as fichero:
+            datos = yaml.safe_load(fichero)
+        supernet = (datos.get("lab") or {}).get("supernet")
+        declaraciones.append((carpeta, supernet))
+
+    con_supernet = [(lab, red) for lab, red in declaraciones if red]
+    mal_formadas = [
+        lab
+        for lab, red in con_supernet
+        if "/" not in str(red) or not _IP_PATRON_FUERTE.match(str(red))
+    ]
+    if mal_formadas:
+        print("FALLA supernet: hay supernets que no son una red con máscara:")
+        for lab in mal_formadas:
+            print(f"  - {lab}")
+        return 1
+
+    fallos = []
+    for indice, (lab, red) in enumerate(con_supernet):
+        for otro_lab, otra_red in con_supernet[indice + 1:]:
+            if _se_solapan(red, otra_red):
+                fallos.append((lab, red, otro_lab, otra_red))
+    if fallos:
+        print("FALLA supernet: dos labs se pisan el espacio de direcciones:")
+        for lab, red, otro_lab, otra_red in fallos:
+            print(f"  - '{lab}' ({red}) y '{otro_lab}' ({otra_red})")
+        print(
+            "      (el supernet no es decorativo: es lo que hace imposible que dos "
+            "labs se pisen por accidente)"
+        )
+        return 1
+
+    sin_supernet = [lab for lab, red in declaraciones if not red]
+    print(
+        f"OK    supernet: {len(con_supernet)} lab(s) declaran supernet y no se solapan "
+        "dos a dos; todo lo declarado cae dentro (lo vigila `declaracion`)"
+    )
+    if sin_supernet:
+        print(
+            f"      (sin supernet: {', '.join(sin_supernet)} -- labs de la fase 1, sin "
+            "interior: no se les exige)"
+        )
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # Orquestación
 # ---------------------------------------------------------------------------
 
@@ -634,6 +795,7 @@ CHECKS = {
     "puerta": check_puerta,
     "privilegios": check_privilegios,
     "declaracion": check_declaracion,
+    "supernet": check_supernet,
     "colisiones": check_colisiones,
     "pureza-lab": check_pureza_lab,
     "readme": check_readme,

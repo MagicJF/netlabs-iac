@@ -52,10 +52,11 @@
 
 # La dirección con la que se entra al invitado:
 #   * si el lab la declara estática, es esa (no se lee nada);
-#   * si es `dhcp`, el invitado NO declara dirección: se lee de la API
-#     (`GET /nodes/<nodo>/lxc/<vmid>/interfaces`), que es la única fuente sin camino.
-#     Y se entra por el bastión, así que la dirección tiene que ser la del bridge
-#     del lab, no la de gestión.
+#   * si es `dhcp`, el motor NO entra: no sabe a qué dirección conectar y no se entra a
+#     ciegas (regla 16). Su dirección es un hecho que se lee del HOST
+#     (`GET /nodes/<nodo>/lxc/<vmid>/interfaces`, §6.3), no algo que se configure dentro,
+#     así que el plan no emite paso para un invitado cuya única área sea esa. Un `dhcp`
+#     CON áreas que pidan entrar es lo que hoy NO se sostiene (la validación lo rechaza).
 - name: "INVENTARIO · la declaración del invitado '{{ interior_rol }}'"
   ansible.builtin.set_fact:
     interior_declarado_invitado: >-

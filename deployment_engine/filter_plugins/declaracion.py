@@ -214,6 +214,19 @@ def _validar_interior(invitado, etiqueta, rol, errores):
             "equipo que no se puede alcanzar no se puede converger (un conmutador "
             "puro no lleva `config`)"
         )
+    elif (modulo_interior.es_direccion_dinamica(direccion)
+          and modulo_interior.areas_que_piden_visita(invitado)):
+        # Los puestos dinámicos declaran SÓLO el tipo (`linux: {}`) con `direccion: dhcp`:
+        # su dirección se lee del HOST y no se configura dentro, así que no piden visita.
+        # Pero un `dhcp` CON áreas que exijan entrar no se puede converger: no se sabe a
+        # qué dirección conectar, y el motor no entra a ciegas (regla 16). Se dice aquí,
+        # no se intenta.
+        piden = ", ".join(sorted(modulo_interior.areas_que_piden_visita(invitado)))
+        errores.append(
+            f"`{etiqueta}` ({rol}) declara `direccion: dhcp` y áreas que piden ENTRAR "
+            f"({piden}): sin una dirección estática el motor no sabe a dónde conectar. "
+            "Deja sólo el tipo (`linux: {}`) o declara una dirección."
+        )
 
     if tipo == "routeros":
         _validar_routeros(declarado, etiqueta, rol, errores)

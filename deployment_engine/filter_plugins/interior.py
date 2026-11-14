@@ -165,6 +165,29 @@ def areas_a_leer(invitado):
     return list(areas_de(invitado).keys())
 
 
+def es_direccion_dinamica(valor):
+    """¿Esta dirección declarada es dinámica (`dhcp`)? (las otras formas son una
+    estática `<ip>/<prefijo>` o ausente)."""
+    return str(valor or "").strip().lower() == "dhcp"
+
+
+def areas_que_piden_visita(invitado):
+    """Las áreas declaradas que exigen ENTRAR en el invitado (leer o escribir dentro).
+
+    Una dirección DINÁMICA no pide visita: su valor es un hecho que se lee del HOST
+    (`GET /nodes/<nodo>/lxc/<vmid>/interfaces`, §6.3/§11) y, además, no se podría
+    escribir desde dentro sin saber primero a qué dirección conectar — un círculo.
+    Un invitado cuya ÚNICA área sea ésa (un `config: linux: {}` con `direccion: dhcp`,
+    el caso de los puestos dinámicos) no se converge: no hay nada que hacer dentro y
+    el motor no entra a ciegas (regla 16). `configurar_<tipo>.yml` sólo se despacha
+    para un invitado con áreas que piden visita.
+    """
+    return {
+        area for area, valor in areas_de(invitado).items()
+        if not (area == "direccion" and es_direccion_dinamica(valor))
+    }
+
+
 def declara_interior(invitado):
     """¿Este invitado declara interior? (si no, el motor no entra: ni lee ni escribe)."""
     return tipo_de(invitado) is not None
@@ -958,6 +981,10 @@ def pasos_de_convergencia(invitado, identidad, declaracion, leido, parametros):
     tipo = tipo_de(invitado)
     if tipo is None:
         return []
+    if not areas_que_piden_visita(invitado):
+        # Nada que hacer DENTRO: la única área es una dirección dinámica, que se lee del
+        # HOST (§6.3). Entrar sería a ciegas (no se sabe a qué dirección conectar).
+        return []
     rol = invitado.get("rol")
     declaradas = areas_de(invitado)
 
@@ -1081,9 +1108,14 @@ def pasos_de_convergencia(invitado, identidad, declaracion, leido, parametros):
 
 
 def espera_de_servicio(invitado):
-    """El paso que comprueba que un escalón SIRVE de verdad antes de pasar al
+    """El paso que comprueba que un invitado CONTESTA --la barrera que va DELANTE de
+    converger su interior-- y, con eso, que su escalón sirve antes de pasar al
     siguiente (regla 18: nunca se arranca un escalón antes de que el anterior esté
     convergido y sirviendo).
+
+    Va antes del interior y no al final del escalón porque un invitado recién arrancado
+    no contesta al instante: un CHR tarda en bootear y en pedir su dirección por DHCP,
+    y convergerlo nada más arrancarlo aborta la pasada. La sonda le da ese tiempo.
 
     No es un `wait_for` sobre el invitado: es una petición a la dirección que la
     declaración promete, en el puerto por el que ese tipo se deja ver (el REST de
@@ -1113,8 +1145,9 @@ def espera_de_servicio(invitado):
             "puerto": puerto,
         },
         "porque": (
-            f"el rol '{invitado['rol']}' pertenece al escalón {invitado.get('escalon')}: "
-            f"el siguiente escalón no se toca hasta que este conteste en el puerto {puerto}"
+            f"el interior de '{invitado['rol']}' no se toca hasta que contesta: un "
+            f"invitado del escalón {invitado.get('escalon')} recién arrancado tarda en "
+            f"dar señales en el puerto {puerto}"
         ),
     }
 

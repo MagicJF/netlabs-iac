@@ -280,29 +280,38 @@ def construir_plan(declaracion, estado, identidad, parametros):
         for invitado in del_escalon:
             pasos.extend(modulo_interior.pasos_del_camino(invitado, declaracion, estado, parametros))
 
-        # (b) El interior del escalón. Sin `config:` no se entra: el motor lo despliega
-        #     y se calla, exactamente como en la fase 1.
+        # (b) El interior del escalón, con su BARRERA delante. Sin `config:` no se
+        #     entra: el motor lo despliega y se calla, exactamente como en la fase 1.
         #
         #     Dentro del escalón, primero quien DA dirección (el puesto de control con
         #     su servidor DHCP, y los routers) y después quien la PIDE: es la misma
         #     razón que ordena los escalones, un nivel más abajo. Un invitado que pide
         #     dirección a quien todavía no la reparte se queda esperando -- y un LXC
         #     deja de pedirla al rato y se queda inalcanzable (medido en v3).
-        interiores = [i for i in del_escalon if modulo_interior.declara_interior(i)]
-        for invitado in sorted(interiores, key=_orden_de_arranque):
+        #
+        #     Y la sonda (esperar_servicio) va ANTES del interior de cada invitado, no
+        #     al final del escalón: un invitado recién arrancado NO contesta en el
+        #     instante. Un CHR tarda en bootear y en pedir su dirección por DHCP, así
+        #     que convergerlo nada más arrancarlo entra en un invitado mudo y aborta la
+        #     pasada (medido: el segundo CHR de un lab de aceptación, arranque en frío,
+        #     `No route to host`). La barrera pregunta por el puerto por el que el
+        #     invitado se deja ver (el REST de RouterOS, el sshd de un Linux); sólo se
+        #     converge lo que ya contesta, y eso deja el escalón listo --convergido y
+        #     sirviendo-- antes de tocar el siguiente.
+        conviene = [
+            i for i in del_escalon
+            if modulo_interior.declara_interior(i) or modulo_interior.tiene_camino(i)
+        ]
+        for invitado in sorted(conviene, key=_orden_de_arranque):
+            sonda = modulo_interior.espera_de_servicio(invitado)
+            if sonda is not None:
+                pasos.append(sonda)
+            if not modulo_interior.declara_interior(invitado):
+                continue
             leido = (estado.get("interior") or {}).get(str(invitado["vmid"])) or {}
             pasos.extend(
                 modulo_interior.pasos_de_convergencia(invitado, identidad, declaracion, leido, parametros)
             )
-
-        # (c) La sonda del escalón: sólo se pasa al siguiente si este SIRVE. Se sondea
-        #     lo que declara interior (lo que no se configura no se promete).
-        for invitado in del_escalon:
-            if not (modulo_interior.declara_interior(invitado) or modulo_interior.tiene_camino(invitado)):
-                continue
-            sonda = modulo_interior.espera_de_servicio(invitado)
-            if sonda is not None:
-                pasos.append(sonda)
 
     for indice, paso in enumerate(pasos, start=1):
         paso["orden"] = indice

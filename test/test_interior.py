@@ -378,11 +378,19 @@ comprobar(
     "y el paso nombra las áreas que va a recorrer, que es lo que se puede decir sin leer",
 )
 igual(
-    motor.pasos_de_convergencia(PUESTO, IDENTIDAD, DECLARACION, {}, PARAMETROS)[0][
-        "parametros"
-    ]["operaciones"],
+    motor.pasos_de_convergencia(PUESTO, IDENTIDAD, DECLARACION, {}, PARAMETROS),
     [],
-    "y sin lectura no se puede afirmar que nada coincide: no hay operaciones que enseñar",
+    "un puesto con sólo `direccion: dhcp` no pide visita: su dirección se lee del HOST "
+    "(§6.3) y no se sabe a dónde conectar para entrar, así que el motor no entra a ciegas",
+)
+igual(
+    sorted(motor.areas_que_piden_visita(PUESTO)),
+    [],
+    "y por eso no le queda NINGUNA área que exija entrar (sólo la dinámica)",
+)
+comprobar(
+    bool(motor.areas_que_piden_visita(BORDE)),
+    "en cambio un router con áreas declara visita: su interior sí se converge",
 )
 
 # Sin `config` no hay pasos: el motor despliega y se calla.

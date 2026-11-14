@@ -220,6 +220,26 @@ comprobar(
 
 # ---------------------------------------------------------------------------
 
+print("\nUN CLIENTE DINÁMICO NO PUEDE PEDIR QUE SE ENTRE EN ÉL\n")
+
+
+def _control(declaracion):
+    return [i for i in declaracion["containers"] if i["rol"] == "control"][0]
+
+
+# El puesto de control declara `camino`, `dhcp_servidor`...: áreas que EXIGEN entrar. Con
+# `direccion: dhcp` el motor no sabe a dónde conectar, y no se entra a ciegas (regla 16):
+# se caza ANTES de tocar el VPS. Un puesto dinámico declara SÓLO el tipo (`linux: {}`) y
+# no pide visita, así que ése sí pasa.
+errores = errores_de(lambda d: _control(d).__setitem__("direccion", "dhcp"))
+comprobar(
+    dice(errores, "dhcp") and dice(errores, "ENTRAR"),
+    "un invitado con áreas que piden entrar y `direccion: dhcp` se caza: no se sabe a dónde conectar",
+)
+
+
+# ---------------------------------------------------------------------------
+
 if FALLOS:
     print(f"\nRESULTADO: {len(FALLOS)} fallo(s).")
     sys.exit(1)

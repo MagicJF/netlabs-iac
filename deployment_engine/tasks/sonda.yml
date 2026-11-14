@@ -1,9 +1,12 @@
 ---
-# PROPÓSITO:   LA SONDA DE UN ESCALÓN. Comprueba que el escalón anterior SIRVE --que su
-#              equipo contesta en el puerto por el que se deja ver-- antes de que el plan
-#              toque el siguiente (regla 18: nunca se arranca un escalón sobre uno que no
-#              sirve). No configura NADA y no adivina: pregunta en la dirección que la
-#              declaración promete y, si no contesta, el verbo PARA con el nombre del rol.
+# PROPÓSITO:   LA SONDA DE UN ESCALÓN. Comprueba que el equipo CONTESTA en el puerto por
+#              el que se deja ver --la barrera que va DELANTE de converger su interior--
+#              y, con eso, que el escalón SIRVE antes de que el plan toque el siguiente
+#              (regla 18: nunca se arranca un escalón sobre uno que no sirve). Va antes
+#              del interior porque un invitado recién arrancado (un CHR tarda en bootear
+#              y en pedir su dirección) no contesta al instante. No configura NADA y no
+#              adivina: pregunta en la dirección que la declaración promete y, si no
+#              contesta, el verbo PARA con el nombre del rol.
 #
 #              Se ejecuta DESDE EL PUESTO DE CONTROL, por la MISMA puerta que configura el
 #              interior (`interior_ssh.yml`): la sonda no abre su propia conexión, porque el

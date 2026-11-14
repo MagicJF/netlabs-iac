@@ -106,14 +106,17 @@
     - name: "APPLY · avisar de los pasos que el motor todavía no sabe ejecutar"
       ansible.builtin.debug:
         msg: |-
-          AVISO: este plan tiene pasos que el motor todavía no sabe ejecutar (la capa de
-          configuración del interior está en construcción). Se ejecutará lo que va antes
-          y se parará ahí, diciendo cuál falta:
+          AVISO: de este plan hay pasos que el motor todavía no sabe ejecutar (la capa
+          de configuración está en construcción). Se ejecutará todo lo anterior y se
+          parará en el primero de estos, diciendo cuál falta:
           {% for paso in pasos_sin_ejecutor %}
             - paso {{ paso.orden }} ({{ paso.accion }}, vía '{{ paso.via }}'): {{ paso.porque }}
           {% endfor %}
       vars:
-        pasos_sin_ejecutor: "{{ plan_pasos | rejectattr('via', 'in', ['api', 'camino']) | list }}"
+        # «No tiene ejecutor» no lo decide esta plantilla: lo dice el motor
+        # (`interior_sin_driver`, con su lista de drivers). Así el aviso no puede
+        # quedarse viejo mientras los drivers llegan.
+        pasos_sin_ejecutor: "{{ plan_pasos | interior_sin_driver }}"
       when: (pasos_sin_ejecutor | length) > 0
 
     # El plan se ejecuta EN ORDEN, paso a paso, y cada paso va por SU puerta (lo elige
@@ -133,4 +136,3 @@
 # haber dos formas de verificar.
 - name: "APPLY · verificación final del mismo verify.yml"
   ansible.builtin.import_playbook: verify.yml
-

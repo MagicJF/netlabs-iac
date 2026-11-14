@@ -93,7 +93,7 @@
       intento: "{{ camino_consola_intento | default(1) }}"
       marca: "{{ camino_consola_marca_ok }}"
       resultado: "{{ camino_consola_rc }}"
-      eco: "{{ (camino_consola_resultado.eco | default('') | string)[: engine_diario_max_cuerpo | int] }}"
+      eco: "{{ (camino_consola_resultado.eco | default('') | string)[: (engine_diario_max_cuerpo | default(0) | int)] }}"
       motivo: "{{ camino_consola_resultado.motivo | default('') | string }}"
   changed_when: false
 

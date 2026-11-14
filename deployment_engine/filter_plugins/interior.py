@@ -775,6 +775,14 @@ def _dhcp_servidor_canonico(declarado, leido, declaracion, identidad, invitado):
     # servicio esté vivo, porque un cambio de reservas no entra en vigor hasta que
     # dnsmasq vuelve a leer su configuración.
     hay_que_recargar = False
+    herramientas = actual.get("herramientas") or {}
+    faltan = [h for h in ("dnsmasq", "ethtool") if not herramientas.get(h, True)]
+    if faltan:
+        # Va PRIMERO: sin dnsmasq no hay servidor DHCP, y sin ethtool no hay forma de
+        # apagar los offloads. Si el invitado es tan viejo que no sabemos qué tiene
+        # (no se pudo leer nada), no se instala: se escribe y se deja que el fallo
+        # hable. Instalar a ciegas es cambiar un equipo por si acaso.
+        operaciones.append({"op": "instalar_herramientas", "paquetes": faltan})
     if str(actual.get("interfaz") or "") != interfaz or str(actual.get("rango") or "") != rango:
         operaciones.append({"op": "escribir_dnsmasq", "interfaz": interfaz, "rango": rango})
         hay_que_recargar = True
@@ -784,13 +792,19 @@ def _dhcp_servidor_canonico(declarado, leido, declaracion, identidad, invitado):
         # depende de esta línea.
         operaciones.append({"op": "apagar_offload", "interfaz": interfaz})
         hay_que_recargar = True
+    # Sin el prefijo: la reserva vive DENTRO del rango del bridge (eso ya lo valida la
+    # declaración) y dnsmasq guarda la dirección pelada. Comparar con el prefijo haría que
+    # las reservas nunca cuadraran y el fichero se reescribiera en cada pasada.
     deseadas = {str(r["mac"]).upper(): str(r["direccion"]) for r in reservas}
     actuales = {
-        str(r.get("mac")).upper(): str(r.get("direccion"))
+        str(r.get("mac")).upper(): str(r.get("direccion")).split("/")[0]
         for r in (actual.get("reservas") or [])
     }
     for mac, direccion in sorted(deseadas.items()):
-        if actuales.get(mac) != direccion:
+        # Se compara por DIRECCIÓN: la derivada lleva su prefijo y dnsmasq guarda la
+        # dirección pelada. La operación sí lleva el valor derivado entero, que es el que
+        # manda al fichero (la comparación es lo único que se normaliza).
+        if actuales.get(mac) != direccion.split("/")[0]:
             operaciones.append({"op": "poner_reserva", "mac": mac, "direccion": direccion})
             hay_que_recargar = True
     for mac in sorted(set(actuales) - set(deseadas)):
@@ -1004,6 +1018,416 @@ def espera_de_servicio(invitado):
     }
 
 
+# ---------------------------------------------------------------------------
+# (declaración) -> el puesto de control; y las LECTURAS y ESCRITURAS de un Linux
+# ---------------------------------------------------------------------------
+
+def puesto_control(declaracion):
+    """El ROL del invitado que es el puesto de control del lab (el bastión del camino).
+
+    No se pregunta por un nombre ni por un vmid: se pregunta quién declara `camino`,
+    que es lo que hace que un invitado sea el que sale hacia casa. Devuelve '' si el
+    lab no declara ninguno, y entonces `apply` dice que no hay por dónde entrar (regla
+    16) en vez de intentarlo.
+    """
+    # La declaración que circula por el motor está NORMALIZADA: sus invitados son una
+    # lista plana (`invitados`), cada uno con su `tipo`. Se lee igual que en el resto de
+    # este fichero -- una sola forma de leer la declaración, o hay dos verdades.
+    for invitado in (declaracion or {}).get("invitados") or []:
+        if tiene_camino(invitado):
+            return invitado.get("rol") or ""
+    return ""
+
+
+# Las lecturas, una por área, y el porqué de cada comando. Van aquí (y no en el
+# playbook) porque son DATOS: el driver no decide qué preguntar, lo lee de aquí.
+#
+# Todas son de SOLO LECTURA y baratas: una vuelta de SSH por área, con el camino.
+# Ninguna necesita `root` para preguntar, pero se entra como root porque para
+# ESCRIBIR sí hace falta, y usar dos usuarios distintos según el paso sería una
+# complicación sin premio.
+LECTURAS_LINUX = {
+    "direccion": {
+        "comando": "ip -4 -o addr show dev eth0",
+        "descripcion": "la dirección de su pata en el bridge del lab",
+    },
+    "reenvio": {
+        "comando": "cat /proc/sys/net/ipv4/ip_forward",
+        "descripcion": "si el equipo reenvía paquetes (lo necesita su servidor DHCP)",
+    },
+    "camino": {
+        "comando": "systemctl is-active netlabs-camino",
+        "descripcion": "si la salida hacia casa está levantada",
+    },
+    "dhcp_servidor": {
+        # CUATRO cosas en un viaje, separadas por una marca que el analizador conoce:
+        #   1) la configuración que el motor dejó (si la dejó),
+        #   2) el estado REAL de los offloads de la interfaz,
+        #   3) qué herramientas hay,
+        #   4) si el servicio está VIVO (sin esto, `recargar` se pediría en cada pasada).
+        # Sin la 2 no se puede decidir si hay que apagarlos, y sin apagarlos las
+        # ofertas DHCP salen rotas y el CHR las tira (medido en v3; en esta fase se
+        # vuelve a medir). Sin la 3 no se sabe si hay que instalarlas.
+        "comando": "cat /etc/dnsmasq.d/netlabs.conf 2>/dev/null; echo ---NETLABS---; ethtool -k eth0 2>/dev/null; echo ---NETLABS---; for h in dnsmasq ethtool; do printf '%s=%s\\n' \"$h\" \"$(command -v $h || echo NO)\"; done; echo ---NETLABS---; systemctl is-active dnsmasq 2>/dev/null || echo inactive",
+        "descripcion": "su configuración de DHCP, los offloads de su interfaz y las herramientas",
+    },
+    "claves": {
+        "comando": "cat /root/.ssh/authorized_keys 2>/dev/null | wc -l",
+        "descripcion": "cuántas claves autorizadas tiene (la del motor se deja al crear)",
+    },
+}
+
+SEPARADOR = "---NETLABS---"
+
+
+def lecturas_linux(invitado):
+    """Las lecturas que hay que hacer dentro de un Linux, en orden, por área declarada.
+
+    Sólo se pregunta por lo que el lab DECLARA: fuera de las áreas declaradas el motor
+    no opina (regla 17), así que tampoco pregunta.
+    """
+    return [
+        {
+            "area": area,
+            "accion": "leer",
+            "comando": LECTURAS_LINUX[area]["comando"],
+            "descripcion": LECTURAS_LINUX[area]["descripcion"],
+        }
+        for area in areas_a_leer(invitado)
+        if area in LECTURAS_LINUX
+    ]
+
+
+def _lineas(texto):
+    return [l.strip() for l in str(texto or "").splitlines() if l.strip()]
+
+
+def _valor(lineas, clave, prefijo=""):
+    """El valor de una línea `clave=valor` (o `clave: valor`), o '' si no está."""
+    for linea in lineas:
+        if linea.startswith(prefijo + clave):
+            return linea.split("=", 1)[1].strip() if "=" in linea else linea.split(":", 1)[1].strip()
+    return ""
+
+
+def leido_linux(lecturas):
+    """(lo que devolvió el invitado) -> el mapa `leído` que comen las diferencias.
+
+    Función PURA: recibe `[{area, encontrado, rc}]` y devuelve `{area: {...}}` en la
+    forma canónica que espera `pasos_de_convergencia`. Un `rc != 0` es AVERÍA, no
+    estado: se marca como no leído (el área aparecerá como «no coincide» y el driver
+    lo dirá al aplicarlo), en vez de inventar un estado falso.
+    """
+    leido = {}
+    for lectura in lecturas or []:
+        area = lectura.get("area")
+        texto = lectura.get("encontrado") or ""
+        if int(lectura.get("rc") or 0) != 0:
+            continue
+        lineas = _lineas(texto)
+
+        if area == "direccion":
+            partes = lineas[0].split() if lineas else []
+            # `ip -4 -o addr show dev eth0` -> "3: eth0    inet 10.40.0.10/24 ..."
+            direccion = partes[3] if len(partes) > 3 else ""
+            leido["direccion"] = {"direccion": direccion}
+
+        elif area == "reenvio":
+            leido["reenvio"] = {"activo": (lineas[0] if lineas else "") == "1"}
+
+        elif area == "camino":
+            leido["camino"] = {"salida": (lineas[0] if lineas else "") == "active"}
+
+        elif area == "claves":
+            try:
+                leido["claves"] = {"cuantas": int(lineas[0])} if lineas else {"cuantas": 0}
+            except ValueError:
+                leido["claves"] = {"cuantas": 0}
+
+        elif area == "dhcp_servidor":
+            bloques = str(texto).split(SEPARADOR)
+            configuracion = _lineas(bloques[0] if bloques else "")
+            offloads = bloques[1] if len(bloques) > 1 else ""
+            herramientas = _lineas(bloques[2] if len(bloques) > 2 else "")
+            # Los offloads que importan, tal y como los llama el kernel: si alguno
+            # está en `on`, las ofertas DHCP pueden salir rotas.
+            apagado = bool(offloads) and all(
+                f"{nombre}: off" in offloads
+                for nombre in ("tx-checksumming", "generic-segmentation-offload",
+                               "tcp-segmentation-offload")
+            )
+            tiene = {herramienta: (_valor(herramientas, herramienta) != "NO")
+                     for herramienta in ("dnsmasq", "ethtool")}
+            # Las reservas que el fichero tiene AHORA, para compararlas una a una con las
+            # derivadas: si falta una se pone, y si sobra se quita (los dos sentidos).
+            reservas = []
+            for linea in configuracion:
+                if linea.startswith("dhcp-host="):
+                    partes = linea[len("dhcp-host="):].split(",")
+                    if len(partes) >= 2:
+                        reservas.append({"mac": partes[0], "direccion": partes[1]})
+            # El servicio: sin esto el motor no sabe si dnsmasq está vivo, y `recargar` se pediría
+            # en CADA pasada -- que es exactamente romper la idempotencia.
+            servicio = _lineas(bloques[3] if len(bloques) > 3 else "")
+            leido["dhcp_servidor"] = {
+                "reservas": reservas,
+                "servicio_activo": bool(servicio) and servicio[0] == "active",
+                "interfaz": _valor(configuracion, "interface", prefijo="").lstrip(),
+                # dnsmasq escribe el rango como `inicio,fin,mascara,tiempo`; la
+                # declaración lo escribe `inicio-fin`. Se normaliza AQUÍ para poder
+                # comparar: sin esto el fichero se reescribiría en cada pasada y la
+                # segunda ejecución dejaría de ser `changed=0` (regla 6).
+                "rango": "-".join(_valor(configuracion, "dhcp-range").split(",")[:2]),
+                "configurado": bool(configuracion),
+                "offload_apagado": apagado,
+                "herramientas": tiene,
+                "conf": (bloques[0].strip() if bloques else ""),
+            }
+    return leido
+
+
+def _b64(texto):
+    import base64
+    return base64.b64encode(str(texto).encode("utf-8")).decode("ascii")
+
+
+def configuracion_dnsmasq(declarado, reservas):
+    """El fichero de configuración del servidor DHCP, tal cual se escribe en el invitado.
+
+    `port=0` a propósito: aquí se sirve DHCP, no DNS. El DNS de la red lo declara el
+    router que sirve esa red (`red.dns`), no este equipo; montar un DNS aquí sería
+    una primitiva que nadie ha declarado (regla 15).
+    """
+    interfaz = str((declarado or {}).get("interfaz") or "")
+    rango = str((declarado or {}).get("rango") or "")
+    if not interfaz or not rango:
+        return ""
+    inicio, _, fin = rango.partition("-")
+    # El prefijo sale del rango declarado: `10.40.0.50-10.40.0.99` es una /24, y la
+    # máscara es lo que dnsmasq necesita para saber de qué red reparte. Se cuentan los
+    # octetos comunes, que es honesto con lo que el vocabulario admite.
+    octetos = inicio.split(".")
+    mascara = "255.255.255.0" if len(octetos) == 4 else "255.255.0.0"
+    lineas = [
+        "# PROPÓSITO: el servidor DHCP que da la primera dirección a los equipos del lab.",
+        "# Lo escribe el motor (netlabs_v4_b) y lo reescribe cuando la declaración cambia:",
+        "# no se edita a mano. Las reservas NO llevan MAC escrita a mano en ningún sitio:",
+        "# salen del vmid del invitado que declara la dirección (regla 14).",
+        "port=0",
+        f"interface={interfaz}",
+        "bind-interfaces",
+        "dhcp-authoritative",
+        f"dhcp-range={inicio},{fin},{mascara},12h",
+        "log-dhcp",
+    ]
+    for reserva in reservas or []:
+        if reserva.get("mac") and reserva.get("direccion"):
+            lineas.append(f"dhcp-host={reserva['mac']},{reserva['direccion'].split('/')[0]}")
+    return "\n".join(lineas) + "\n"
+
+
+# La ruta del fichero del servidor DHCP, en un solo sitio: la usan el que lo escribe y
+# el que comprueba si ya se escribió (dos literales separados se desincronizan).
+RUTA_DNSMASQ = "/etc/dnsmasq.d/netlabs.conf"
+
+
+def escrituras_linux(operaciones, invitado, declaracion, identidad, parametros):
+    """(operaciones decididas) -> los comandos que las ejecutan, en orden.
+
+    Función PURA: no ejecuta nada, sólo traduce una operación a la línea que la hace.
+    Cada comando es IDEMPOTENTE (`ip addr replace`, `apt-get install -y`, reescribir el
+    fichero entero, `ethtool -K` con el valor final): volver a aplicarlo deja el sistema
+    igual, que es lo que hace verdadera la promesa de la regla 6.
+    """
+    declarado = areas_de(invitado)
+    comandos = []
+    for operacion in operaciones or []:
+        op = operacion.get("op")
+
+        if op == "poner_direccion":
+            comandos.append({
+                "area": "direccion", "accion": "escribir", "declarado": operacion.get("direccion"),
+                "descripcion": "poner su dirección declarada",
+                "comando": f"ip addr replace {operacion['direccion']} dev {operacion.get('interfaz') or 'eth0'}",
+            })
+
+        elif op == "activar_reenvio":
+            comandos.append({
+                "area": "reenvio", "accion": "escribir", "declarado": "true",
+                "descripcion": "dejar que reenvíe paquetes",
+                "comando": "sysctl -q -w net.ipv4.ip_forward=1 && printf 'net.ipv4.ip_forward=1\\n' > /etc/sysctl.d/99-netlabs.conf",
+            })
+
+        elif op in ("instalar_paquetes", "instalar_herramientas"):
+            paquetes = " ".join(operacion.get("paquetes") or ["dnsmasq", "ethtool"])
+            comandos.append({
+                "area": "dhcp_servidor", "accion": "escribir", "declarado": paquetes,
+                "descripcion": f"poner en el aparato del motor lo que el servidor DHCP necesita: {paquetes}",
+                "comando": f"DEBIAN_FRONTEND=noninteractive apt-get install -y -qq {paquetes}",
+            })
+
+        elif op in ("escribir_dnsmasq", "poner_reserva", "quitar_reserva"):
+            # Las tres son la MISMA cosa: el fichero lleva TODAS las reservas, así que
+            # cambiar una se hace reescribiéndolo entero. Reescribirlo dos veces en la
+            # misma pasada sería trabajo duplicado: se hace una sola vez. El marcador es
+            # la RUTA del fichero, escrita entera: buscar un trozo dio un fallo real
+            # («dnsmasq.conf» NO está en «/etc/dnsmasq.d/netlabs.conf»).
+            if not any(RUTA_DNSMASQ in c["comando"] for c in comandos):
+                reservas = reservas_derivadas(declaracion, identidad, invitado)
+                configuracion = configuracion_dnsmasq(declarado.get("dhcp_servidor"), reservas)
+                comandos.append({
+                    "area": "dhcp_servidor", "accion": "escribir",
+                    "declarado": f"{declarado.get('dhcp_servidor', {}).get('rango')} + {len(reservas)} reserva(s) derivada(s)",
+                    "descripcion": "escribir su configuración de servidor DHCP (con las reservas derivadas)",
+                    "comando": f"echo {_b64(configuracion)} | base64 -d > {RUTA_DNSMASQ}",
+                })
+
+        elif op == "apagar_offload":
+            interfaz = str((declarado.get("dhcp_servidor") or {}).get("interfaz") or "eth0")
+            comandos.append({
+                "area": "dhcp_servidor", "accion": "escribir", "declarado": "off",
+                "descripcion": "apagar los offloads de la interfaz (sin esto las ofertas DHCP no llegan al CHR)",
+                "comando": f"ethtool -K {interfaz} tx off gso off tso off",
+            })
+
+        elif op == "recargar_dnsmasq":
+            comandos.append({
+                "area": "dhcp_servidor", "accion": "escribir", "declarado": "activo",
+                "descripcion": "poner en marcha (o recargar) el servidor DHCP",
+                "comando": "systemctl enable --now dnsmasq >/dev/null 2>&1; systemctl restart dnsmasq",
+            })
+
+    return comandos
+
+
+def pendiente_de_driver(operacion):
+    """¿Qué ha pedido el plan que el driver de Linux TODAVÍA no sabe hacer?
+
+    Existe para no fingir: si el plan decide una operación que aquí no está traducida,
+    el driver PARA con su nombre en vez de saltársela en silencio.
+    """
+    conocidas = {
+        "poner_direccion", "activar_reenvio", "instalar_paquetes", "instalar_herramientas",
+        "escribir_dnsmasq", "poner_reserva", "quitar_reserva",
+        "apagar_offload", "recargar_dnsmasq",
+    }
+    op = (operacion or {}).get("op")
+    if op in conocidas:
+        return None
+    return op
+
+
+
+def comando_de(resultado):
+    """El comando que produjo un resultado de la puerta (`tasks/interior_ssh.yml`).
+
+    Ansible NO deja la clave `item` cuando el bucle usa `loop_var` propio: deja el nombre
+    que le diste (`interior_comando`) y lo dice en `ansible_loop_var`. Se leen las dos
+    formas porque un analizador que sólo entiende `item` se queda mudo -- y pasó: el
+    motor entró en el invitado, lo leyó (rc=0 en el diario) y luego dijo «el driver no leyó
+    el área 'camino'», que era mentira.
+    """
+    if not isinstance(resultado, dict):
+        return {}
+    nombre = resultado.get("ansible_loop_var")
+    if nombre and isinstance(resultado.get(nombre), dict):
+        return resultado[nombre]
+    return resultado.get("item") or {}
+
+
+def leido_de_lecturas(resultados, invitado):
+    """(lo que devolvió la puerta) -> el mapa `leído` que come `pasos_de_convergencia`.
+
+    `resultados` es lo que deja la puerta (`interior_ssh.yml`): una lista con el
+    comando de cada paso (`item`) y su salida (`stdout`, `rc`, `stderr`).
+
+    Aquí se decide lo PRIMERO y más importante: si al invitado se le pudo PREGUNTAR.
+    Un `rc` 255 es el de `ssh` cuando no consigue entrar --puerto cerrado, clave que
+    no vale, bastión caído--: eso no es «el invitado está mal», es «no llegué», y el
+    motor tiene que parar en vez de seguir a ciegas (regla 16). Un `rc` normal
+    distinto de cero (un fichero que no existe, un comando ausente) SÍ es un estado
+    legítimo: el invitado contestó, y lo que dijo es que eso no está.
+    """
+    areas = {}
+    motivo = ""
+    for resultado in resultados or []:
+        item = comando_de(resultado)
+        rc = int(resultado.get("rc") or 0)
+        if rc == 255 and not motivo:
+            motivo = (resultado.get("stderr") or "").strip().splitlines()[-1] if (resultado.get("stderr") or "").strip() else "no se pudo entrar"
+    # Se reutiliza el analizador de Linux: es el mismo (declarado -> leído) de siempre.
+    areas.update(leido_linux([
+        {"area": comando_de(r).get("area"),
+         "encontrado": r.get("stdout") or "",
+         "rc": r.get("rc")}
+        for r in (resultados or [])
+    ]))
+    return {
+        "alcanzable": not motivo,
+        "motivo": motivo,
+        "areas": areas,
+        "invitado": (invitado or {}).get("rol"),
+    }
+
+
+def operaciones_de_pasos(pasos):
+    """Aplana las operaciones de los pasos del interior, en orden.
+
+    El plan habla de PASOS; el driver ejecuta OPERACIONES. Esto es la traducción, y
+    va aquí (pura) para que el playbook no lleve lógica.
+    """
+    operaciones = []
+    for paso in pasos or []:
+        for operacion in ((paso.get("parametros") or {}).get("operaciones") or []):
+            operaciones.append(operacion)
+    return operaciones
+
+
+def requiere_lectura(area, leido):
+    """¿El área declarada necesita releerse para comprobar la convergencia?
+
+    Se relee TODO lo declarado y declarado-se-compara: la verificación no es «el
+    comando no dio error», es «el estado real coincide con lo declarado» (los dos
+    sentidos). Función aparte porque el orden importa: primero se escribe, después se
+    lee, y lo que se lee es lo mismo que se leyó antes.
+    """
+    return area in (leido or {}).get("areas", {})
+
+
+# Los DRIVERS que existen hoy en este motor: por vía, y por tipo de interior. Es una
+# lista CORTA a propósito, y es la única verdad sobre qué sabe hacer el motor: la usan
+# `apply.yml` para avisar de lo que va a parar y `paso.yml` para despachar. Si añades un
+# driver (un `tasks/configurar_<tipo>.yml`), añádelo aquí -- y `test/test_interior.py`
+# lo comprueba, para que no puedan divergir sin que nadie se entere.
+DRIVERS = {
+    "interior": {"linux"},   # `tasks/configurar_linux.yml`
+    "sonda": set(),          # `tasks/sondar_servicio.yml` (todavía no)
+}
+
+
+def tiene_driver(via, tipo):
+    """¿Este motor sabe ejecutar un paso de esa vía (y, si es interior, de ese tipo)?"""
+    via = via or "api"
+    if via in ("api", "camino"):
+        return True
+    if via == "interior":
+        return tipo in DRIVERS.get("interior", set())
+    return via in DRIVERS
+
+
+def pasos_sin_driver(pasos):
+    """Los pasos del plan que este motor todavía NO sabe ejecutar, en orden.
+
+    Existe para que el aviso de `apply` no mienta: un plan que promete diez pasos y
+    ejecuta tres tiene que decir CUÁLES de los otros siete no sabe hacer, y por qué.
+    """
+    return [
+        paso for paso in (pasos or [])
+        if not tiene_driver(paso.get("via"),
+                            (paso.get("parametros") or {}).get("tipo"))
+    ]
+
+
 class FilterModule:
     """El módulo, visto desde Ansible.
 
@@ -1021,8 +1445,18 @@ class FilterModule:
             "interior_tipo": tipo_de,
             "interior_areas": areas_de,
             "interior_areas_a_leer": areas_a_leer,
+            "interior_lecturas_linux": lecturas_linux,
+            "interior_leido_linux": leido_linux,
+            "interior_escrituras_linux": escrituras_linux,
+            "interior_pendiente_de_driver": pendiente_de_driver,
+            "interior_leido": leido_de_lecturas,
+            "interior_operaciones": operaciones_de_pasos,
+            "interior_sin_driver": pasos_sin_driver,
+            "interior_tiene_driver": tiene_driver,
+            "interior_configuracion_dnsmasq": configuracion_dnsmasq,
             "interior_declara": declara_interior,
             "interior_tiene_camino": tiene_camino,
+            "interior_puesto_control": puesto_control,
             "interior_direccion_libre": direccion_libre,
             "interior_patas": patas_del_puesto_control,
             "interior_puerto_camino": puerto_camino,

@@ -120,7 +120,6 @@
     mode: '0600'
     insertafter: EOF
     state: present
-    regexp: "netlabs_v4_b-camino-{{ camino_puerto }}$"
   when: not (camino_solo_clave | default(false) | bool)
 
 # Lo que el invitado va a ejecutar, armado aquí y sólo aquí. `no_log` porque el guion

@@ -39,10 +39,23 @@
     camino_solo_comprobar: "{{ item.accion == 'comprobar_camino' }}"
   when: (item.via | default('api')) == 'camino'
 
-# Aquí irán las ramas del INTERIOR (routeros por su REST, linux por SSH) y la de la
-# SONDA del escalón, cada una con su fichero. Mientras no estén, el paso siguiente las
-# caza y el verbo PARA con el nombre del paso que falta: es la capa que está en
-# construcción, dicha en voz alta.
+# El INTERIOR: cada tipo tiene su driver, y el tipo lo dice la DECLARACIÓN (nunca lo
+# adivina el motor, §3). El driver lee, decide, escribe y RELEE por su puerta -- aquí
+# sólo se elige cuál. Si añades una rama aquí, añade su tipo a `DRIVERS`
+# (`filter_plugins/interior.py`): es lo que usa `apply` para avisar de lo que no sabe
+# hacer, y `test/test_interior.py` comprueba que las dos listas cuadran.
+- name: "PASO {{ item.orden }} · INTERIOR de '{{ item.rol }}' ({{ item.parametros.tipo }}): {{ item.parametros.area | default('todo lo declarado') }}"
+  ansible.builtin.include_tasks: ../tasks/configurar_linux.yml
+  vars:
+    interior_rol: "{{ item.rol }}"
+    interior_porque: "{{ item.porque }}"
+  when:
+    - (item.via | default('api')) == 'interior'
+    - (item.parametros.tipo | default('')) == 'linux'
+
+# Y la SONDA del escalón (que un escalón SIRVA de verdad antes de tocar el siguiente,
+# regla 18). Mientras no esté, el paso siguiente la caza y el verbo PARA con su nombre:
+# es la capa que está en construcción, dicha en voz alta.
 - name: "PASO {{ item.orden }} · parar si este paso no tiene ejecutor todavía"
   ansible.builtin.fail:
     msg: |-
@@ -52,9 +65,15 @@
         paso {{ item.orden }} ({{ item.accion }}, vía '{{ item.via | default('api') }}')
         {{ item.porque }}
 
-      Lo que falta es el ejecutor de la vía '{{ item.via | default('api') }}' (la capa
+      Lo que falta es el ejecutor de la vía '{{ item.via | default('api') }}'
+      {% if (item.via | default('api')) == 'interior' %}para el tipo '{{ item.parametros.tipo }}'{% endif %} (la capa
       de configuración del interior está en construcción). Los pasos anteriores a este
       ya se han dado --el plan es idempotente, así que volver a lanzar `apply` cuando
       ese ejecutor exista sigue exactamente desde aquí--, y ninguno posterior se ha
       tocado.
-  when: (item.via | default('api')) not in ['api', 'camino']
+  when:
+    - (item.via | default('api')) not in ['api', 'camino']
+    # El interior se da por despachado SÓLO si su driver existe y lo ha cogido la rama
+    # de arriba: lo que no tenga driver cae aquí y para con su nombre.
+    - not ((item.via | default('api')) == 'interior'
+           and (item.parametros.tipo | default('')) in ['linux'])

@@ -1,0 +1,155 @@
+---
+# PROPÓSITO:   EL DRIVER DE UN LINUX. Un driver es un PROCEDIMIENTO con la misma forma
+#              para todos los equipos de su tipo, y esa forma es siempre la misma:
+#
+#                 leer dentro -> decidir la diferencia (en los DOS sentidos) ->
+#                 escribir lo que falta -> RELEER y comprobar.
+#
+#              Nada de «lanzar un comando y confiar»: lo que no se ha vuelto a leer no
+#              está convergido. Y nada de decidir aquí: lo que hay que cambiar lo dice
+#              `filter_plugins/interior.py` a partir de lo declarado y lo leído; este
+#              fichero sólo pide, ejecuta y comprueba.
+#
+# INVARIANTES: abre la conexión SÓLO por la puerta (`interior_ssh.yml`), que es quien
+#              deja el diario. No escribe en ningún invitado por su cuenta. Si algo no
+#              se pudo leer, PARA con el nombre del área en vez de escribir a ciegas.
+#              Al final RELEE: un paso que escribe y no comprueba es una promesa.
+# LÍMITES:     no instala aplicaciones que un lab haya declarado -- el vocabulario no
+#              tiene paquetes (regla 15, §16) --. Lo que sí hace es poner en SU APARATO
+#              (el puesto de control, que es del motor) lo que el área `dhcp_servidor`
+#              necesita para existir: hoy `dnsmasq` y `ethtool`, porque se ha MEDIDO
+#              que la imagen base no los trae y que `ip link` no sabe apagar los
+#              offloads (ver docs/decisiones/0005 y la prosa del lab).
+# VER:         docs/decisiones/0005-*.md; filter_plugins/interior.py;
+#              tasks/interior_ssh.yml; tasks/inventario_invitados.yml
+
+# --- 0. POR DÓNDE SE ENTRA, y qué declara este invitado ------------------------------
+# Se construye aquí (y la puerta lo vuelve a construir antes de tocar la red: es
+# barato y no abre nada). Sin esto no se sabe ni qué leer ni por dónde.
+- name: "DRIVER LINUX · por dónde se entra a '{{ interior_rol }}' y qué declara"
+  ansible.builtin.include_tasks: inventario_invitados.yml
+
+# --- 1. LO QUE EL LAB DECLARA, y por tanto lo que hay que preguntar -----------------
+- name: "DRIVER LINUX · qué áreas hay que leer en '{{ interior_rol }}'"
+  ansible.builtin.set_fact:
+    interior_areas_declaradas: "{{ interior_declarado_invitado | interior_areas }}"
+  changed_when: false
+
+# --- 2. LEER -------------------------------------------------------------------------
+- name: "DRIVER LINUX · leer dentro de '{{ interior_rol }}'"
+  ansible.builtin.include_tasks: interior_ssh.yml
+  vars:
+    interior_tipo: "linux"
+    interior_comandos: "{{ interior_declarado_invitado | interior_lecturas_linux }}"
+
+- name: "DRIVER LINUX · qué se encontró dentro de '{{ interior_rol }}'"
+  ansible.builtin.set_fact:
+    interior_leido: "{{ interior_resultados | interior_leido(interior_declarado_invitado) }}"
+  changed_when: false
+
+- name: "DRIVER LINUX · parar si al invitado no se le pudo PREGUNTAR"
+  ansible.builtin.fail:
+    msg: |-
+      No se ha podido entrar en '{{ interior_rol }}' ({{ interior_declarado_invitado.bridge }})
+      para configurarlo: {{ interior_leido.motivo }}
+
+      El motor no sigue a ciegas (regla 16). Si el invitado es el puesto de control, el
+      camino es lo primero: `./lab --lab {{ pve_lab }} apply` reconstruye el camino si
+      falta. Si no lo es, el que tiene que estar en pie es el puesto de control -- y por
+      eso se entra a los invitados POR ÉL y no directamente.
+  when: not interior_leido.alcanzable
+
+# --- 3. DECIDIR (función pura) --------------------------------------------------------
+- name: "DRIVER LINUX · (declarado, leído) -> lo que hay que cambiar"
+  ansible.builtin.set_fact:
+    interior_pasos: >-
+      {{ interior_declarado_invitado
+         | interior_pasos(identidad, declaracion, interior_leido, parametros_motor) }}
+    interior_escrituras: >-
+      {{ (interior_declarado_invitado
+          | interior_pasos(identidad, declaracion, interior_leido, parametros_motor)
+          | interior_operaciones)
+         | interior_escrituras_linux(interior_declarado_invitado, declaracion, identidad, parametros_motor) }}
+  changed_when: false
+
+# Antes de tocar nada: lo que el plan pide y este driver NO sabe ejecutar. Sin esto, una
+# operación sin traducir se caería de la lista y el motor diría «convergido» habiendo
+# ignorado algo -- que es la forma más silenciosa de mentir. Se para ANTES de escribir,
+# para no dejar el invitado a medio hacer.
+- name: "DRIVER LINUX · parar si el plan pide algo que este driver no sabe hacer"
+  ansible.builtin.fail:
+    msg: |-
+      El plan pide operaciones del interior que el driver de Linux todavía NO sabe
+      ejecutar en '{{ interior_rol }}':
+
+        {% for operacion in interior_sin_traducir %}- {{ operacion }}
+        {% endfor %}
+
+      {% if 'mandar_linea_consola' in interior_sin_traducir %}
+      `mandar_linea_consola` quiere decir que el camino de este lab NO está en pie, y eso
+      no se arregla desde dentro de un invitado: lo pone la puerta del camino, por la
+      consola del hipervisor, cuando ejecutas `./lab --lab {{ pve_lab }} apply`.
+      {% endif %}
+      No se ignora en silencio: se implementa la traducción en
+      `filter_plugins/interior.py` (`escrituras_linux`) o se dice en voz alta que falta.
+  vars:
+    interior_sin_traducir: >-
+      {{ interior_pasos | interior_operaciones
+         | map('interior_pendiente_de_driver') | reject('none') | list }}
+  when: interior_sin_traducir | length > 0
+
+- name: "DRIVER LINUX · lo que este invitado necesita, dicho en claro"
+  ansible.builtin.debug:
+    msg: >-
+      '{{ interior_rol }}': {{ interior_pasos | length }} paso(s) --
+      {% for paso in interior_pasos %}
+      [{{ paso.parametros.area }}] {{ paso.porque.split(':')[0] }};
+      {% endfor %}
+  when: interior_pasos | length > 0
+
+# --- 4. ESCRIBIR ---------------------------------------------------------------------
+- name: "DRIVER LINUX · escribir en '{{ interior_rol }}' lo que de verdad cambia"
+  ansible.builtin.include_tasks: interior_ssh.yml
+  vars:
+    interior_tipo: "linux"
+    interior_comandos: "{{ interior_escrituras }}"
+  when: interior_escrituras | length > 0
+
+# --- 5. RELEER y comprobar -----------------------------------------------------------
+# Se vuelve a preguntar lo MISMO que se preguntó antes, y se decide otra vez: si queda
+# alguna operación por hacer, no ha convergido. La comprobación no es «el comando no dio
+# error» -- eso lo dice el diario -- sino «el estado real coincide con lo declarado».
+- name: "DRIVER LINUX · releer '{{ interior_rol }}' después de escribir"
+  ansible.builtin.include_tasks: interior_ssh.yml
+  vars:
+    interior_tipo: "linux"
+    interior_comandos: "{{ interior_declarado_invitado | interior_lecturas_linux }}"
+  when: interior_escrituras | length > 0
+
+- name: "DRIVER LINUX · comprobar que quedó como se declaró"
+  ansible.builtin.set_fact:
+    interior_pendiente: >-
+      {{ (interior_declarado_invitado
+          | interior_pasos(identidad, declaracion,
+             (interior_resultados | interior_leido(interior_declarado_invitado)),
+             parametros_motor)
+          | interior_operaciones) }}
+  when: interior_escrituras | length > 0
+  changed_when: false
+
+- name: "DRIVER LINUX · '{{ interior_rol }}' ha quedado como se declara"
+  ansible.builtin.fail:
+    msg: |-
+      '{{ interior_rol }}' NO ha convergido en esta pasada: sigue habiendo
+      {{ interior_pendiente | length }} operación(es) pendiente(s):
+
+        {% for operacion in interior_pendiente %}- {{ operacion.op }}
+        {% endfor %}
+
+      Lo que pasó en cada paso está en {{ pve_carpeta_logs }}/interior.jsonl. No se
+      repite a ciegas: se mira el diario y se arregla la causa (un paquete que no se
+      pudo instalar, un servicio que no arrancó, una interfaz que no existe).
+    success_msg: "'{{ interior_rol }}': comprobado leyendo dentro, y coincide con lo declarado."
+  when:
+    - interior_escrituras | length > 0
+    - interior_pendiente | length > 0

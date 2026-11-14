@@ -60,6 +60,19 @@ engine_plantilla_comentario_bridge: "lab={lab} gestionado por netlabs_v4_b"
 # --- Puerta de la API -----------------------------------------------------
 # Segundos que se espera una respuesta antes de que la llamada se dé por perdida.
 engine_timeout_api: 30
+# Cuánto se espera a que un invitado conteste al SSH del motor (por el camino). Es más
+# corto que el de la API a propósito: si el camino no está, no se espera un minuto a
+# que se cumpla un imposible -- se dice que el camino no está en pie.
+engine_timeout_ssh: 15
+# El puerto del sshd DENTRO de un invitado. No es un valor de ningún lab: es el puerto
+# por el que escucha un invitado Linux y lo sabe todo el mundo.
+engine_puerto_ssh_invitado: 22
+# El usuario con el que el motor entra en un invitado Linux. Es `root` porque es como
+# Proxmox crea los contenedores que el motor despliega: no hay usuario de laboratorio
+# que elegir, y el interior de un equipo de un lab se configura entero. NO es el usuario
+# del túnel hacia casa (`camino_usuario`, que es el de la máquina donde corre el motor):
+# son dos cosas distintas y confundirlas da «Permission denied» al entrar.
+engine_usuario_invitado: root
 
 # --- Privilegios: lo que el motor EXIGE y lo que VEDA ---------------------
 # No son valores del entorno: son la lista de lo que el motor necesita hacer y de lo

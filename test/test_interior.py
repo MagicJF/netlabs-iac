@@ -772,6 +772,188 @@ igual(
     "un invitado que no es el puesto de control no genera pasos de camino",
 )
 
+
+# ---------------------------------------------------------------------------
+# El driver de LINUX: el inventario, la puerta y lo que se midió al conectarlo
+# (14-nov-2026). Todo lo de aquí salió de un fallo DE VERDAD al encenderlo.
+# ---------------------------------------------------------------------------
+
+print("\nEL DRIVER DE LINUX\n")
+
+import base64 as _base64  # noqa: E402
+import yaml as _yaml  # noqa: E402
+import declaracion as _validador  # noqa: E402
+
+# La declaración que CIRCULA por el motor está normalizada: sus invitados son una lista
+# plana (`invitados`), no `containers`/`vms`. Si el motor la lee como el fichero del lab,
+# no encuentra el puesto de control, el inventario se queda sin puerto y el paso muere
+# con «No first item, sequence was empty». Pasó: por eso se prueba con esta forma.
+_CRUDA = _yaml.safe_load(open(os.path.join(RAIZ, "labs", "lab-red-routeros", "lab-red-routeros.yml")))
+_NORMALIZADA = _validador.declaracion_normalizar(_CRUDA)
+igual(
+    motor.puesto_control(_NORMALIZADA), "control",
+    "el puesto de control se saca de la declaración NORMALIZADA (la que circula de verdad)",
+)
+igual(
+    motor.puesto_control({"invitados": [{"rol": "puesto-1", "config": {"linux": {"direccion": "dhcp"}}}]}),
+    "",
+    "un lab que no declara camino no tiene puesto de control: '' y no un nombre inventado",
+)
+
+# Los drivers que el motor DICE que tiene y los ficheros que tiene que haber. Si alguien
+# añade un driver sin declararlo, `apply` para en un paso que sí sabe hacer; si lo declara
+# sin escribir el fichero, promete lo que no puede.
+_CARPETA_TAREAS = os.path.join(RAIZ, "deployment_engine", "tasks")
+_FICHEROS = {
+    f[len("configurar_"):-len(".yml")]
+    for f in os.listdir(_CARPETA_TAREAS)
+    if f.startswith("configurar_") and f.endswith(".yml")
+}
+igual(
+    set(motor.DRIVERS["interior"]), _FICHEROS,
+    "los drivers declarados y los ficheros `configurar_<tipo>.yml` cuadran (ni uno de más ni uno de menos)",
+)
+
+# `rc` 255 lo pone ssh cuando NO consigue entrar: eso es «no llegué», no «está mal». Cualquier
+# otro código distinto de cero es el invitado CONTESTANDO que eso no está, y es un estado
+# legítimo del que sí se puede decidir.
+_leido_255 = motor.leido_de_lecturas(
+    [{"ansible_loop_var": "interior_comando", "interior_comando": {"area": "camino"},
+      "stdout": "", "rc": 255, "stderr": "root@127.0.0.1: Permission denied (publickey,password)."}],
+    {"rol": "control"},
+)
+igual(_leido_255["alcanzable"], False, "rc 255 = no se pudo entrar: el motor para en vez de seguir a ciegas")
+comprobar(
+    "Permission denied" in _leido_255["motivo"],
+    "y lo que se enseña es el motivo que dijo ssh, no uno inventado",
+)
+igual(
+    motor.leido_de_lecturas([{"ansible_loop_var": "interior_comando", "interior_comando": {"area": "camino"}, "stdout": "", "rc": 1}], {"rol": "control"})["alcanzable"],
+    True,
+    "rc 1 = el invitado contestó que eso no está: se llegó, y eso se puede decidir",
+)
+
+# --- El servidor DHCP: el sitio donde la idempotencia se pierde sin querer -----------
+CONTROL_CON_DHCP = {
+    "rol": "control", "escalon": 1, "tipo": "lxc", "bridge": "vmb_gestion",
+    "direccion": "10.40.0.10/24",
+    "config": {"linux": {
+        "camino": {},
+        "reenvio": True,
+        "dhcp_servidor": {"interfaz": "eth0", "rango": "10.40.0.50-10.40.0.99", "reservas": "derivadas"},
+    }},
+}
+PUESTO_CON_DHCP = {
+    "rol": "puesto-1", "escalon": 1, "tipo": "lxc", "bridge": "vmb_gestion",
+    "direccion": "10.40.0.20/24", "config": {"linux": {"camino": {}}},
+}
+DECLARACION_DHCP = {
+    "lab": "prueba", "escalones": [1],
+    "bridges": [{"nombre": "vmb_gestion", "supernet": "10.40.0.0/24"}],
+    "invitados": [CONTROL_CON_DHCP, PUESTO_CON_DHCP],
+    "supernet": "10.40.0.0/24",
+    "camino": {"tipo": "puesto_control"},
+}
+IDENTIDAD_DHCP = {"invitados": [
+    # La identidad lleva la MAC de cada pata (la deriva el motor del vmid): es de donde
+    # sale la de la reserva. 109 = 0x6D y 110 = 0x6E.
+    {"rol": "control", "vmid": 109, "tipo": "lxc", "nombre": "prueba-control",
+     "mac": "BC:24:11:00:00:6D"},
+    {"rol": "puesto-1", "vmid": 110, "tipo": "lxc", "nombre": "prueba-puesto-1",
+     "mac": "BC:24:11:00:00:6E"},
+]}
+
+# El texto que de verdad devuelve el invitado: la configuración tal y como la escribe
+# dnsmasq (`inicio,fin,mascara,tiempo`) y los offloads como los imprime `ethtool -k`.
+LECTURA_DHCP_AL_DIA = {
+    "alcanzable": True,
+    "areas": {
+        "camino": {"salida": True},
+        "direccion": {"direccion": "10.40.0.10/24"},
+        "reenvio": {"activo": True},
+        "dhcp_servidor": {
+            "interfaz": "eth0",
+            "rango": "10.40.0.50-10.40.0.99",
+            "reservas": [{"mac": "BC:24:11:00:00:6E", "direccion": "10.40.0.20"}],
+            "configurado": True,
+            "servicio_activo": True,
+            "offload_apagado": True,
+            "herramientas": {"dnsmasq": True, "ethtool": True},
+        },
+    },
+}
+igual(
+    motor.operaciones_de_pasos(motor.pasos_de_convergencia(
+        CONTROL_CON_DHCP, IDENTIDAD_DHCP, DECLARACION_DHCP, LECTURA_DHCP_AL_DIA, PARAMETROS)),
+    [],
+    "un invitado al día -> CERO operaciones: es la prueba de que la segunda pasada no escribe",
+)
+
+_AREAS = motor.leido_de_lecturas(
+    [{"ansible_loop_var": "interior_comando", "interior_comando": {"area": "dhcp_servidor"}, "rc": 0, "stdout": (
+        "port=0\ninterface=eth0\ndhcp-range=10.40.0.50,10.40.0.99,255.255.255.0,12h\n"
+        "---NETLABS---\ntx-checksumming: on\ngeneric-segmentation-offload: off\n"
+        "tcp-segmentation-offload: off\n---NETLABS---\ndnsmasq=/usr/sbin/dnsmasq\nethtool=NO\n"
+    )}],
+    CONTROL_CON_DHCP,
+)["areas"]["dhcp_servidor"]
+igual(
+    _AREAS["rango"], "10.40.0.50-10.40.0.99",
+    "el rango leído se normaliza a la forma declarada (sin esto, el fichero se reescribe en cada pasada)",
+)
+igual(_AREAS["offload_apagado"], False, "un offload encendido se ve tal cual (`tx-checksumming: on`)")
+igual(
+    _AREAS["herramientas"], {"dnsmasq": True, "ethtool": False},
+    "y se sabe qué herramientas hay dentro, para no instalar por si acaso",
+)
+
+# Un puesto recién creado: sin herramientas, sin configuración y con los offloads puestos.
+# El ORDEN importa: primero lo que hace falta para que exista el servidor (dnsmasq,
+# ethtool), después su configuración, después los offloads -- porque sin ethtool no se
+# pueden apagar -- y sólo entonces arrancarlo.
+_OPERACIONES_NUEVO = motor.operaciones_de_pasos(motor.pasos_de_convergencia(
+    CONTROL_CON_DHCP, IDENTIDAD_DHCP, DECLARACION_DHCP,
+    motor.leido_de_lecturas(
+        [{"ansible_loop_var": "interior_comando", "interior_comando": {"area": "camino"}, "rc": 0, "stdout": "active"},
+         {"ansible_loop_var": "interior_comando", "interior_comando": {"area": "direccion"}, "rc": 0, "stdout":
+          "2: eth0    inet 10.40.0.10/24 brd 10.40.0.255 scope global eth0"},
+         {"ansible_loop_var": "interior_comando", "interior_comando": {"area": "reenvio"}, "rc": 0, "stdout": "0"},
+         {"ansible_loop_var": "interior_comando", "interior_comando": {"area": "dhcp_servidor"}, "rc": 0, "stdout": '---NETLABS---\ntx-checksumming: on\ngeneric-segmentation-offload: on\ntcp-segmentation-offload: on\n---NETLABS---\ndnsmasq=NO\nethtool=NO\n---NETLABS---\ninactive'}],
+        CONTROL_CON_DHCP),
+    PARAMETROS,
+))
+_ESCRITURAS = motor.escrituras_linux(
+    _OPERACIONES_NUEVO, CONTROL_CON_DHCP, DECLARACION_DHCP, IDENTIDAD_DHCP, PARAMETROS)
+comprobar(
+    {e["area"] for e in _ESCRITURAS} <= {"dhcp_servidor", "reenvio", "direccion", "camino"},
+    "el motor sólo escribe en áreas DECLARADAS: no se inventa ninguna",
+)
+_ORDEN = [e["comando"] for e in _ESCRITURAS]
+_INSTALAR = next(i for i, c in enumerate(_ORDEN) if c.startswith("DEBIAN_FRONTEND=noninteractive apt-get install"))
+comprobar(
+    all(_INSTALAR < i for i, c in enumerate(_ORDEN)
+        if "ethtool -K" in c or "dnsmasq.conf" in c),
+    "las herramientas del aparato se ponen ANTES de usarlas: sin dnsmasq no hay servidor y sin ethtool no se apagan los offloads",
+)
+comprobar(
+    any("ethtool -K eth0 tx off gso off tso off" in e["comando"] for e in _ESCRITURAS),
+    "y los offloads se apagan con `ethtool -K` (medido: `ip link` NO sabe hacerlo)",
+)
+_CONFIG = [e for e in _ESCRITURAS if "base64 -d > /etc/dnsmasq.d/netlabs.conf" in e["comando"]]
+comprobar(len(_CONFIG) == 1, "la configuración se escribe en un solo paso, codificada (nada de comillas rotas)")
+if _CONFIG:
+    _TEXTO = _base64.b64decode(_CONFIG[0]["comando"].split()[1]).decode()
+    comprobar("port=0" in _TEXTO, "el servidor DHCP no monta un DNS que nadie ha declarado (`port=0`)")
+    comprobar(
+        "dhcp-host=BC:24:11:00:00:6E,10.40.0.20" in _TEXTO,
+        "y lleva la reserva del equipo con dirección fija, con la MAC DERIVADA de su vmid (110 = 0x6E)",
+    )
+    import identidad as _identidad
+    comprobar(
+        _identidad.identidad_mac(110, "BC:24:11") == "BC:24:11:00:00:6E",
+        "la MAC de la reserva es la que el motor DERIVA del vmid: nadie la escribe a mano (regla 14)",
+    )
+
 # ---------------------------------------------------------------------------
 
 if FALLOS:

@@ -104,3 +104,30 @@ está en los `escalones` de la declaración, y el plan lo respeta (regla 18).
   `claves` (Linux) como áreas del vocabulario; el motor aún no las sabe converger, así
   que están declaradas como **pendientes** y la validación las rechaza con su motivo.
   Este lab no las declara: aquí no se finge una configuración que no se aplica.
+- **El motor entra de verdad en el invitado, y se ve en el diario.** El 14-nov-2026, con
+  el puesto de control recreado, las cuatro lecturas del driver salen `rc=0` en
+  `logs/interior.jsonl` (`camino=active`, `direccion=10.40.0.10/24`, `reenvio=1`). Antes
+  de recrearlo salían `rc=255`: la clave que el invitado tenía dentro era la genérica
+  vieja. La lección es la clave **por lab** y **para los dos sentidos** (entrar y salir),
+  porque un invitado creado con otra clave da `Permission denied` y el motor no lo puede
+  adivinar: lo dice y para.
+- **La imagen base no trae servidor DHCP ni `ethtool`, y `ip link` no los sustituye.**
+  Medido dentro del invitado: sin `dnsmasq` ni `ethtool` en `/usr/sbin`, y
+  `ip link set dev eth0 tx off / gso off / tso off` rechazado por iproute2. El motor los
+  instala **en su aparato** (el puesto de control) y escribe la configuración con la
+  reserva derivada del vmid: quedó medido dentro, `dhcp-host=BC:24:11:00:00:6C,10.40.0.11`
+  (el CHR `borde` es el vmid 108), `dnsmasq` escuchando en `eth0:67` y los tres offloads
+  en `off`.
+- **La segunda pasada del interior no escribe NADA.** El 14-nov-2026, `apply` dos veces
+  seguidas: la segunda dejó en el diario del interior **cuatro lecturas y cero
+  escrituras**. Es la prueba de la idempotencia que la regla 6 pide, hecha sobre el
+  invitado de verdad y no sobre el plan. Costó encontrarla: el motor pedía reescribir el
+  fichero del DHCP y recargar el servicio en cada pasada porque no leía el estado del
+  servicio ni normalizaba el rango declarado contra el que escribe dnsmasq (ver ADR 0005).
+- **Lo que falta, dicho en voz alta.** Este lab no llega todavía al final del camino: el
+  `apply` para a propósito en el **primer escalón de RouterOS** («el rol 'borde' es un
+  interior de tipo routeros y el plan no ha leído dentro»), porque su driver (su REST y su
+  imagen de fábrica) no está implementado; y la **sonda** que comprueba que un escalón
+  sirve antes de tocar el siguiente tampoco. Los escalones 2 y 3 quedan **parados** en el
+  hipervisor, que es exactamente la barrera que el lab quiere demostrar: no se arranca lo
+  siguiente hasta que lo anterior esté convergido y sirviendo.

@@ -1,0 +1,110 @@
+---
+# PROPÓSITO:   EL INVENTARIO EN MEMORIA del interior: decidir, para UN invitado y UNA
+#              vez por paso, POR DÓNDE se entra a él. Es el único sitio (con la puerta)
+#              donde se declaran parámetros de conexión SSH a invitados; `check puerta`
+#              lo vigila.
+#
+#              Cómo se entra, y por qué así:
+#
+#                * Al PUESTO DE CONTROL se entra por el CAMINO: en el nodo de control
+#                  hay un puerto local (20000 + su vmid) que aterriza en su sshd. Es
+#                  el caso `es_bastion`: host 127.0.0.1, ese puerto, sin salto.
+#                * A CUALQUIER OTRO invitado se entra POR EL PUESTO DE CONTROL, que es
+#                  el bastión del lab: `ProxyJump` al puerto del camino y, desde ahí,
+#                  su dirección en el bridge del lab. El invitado no necesita ser
+#                  alcanzable desde casa: nunca se habla con él directamente.
+#
+#              La clave es UNA por lab (`netlabs_camino_<lab>_ed25519`) y sirve para
+#              los DOS sentidos: es la que el motor inyecta en el invitado al crearlo
+#              (`ssh-public-keys`) para poder entrar, y es la que el invitado usa para
+#              salir hacia casa (su línea de `authorized_keys` lleva `permitlisten`, y
+#              eso sólo restringe lo que esa clave puede hacer EN EL NODO DE CONTROL;
+#              dentro del invitado abre la shell que el motor necesita). Una clave
+#              por lab y no una compartida porque OpenSSH, en `authorized_keys`, usa
+#              la PRIMERA línea cuya clave casa: con una clave común y una línea por
+#              lab, el segundo lab se queda mudo (§5, medido).
+#
+# INVARIANTES: aquí no se abre ninguna conexión: sólo se calculan los parámetros.
+#              `StrictHostKeyChecking=no` y `UserKnownHostsFile=/dev/null` son
+#              deliberados: los invitados nacen y mueren, no hay huella estable que
+#              fijar, y no se quiere llenar `known_hosts` de nada. Nada de esto se
+#              escribe en un diario.
+# LÍMITES:     el motor entra como `root` con clave, y sólo por el camino: si el
+#              puesto de control no está, no hay interior (regla 16). Los invitados
+#              SIN `config:` no aparecen aquí: no se entra en ellos.
+# VER:         docs/decisiones/0006-*.md; tasks/interior_ssh.yml; ./lab check puerta
+#
+# Variables que espera:  interior_rol  (el rol del invitado)
+# Y deja:                interior_conexion  {host, puerto, usuario, clave, bastion, es_bastion}
+
+- name: "INVENTARIO · el invitado '{{ interior_rol }}' en la identidad del clúster"
+  ansible.builtin.set_fact:
+    interior_invitado: >-
+      {{ identidad.invitados | selectattr('rol', 'equalto', interior_rol) | list | first | default({}) }}
+
+- name: "INVENTARIO · parar si el invitado declarado no está en el clúster"
+  ansible.builtin.fail:
+    msg: |-
+      El plan pide configurar el interior de '{{ interior_rol }}', pero ese invitado
+      no está en la identidad del clúster (no existe o no es del lab). No se entra a
+      ningún invitado que el motor no haya puesto él mismo: para aquí y no se inventa.
+  when: interior_invitado | length == 0
+
+# La dirección con la que se entra al invitado:
+#   * si el lab la declara estática, es esa (no se lee nada);
+#   * si es `dhcp`, el invitado NO declara dirección: se lee de la API
+#     (`GET /nodes/<nodo>/lxc/<vmid>/interfaces`), que es la única fuente sin camino.
+#     Y se entra por el bastión, así que la dirección tiene que ser la del bridge
+#     del lab, no la de gestión.
+- name: "INVENTARIO · la declaración del invitado '{{ interior_rol }}'"
+  ansible.builtin.set_fact:
+    interior_declarado_invitado: >-
+      {{ declaracion.invitados | default([])
+         | selectattr('rol', 'equalto', interior_rol) | list | first | default({}) }}
+
+- name: "INVENTARIO · la dirección de '{{ interior_rol }}' (declarada, o leída si es dhcp)"
+  ansible.builtin.set_fact:
+    interior_direccion: >-
+      {{ (interior_declarado.direccion | default('') | string)
+         | regex_replace('/[0-9]+$', '') }}
+  vars:
+    interior_declarado: "{{ interior_declarado_invitado }}"
+
+- name: "INVENTARIO · armar la conexión a '{{ interior_rol }}'"
+  ansible.builtin.set_fact:
+    interior_conexion:
+      es_bastion: "{{ interior_rol == rol_control }}"
+      host: "{{ '127.0.0.1' if interior_rol == rol_control else interior_direccion }}"
+      puerto: "{{ puerto_del_camino if interior_rol == rol_control else engine_puerto_ssh_invitado }}"
+      bastion: "{{ '' if interior_rol == rol_control else (engine_usuario_invitado ~ '@127.0.0.1') }}"
+      puerto_bastion: "{{ '' if interior_rol == rol_control else puerto_del_camino }}"
+      # OJO: el usuario del INVITADO (root), no el de la máquina de casa. El salto
+      # (ProxyJump) aterriza en el puesto de control POR EL CAMINO, y ahí se entra como
+      # al invitado: el usuario de casa sólo vive en la línea del `authorized_keys` de
+      # este nodo (`camino.yml`), no en la conexión.
+      usuario: "{{ engine_usuario_invitado }}"
+      clave: "{{ parametros_motor.camino_clave | expanduser }}"
+  vars:
+    # El puerto del camino sale del vmid del puesto de control: NADA que guardar (regla 11).
+    puerto_del_camino: >-
+      {{ (parametros_motor.camino_puerto_base | int) + (identidad.invitados
+         | selectattr('rol', 'equalto', rol_control) | list | first).vmid | int }}
+    # Quién es el puesto de control: el invitado que declara CAMINO. Se pregunta a la
+    # función pura (`interior_puesto_control`), no a un valor del lab.
+    rol_control: "{{ declaracion | interior_puesto_control }}"
+
+# Las opciones de ssh, armadas en UN sitio y sólo en uno. `BatchMode=yes` es lo que
+# hace que esto sea un motor y no un humano: si la clave no vale, falla en vez de
+# quedarse esperando una contraseña que nadie va a escribir.
+- name: "INVENTARIO · las opciones de conexión a '{{ interior_rol }}'"
+  ansible.builtin.set_fact:
+    interior_ssh_opciones: >-
+      {{ ['-i', interior_conexion.clave,
+          '-o', 'StrictHostKeyChecking=no',
+          '-o', 'UserKnownHostsFile=/dev/null',
+          '-o', 'ConnectTimeout=' ~ (engine_timeout_ssh | int),
+          '-o', 'BatchMode=yes',
+          '-p', interior_conexion.puerto | string]
+         + (['-o', 'ProxyJump=' ~ interior_conexion.bastion ~ ':' ~ interior_conexion.puerto_bastion]
+            if interior_conexion.bastion | length > 0 else []) }}
+    interior_destino: "{{ interior_conexion.usuario ~ '@' ~ interior_conexion.host }}"

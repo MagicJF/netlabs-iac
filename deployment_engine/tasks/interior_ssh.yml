@@ -1,0 +1,78 @@
+---
+# PROPÓSITO:   LA PUERTA AL INTERIOR DE UN LINUX. Es el único sitio del motor que abre
+#              una conexión a un invitado, y es a la vez el que escribe la línea del
+#              diario: hacer el paso y diarizarlo son UNA sola cosa, igual que en la
+#              puerta de la API (regla 12).
+#
+#              No decide NADA: recibe una lista de comandos ya decididos por el driver
+#              (`configurar_linux.yml`, que leyó antes) y los ejecuta en orden, uno por
+#              uno, dejando una línea JSON por comando en `logs/interior.jsonl`. Si un
+#              comando sale con código distinto de cero, NO se para: se diariza y el
+#              driver decide (leer para decidir es normal que falle --una ruta que no
+#              está, un fichero que no existe--, y eso también es información).
+#
+# INVARIANTES: una línea por paso, SIEMPRE, salga bien o mal. La clave, la contraseña
+#              y el contenido de un fichero NUNCA se escriben en el diario: la salida
+#              se trunca (`engine_diario_max_cuerpo`) y lo que se diariza es lo que el
+#              comando DEVOLVIÓ, no lo que se le mandó como credencial.
+# LIMITES:     no interpreta el estado del invitado (eso son los filtros puros de
+#              `interior.py`: declarado + leído -> pasos) ni decide qué converge. Un
+#              motor que ejecuta y adivina no es un motor convergente.
+# VER:         docs/decisiones/0006-*.md; tasks/inventario_invitados.yml;
+#              ./lab check puerta
+
+# El inventario se construye UNA vez por invitado y por paso: aquí, antes de tocar nada.
+- name: "INTERIOR · por dónde se entra a '{{ interior_rol }}'"
+  ansible.builtin.include_tasks: inventario_invitados.yml
+
+# Los comandos, en orden. `changed_when` lo dice el propio paso (`accion`): una lectura
+# no cambia el mundo, y por eso la segunda ejecución de un verbo convergido puede salir
+# `changed=0` con el diario lleno de lecturas (regla 6, endurecida).
+- name: "INTERIOR · ejecutar en '{{ interior_rol }}' lo que pidió el driver"
+  ansible.builtin.command:
+    argv: "{{ ['ssh'] + interior_ssh_opciones + [interior_destino, interior_comando.comando] }}"
+  loop: "{{ interior_comandos }}"
+  loop_control:
+    loop_var: interior_comando
+    label: "{{ interior_comando.accion }} {{ interior_comando.area }}"
+  register: interior_ejecutados
+  changed_when: interior_comando.accion == 'escribir'
+  # Un fallo del comando NO se convierte en un fallo del motor todavía: primero hay que
+  # leerlo (y diarizarlo); después decide el driver, que es quien sabe qué esperaba.
+  failed_when: false
+
+# El diario va SIEMPRE, paso a paso, antes de decidir nada.
+- name: "DIARIO INTERIOR · una línea por paso en '{{ interior_rol }}'"
+  ansible.builtin.lineinfile:
+    path: "{{ pve_carpeta_logs }}/interior.jsonl"
+    line: "{{ diario | to_json }}"
+    create: true
+    mode: '0640'
+    insertafter: EOF
+  loop: "{{ interior_ejecutados.results | default([]) }}"
+  loop_control:
+    loop_var: interior_ejecutado
+    label: "{{ interior_ejecutado.interior_comando.accion }} {{ interior_ejecutado.interior_comando.area }}"
+  vars:
+    diario:
+      ts: "{{ now().isoformat() }}"
+      verb: "{{ pve_verb }}"
+      lab: "{{ pve_lab }}"
+      invitado: "{{ interior_rol }}"
+      tipo: "{{ interior_tipo }}"
+      area: "{{ interior_ejecutado.interior_comando.area }}"
+      accion: "{{ interior_ejecutado.interior_comando.accion }}"
+      declarado: "{{ interior_ejecutado.interior_comando.declarado | default('') }}"
+      comando: "{{ interior_ejecutado.interior_comando.comando }}"
+      encontrado: "{{ (interior_ejecutado.stdout | default('') | trim)[: (engine_diario_max_cuerpo | default(0) | int)] }}"
+      # El `rc` es lo que distingue «no está» de «no pude preguntar»: un `leer` que sale
+      # con rc != 0 no es un estado, es una avería, y el driver lo dice así.
+      rc: "{{ interior_ejecutado.rc | default(-1) }}"
+      cambiado: "{{ interior_ejecutado.interior_comando.accion == 'escribir' }}"
+      resultado: "{{ 'ok' if (interior_ejecutado.rc | default(-1)) == 0 else 'error' }}"
+  changed_when: false
+
+# Lo leído queda a mano del driver, en el mismo orden en que se pidió.
+- name: "INTERIOR · dejar los resultados a mano del driver"
+  ansible.builtin.set_fact:
+    interior_resultados: "{{ interior_ejecutados.results | default([]) }}"

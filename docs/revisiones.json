@@ -49,6 +49,11 @@
       "deployment_engine/vars/engine.yml": "6d7e4c162a278619aba284ccd1017c79edba591dd95d7af297035fbf14ea16ec"
     }
   },
+  "docs/decisiones/0005-el-driver-del-interior.md": {
+    "citados": {
+      "deployment_engine/filter_plugins/interior.py": "1e2dfdb1d2adcf13572a45ef9b116640ba055d531d08811ad914ec06306be8aa"
+    }
+  },
   "labs/ejemplo-topologia/ejemplo-topologia.md": {
     "citados": {
       "deployment_engine/filter_plugins/identidad.py": "4f882c0786d0635cdaa8797450c9a7a1236aaf6f40c656b7e82c1fa9c4e5bed0",

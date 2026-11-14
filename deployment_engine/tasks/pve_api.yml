@@ -116,7 +116,7 @@
       status: "{{ pve_api_ultimo_status }}"
       duration_ms: "{{ pve_api_duracion_ms }}"
       etiqueta: "{{ pve_api_etiqueta | default('') }}"
-      response: "{{ (pve_api_ultimo_json | to_json)[: engine_diario_max_cuerpo | int] }}"
+      response: "{{ (pve_api_ultimo_json | to_json)[: (engine_diario_max_cuerpo | default(0) | int)] }}"
   changed_when: false
 
 # Acumulación opcional: la lectura de la config de cada invitado se hace en bucle,

@@ -348,6 +348,123 @@ def check_puerta():
 
 
 # ---------------------------------------------------------------------------
+# check privilegios — el motor no concede privilegios, y sus invitados no nacen
+#                     privilegiados
+# ---------------------------------------------------------------------------
+
+# El ÚNICO fichero del motor autorizado a hablar con /access/...: la guarda de
+# preflight, que sólo LEE y hace una operación NULA. Si aparece en otro sitio, el
+# motor está administrando permisos, y eso no es su trabajo (regla 16).
+#
+# Los literales que este check persigue se construyen por PIEZAS a propósito (igual
+# que RUTA_BASE_API más arriba): así este fichero no los contiene y el check puede
+# seguir siendo estricto sin excluirse a sí mismo.
+_GUARDA = "guardia_privilegios"
+_YML = ".yml"
+GUARDA_PRIVILEGIOS = "deployment_engine/tasks/" + _GUARDA + _YML
+# Y ese fichero sólo puede incluirlo `preflight`: un verbo que escribe nunca debe
+# llevar la guarda (no es una comprobación: es una lectura más una escritura nula,
+# y dejaría el diario de un apply con una escritura que no converge).
+UNICO_QUE_INCLUYE_LA_GUARDA = "deployment_engine/playbooks/preflight.yml"
+# La ruta de la API de administración de permisos. En un .yml cuenta cualquier
+# mención (un comentario no llama a la API, pero un `pve_api_ruta:` sí, y
+# distinguirlos con una heurística sería frágil). En un .py sólo cuenta el literal
+# ENTRE COMILLAS: los filtros y este mismo check hablan de esa ruta en comentarios
+# y docstrings, y prohibir la palabra en prosa no protege de nada.
+RUTA_ACCESS = "/access" + "/"
+RUTA_ACCESS_CITA = '"' + RUTA_ACCESS
+
+# Claves crudas de LXC que montarían rutas del HOST dentro de un invitado, y
+# dispositivos. Ninguna tiene sitio en el vocabulario del motor: si aparecen, es que
+# alguien está construyendo un contenedor que escapa del contenedor. Se arman por
+# piezas, otra vez, para que este fichero no las contenga.
+_CRUDO = "lxc."
+CLAVES_PROHIBIDAS = tuple(_CRUDO + sufijo for sufijo in (
+    "mount.entry", "mount", "cgroup", "cap.drop", "cap.keep", "apparmor", "idmap", "hook",
+)) + tuple(
+    "unprivileged" + sufijo for sufijo in (": 0", ": false", "=0", ": no", ": \"0\"")
+) + tuple("dev" + str(numero) for numero in range(3))
+
+
+def _ficheros_del_motor():
+    rutas = list(_ficheros_con_extension(".yml", os.path.join(RAIZ, "deployment_engine")))
+    rutas += list(_ficheros_con_extension(".py", os.path.join(RAIZ, "deployment_engine")))
+    return rutas
+
+
+def _menciona_access(texto, es_python):
+    """¿Este texto llama (o podría llamar) a la API de permisos?"""
+    if not es_python:
+        return RUTA_ACCESS in texto
+    return RUTA_ACCESS_CITA in texto
+
+
+def check_privilegios():
+    """Dos afirmaciones, las dos comprobables, sobre los privilegios.
+
+    1. El motor NO concede privilegios: `/access/` sólo aparece en la guarda, y la
+       guarda sólo la incluye `preflight`. Tampoco construye invitados que escapen
+       del invitado (claves crudas de LXC, dispositivos).
+    2. El motor SÍ detecta un invitado privilegiado: se llama a la función que lo
+       lee y se comprueba con un caso que DEBE dar positivo. Una comprobación que
+       no se prueba con un caso malo no prueba nada.
+    """
+    fallos = []
+    for ruta in _ficheros_del_motor():
+        relativo = _relativo(ruta)
+        texto = _leer(ruta)
+        es_python = ruta.endswith(".py")
+        if _menciona_access(texto, es_python) and relativo != GUARDA_PRIVILEGIOS:
+            fallos.append(
+                f"{relativo}: habla con {RUTA_ACCESS}, y sólo puede hacerlo {GUARDA_PRIVILEGIOS}"
+            )
+        # Las comillas se quitan antes de buscar: la misma afirmación se escribe con
+        # comillas alrededor del nombre en un diccionario Python y sin ellas en un
+        # YAML, y una regla que sólo viera una de las dos formas no protege de nada.
+        sin_comillas = texto.replace('"', "").replace("'", "")
+        for clave in CLAVES_PROHIBIDAS:
+            if clave in sin_comillas:
+                fallos.append(f"{relativo}: contiene '{clave}', que el motor no debe usar nunca")
+
+    # La guarda sólo se incluye desde preflight.
+    for ruta in _ficheros_del_motor():
+        relativo = _relativo(ruta)
+        if relativo == GUARDA_PRIVILEGIOS:
+            continue
+        if (_GUARDA + _YML) in _leer(ruta) and relativo != UNICO_QUE_INCLUYE_LA_GUARDA:
+            fallos.append(
+                f"{relativo}: incluye la guarda de privilegios, y sólo puede hacerlo "
+                f"{UNICO_QUE_INCLUYE_LA_GUARDA}"
+            )
+
+    # El caso que DEBE dar positivo: un contenedor sin `unprivileged` está
+    # privilegiado, y el motor tiene que verlo.
+    import estado as modulo_estado  # noqa: E402  (la ruta se ajusta arriba)
+
+    estado_malo = {"invitados": {
+        "200": {"vmid": 200, "nombre": "lab-x-puesto", "tipo": "lxc", "privilegiado": True},
+        "201": {"vmid": 201, "nombre": "lab-x-servidor", "tipo": "lxc", "privilegiado": False},
+    }}
+    detectados = modulo_estado.estado_invitados_privilegiados(estado_malo)
+    if [d["vmid"] for d in detectados] != [200]:
+        fallos.append(
+            "el motor NO detecta un contenedor privilegiado: con un invitado "
+            "privilegiado y otro no, `estado_invitados_privilegiados` devolvió "
+            f"{detectados} y debía devolver sólo el 200"
+        )
+
+    if fallos:
+        print("FALLA privilegios: el motor está concediendo o dejando pasar privilegios:")
+        for fallo in fallos:
+            print(f"  - {fallo}")
+        return 1
+    print("OK    privilegios: el motor no habla con /access/ fuera de su guarda (y sólo "
+          "la incluye preflight), no usa claves crudas de LXC ni dispositivos, y detecta "
+          "un invitado privilegiado")
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # check declaracion — coherencia de cada estado deseado
 # ---------------------------------------------------------------------------
 
@@ -515,6 +632,7 @@ CHECKS = {
     "docs": check_docs,
     "refs": check_refs,
     "puerta": check_puerta,
+    "privilegios": check_privilegios,
     "declaracion": check_declaracion,
     "colisiones": check_colisiones,
     "pureza-lab": check_pureza_lab,

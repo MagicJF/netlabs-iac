@@ -22,6 +22,11 @@
     - name: "PREFLIGHT · validar la coherencia de la declaración"
       ansible.builtin.include_tasks: ../tasks/validar.yml
 
+    # Lo PRIMERO, porque todo lo demás se apoya en el token: si el token puede
+    # reescribir su propio rol, ninguna otra comprobación significa nada.
+    - name: "PREFLIGHT · guarda de mínimos privilegios del token"
+      ansible.builtin.include_tasks: ../tasks/guardia_privilegios.yml
+
     - name: "PREFLIGHT · leer el mundo y asignar identidad"
       ansible.builtin.include_tasks: ../tasks/identidad.yml
 

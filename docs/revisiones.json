@@ -6,6 +6,13 @@
       "deployment_engine/tools/documentos.py": "8858eb50b71900de94e4d3cdbc59373c7407a7b9aa8137ae4106760481643ad3"
     }
   },
+  "GOAL-capa-de-configuracion.md": {
+    "citados": {
+      "deployment_engine/tasks/pve_api.yml": "b9d61716521edcced9db80c37854a2d6c922ef48c0ffc46cd2715ba9e7117c56",
+      "deployment_engine/tools/framework_check.py": "f5c5045ade258b4aa0b5364b161346b44172ffccbea666759072c139f82223b6",
+      "deployment_engine/tools/plan.py": "8ff52fdf4ae81a026cfb8fcdf9f61f08d6ed7e30b97c408c98e9c2f94e061a32"
+    }
+  },
   "README.md": {
     "citados": {
       "deployment_engine/filter_plugins/estado.py": "2ce28b5ba98e8fa4d17f535712fe2e5258619a72c1f5dc04f114ed3a5a4fd786",

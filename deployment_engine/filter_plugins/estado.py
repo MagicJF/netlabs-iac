@@ -163,10 +163,11 @@ def estado_desde_api(datos):
         if pool == lab:
             config = configs.get(str(vmid), {})
             bridge, mac = _red_de_net0(config.get("net0"))
+            tipo = "lxc" if tipo == "lxc" else "qemu"
             estado["invitados"][str(vmid)] = {
                 "vmid": vmid,
                 "nombre": config.get("name") or config.get("hostname") or nombre,
-                "tipo": "lxc" if tipo == "lxc" else "qemu",
+                "tipo": tipo,
                 "descripcion": _descripcion_sin_ruido(config.get("description")),
                 "cores": config.get("cores"),
                 "memoria": config.get("memory"),
@@ -175,6 +176,14 @@ def estado_desde_api(datos):
                 "arrancado": recurso.get("status") == "running",
                 "pool": pool,
                 "nodo": recurso.get("node"),
+                # Privilegiado o no: SÓLO se lee, y sólo para contenedores. En la
+                # config de un contenedor, Proxmox OMITE `unprivileged` cuando el
+                # contenedor es privilegiado, así que la AUSENCIA es la señal de
+                # alarma, no la presencia. El motor no necesita `VM.Console` para
+                # nada más, pero con él la consola de un invitado es root DENTRO de
+                # ese invitado: con el contenedor sin privilegios, root dentro no es
+                # root fuera (ver docs/decisiones/0004). Por eso esto se verifica.
+                "privilegiado": tipo == "lxc" and not bool(config.get("unprivileged")),
             }
             estado["pools"].setdefault(lab, {})
         else:
@@ -461,7 +470,12 @@ def estado_verificar(declaracion, estado, identidad):
                 }
             )
 
-    ok = not (faltan or sobran or drift or parados or otros_lab)
+    # El límite que el motor se impone por tener `VM.Console`: ningún invitado del
+    # lab puede estar privilegiado, porque root dentro de un contenedor privilegiado
+    # es root fuera. Se comprueba LEYENDO la config, no prometiéndolo.
+    privilegiados = estado_invitados_privilegiados(estado)
+
+    ok = not (faltan or sobran or drift or parados or otros_lab or privilegiados)
 
     return {
         "lab": lab,
@@ -475,6 +489,7 @@ def estado_verificar(declaracion, estado, identidad):
         "drift": drift,
         "parados": parados,
         "otros_lab": otros_lab,
+        "privilegiados": privilegiados,
         "no_verificable": no_verificable,
     }
 
@@ -524,6 +539,18 @@ def estado_informe_texto(informe):
             lineas.append(f"  - rol={item['rol']}: {item['nota']}")
         lineas.append("")
 
+    if informe.get("privilegiados"):
+        lineas.append(
+            f"PRIVILEGIADOS ({len(informe['privilegiados'])}): contenedores del lab SIN "
+            "`unprivileged`, y el motor entra por consola en los invitados"
+        )
+        for item in informe["privilegiados"]:
+            lineas.append(
+                f"  - vmid={item['vmid']} nombre={item['nombre']}: root dentro de un "
+                "contenedor privilegiado es root fuera del contenedor"
+            )
+        lineas.append("")
+
     if informe["conformes"]:
         lineas.append(f"CONFORMES ({len(informe['conformes'])}): existen, coinciden y están arrancados")
         for item in informe["conformes"]:
@@ -539,9 +566,91 @@ def estado_informe_texto(informe):
     return "\n".join(lineas)
 
 
+def estado_privilegios(concedidos, exigidos, vedados):
+    """Compara los privilegios CONCEDIDOS al token con los que el motor EXIGE y los
+    que VEDA.
+
+    `concedidos` sale de la API (GET /access/roles/<rol> devuelve `privs` como una
+    cadena separada por comas); las otras dos listas son del motor (vars/engine.yml)
+    y son una afirmación sobre lo que el motor necesita y lo que no debe poder
+    hacer jamás. Este filtro sólo compara: no decide qué privilegios hacen falta.
+
+    Es la mitad LÓGICA de la guarda de mínimos privilegios; la otra mitad es la
+    operación nula que `preflight` hace contra la API y que debe responder 403
+    (ver tasks/guardia_privilegios): sin ella, esto sería una intención.
+
+    Devuelve {ok, faltan, sobran, concedidos, texto}.
+    """
+    def _lista(valor):
+        if valor is None:
+            return []
+        if isinstance(valor, str):
+            return [p.strip() for p in valor.split(",") if p.strip()]
+        # `GET /access/roles/<rol>` devuelve un MAPA privilegio -> 1, no una lista:
+        # las claves SON los privilegios concedidos. `GET /access/roles` (la lista)
+        # los da como cadena en `privs`. Se aceptan las dos formas.
+        if isinstance(valor, dict):
+            return sorted(str(p).strip() for p in valor if str(p).strip())
+        return [str(p).strip() for p in valor if str(p).strip()]
+
+    concedidos = _lista(concedidos)
+    exigidos = _lista(exigidos)
+    vedados = _lista(vedados)
+
+    conjunto = set(concedidos)
+    faltan = sorted(set(exigidos) - conjunto)
+    sobran = sorted(set(vedados) & conjunto)
+
+    lineas = [
+        f"El rol del token tiene {len(concedidos)} privilegio(s) concedido(s).",
+        f"  Exigidos por el motor: {len(exigidos)}",
+        f"  Vedados  por el motor: {len(vedados)}",
+    ]
+    if faltan:
+        lineas.append("  FALTAN (el motor los necesita y no los tiene):")
+        lineas += [f"    - {p}" for p in faltan]
+    if sobran:
+        lineas.append("  SOBRAN (el motor los veda y los tiene):")
+        lineas += [f"    - {p}" for p in sobran]
+    if not faltan and not sobran:
+        lineas.append("  Ni falta ninguno de los exigidos ni está ninguno de los vedados.")
+
+    return {
+        "ok": not faltan and not sobran,
+        "faltan": faltan,
+        "sobran": sobran,
+        "concedidos": sorted(conjunto),
+        "texto": "\n".join(lineas),
+    }
+
+
+def estado_invitados_privilegiados(estado):
+    """Los invitados del lab que NO nacieron sin privilegios, según lo que dice la API.
+
+    Es la comprobación del límite que el motor se impone a sí mismo al aceptar
+    `VM.Console` (docs/decisiones/0004): la consola de un invitado es root DENTRO de
+    ese invitado, y con el contenedor sin privilegios root dentro no es root fuera.
+
+    Se LEE, no se promete: en la config de un contenedor Proxmox omite
+    `unprivileged` cuando el contenedor es privilegiado, así que la ausencia es el
+    aviso. Una VM no entra aquí: la distinción privilegiado/no privilegiado es de
+    los contenedores.
+
+    Devuelve una lista de {vmid, nombre} (vacía si todo está bien).
+    """
+    privilegiados = []
+    for vmid, invitado in sorted((estado.get("invitados") or {}).items(),
+                                 key=lambda par: int(par[0])):
+        if invitado.get("privilegiado"):
+            privilegiados.append({
+                "vmid": invitado.get("vmid", vmid),
+                "nombre": invitado.get("nombre"),
+            })
+    return privilegiados
+
+
 class FilterModule:
     """Filtros que Ansible ve como `| estado_desde_api`, `| estado_verificar`…"""
-
     def filters(self):
         return {
             "estado_vacio": estado_vacio,
@@ -557,4 +666,6 @@ class FilterModule:
             "estado_plan_texto": estado_plan_texto,
             "estado_verificar": estado_verificar,
             "estado_informe_texto": estado_informe_texto,
+            "estado_privilegios": estado_privilegios,
+            "estado_invitados_privilegiados": estado_invitados_privilegiados,
         }

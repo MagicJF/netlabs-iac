@@ -1,0 +1,41 @@
+---
+# PROPÓSITO:   saber qué direcciones están YA EN USO en la red del nodo, preguntándole
+#              a cada contenedor del nodo las que tiene puestas. Es la pregunta que
+#              permite elegir una dirección LIBRE para la pata de gestión del puesto
+#              de control (§5) sin guardar ninguna lista (regla 11: nada derivado se
+#              guarda en el repo; se vuelve a derivar cada vez).
+# INVARIANTES: todo se lee por la PUERTA (`tasks/pve_api.yml`), así que cada lectura
+#              deja su línea en el diario. No se escribe nada. Un contenedor ilegible
+#              NO se ignora en silencio: se diaria el error y el motor sigue, porque
+#              una dirección de gestión que se creía libre es un fallo; el informe lo
+#              dice. Las direcciones de los bridges del nodo (las puertas de cada
+#              subred) vienen ya dentro del estado, de `GET /nodes/<nodo>/network`.
+# LÍMITES:     una VM QEMU no tiene endpoint de interfaces en la API: su dirección es
+#              INVISIBLE desde el host (haría falta el agente de invitado, que aquí no
+#              hay). Por eso el motor elige contando por ARRIBA (`.254`, `.253`…) y por
+#              eso el informe dice que esto no está probado del todo. Lo que no se
+#              puede saber, se dice; no se finge.
+# VER:         docs/camino-del-puesto-de-control.md; AGENTS.md §Reglas duras (11, 12)
+
+# Sólo contenedores: son los únicos que declaran sus direcciones a la API. Se mira TODO
+# el clúster (no sólo este lab), porque cualquier contenedor del nodo puede tener una
+# dirección en el bridge de gestión.
+- name: "DIRECCIONES · preguntar a cada contenedor del nodo qué direcciones tiene"
+  ansible.builtin.include_tasks: pve_api.yml
+  vars:
+    pve_api_metodo: GET
+    pve_api_ruta: "/nodes/{{ item.nodo }}/lxc/{{ item.vmid }}/interfaces"
+    pve_api_etiqueta: "direcciones en uso por el contenedor {{ item.vmid }} ({{ item.nombre }})"
+    pve_api_tolerar_error: true
+    pve_api_acumular_interfaces: true
+    pve_api_vmid: "{{ item.vmid }}"
+  loop: "{{ pve_cluster_recursos | pve_contenedores_cluster
+             if (pve_estado_fixture | default('') | length) == 0 else [] }}"
+  loop_control:
+    label: "{{ item.vmid }} {{ item.nombre | default('') }}"
+
+# Y se meten en el estado del mundo. La conversión (qué es «una dirección en uso») es
+# una función pura de `estado.py`, no Jinja: se prueba con fixtures, sin Proxmox.
+- name: "DIRECCIONES · meter las direcciones en uso en el estado del mundo"
+  ansible.builtin.set_fact:
+    estado: "{{ estado | estado_con_direcciones(pve_interfaces | default({})) }}"

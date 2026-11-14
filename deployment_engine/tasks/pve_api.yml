@@ -21,6 +21,8 @@
 #   pve_api_etiqueta (opcional) para qué era esta llamada, en el diario
 #   pve_api_vmid pve_api_acumular_configs  (opcional) acumula pve_configs[vmid]
 #   pve_api_vmid pve_api_acumular_configs_ajenas (opcional) acumula
+#   pve_api_vmid pve_api_acumular_interfaces (opcional) acumula
+#     pve_interfaces[vmid] con lo que devuelva la ruta (p. ej. /lxc/<vmid>/interfaces)
 #                    pve_configs_ajenas[vmid]: las configs de invitados que NO son
 #                    del lab. Van a un acumulador DISTINTO a propósito: mezclarlas
 #                    con las del lab haría que `destroy` no pudiera distinguir el
@@ -131,6 +133,14 @@
   ansible.builtin.set_fact:
     pve_configs_ajenas: "{{ (pve_configs_ajenas | default({})) | combine({(pve_api_vmid | string): pve_api_ultimo_datos}) }}"
   when: pve_api_acumular_configs_ajenas | default(false) | bool
+
+# El mismo patrón, para las direcciones que un contenedor tiene puestas: es lo que
+# permite elegir una dirección LIBRE para la pata de gestión del puesto de control
+# sin guardar nada (regla 11) ni tocar el hipervisor.
+- name: "PUERTA · acumular las interfaces del vmid {{ pve_api_vmid | default('?') }}"
+  ansible.builtin.set_fact:
+    pve_interfaces: "{{ (pve_interfaces | default({})) | combine({(pve_api_vmid | string): pve_api_ultimo_datos}) }}"
+  when: pve_api_acumular_interfaces | default(false) | bool
 
 # Salvo que el llamante pida tolerar errores (para poder explicar por su cuenta qué
 # pasa), una respuesta de error PARA el verbo. El mensaje es legible y lleva el

@@ -84,6 +84,15 @@ def estado_vacio():
         "pools": {},
         "invitados": {},
         "invitados_otros": {},
+        # La red del NODO, como subredes: {bridge: "10.10.10.1/24"}. Es lo que permite
+        # elegir una dirección libre en el bridge de gestión para la pata del puesto de
+        # control (§5): el motor no guarda ninguna, la elige y la vuelve a elegir cada
+        # vez. Sin esto, esa pata nacería sin dirección y no habría camino.
+        "bridges_direcciones": {},
+        # Direcciones que YA usa alguien en el nodo (direcciones sin máscara). Nace con
+        # las de los propios bridges del nodo --la puerta de cada subred-- y crece con
+        # lo que digan los contenedores del nodo (`GET /lxc/<vmid>/interfaces`).
+        "direcciones_usadas": [],
     }
 
 
@@ -105,6 +114,8 @@ def estado_normalizar(datos):
     base["invitados_otros"] = base.get("invitados_otros") or {}
     base["bridges_nodo"] = base.get("bridges_nodo") or []
     base["bridges_comentarios"] = base.get("bridges_comentarios") or {}
+    base["bridges_direcciones"] = base.get("bridges_direcciones") or {}
+    base["direcciones_usadas"] = sorted(str(d) for d in (base.get("direcciones_usadas") or []))
     return base
 
 
@@ -151,6 +162,16 @@ def estado_desde_api(datos):
             estado["bridges_comentarios"][interfaz["iface"]] = _descripcion_sin_ruido(
                 interfaz.get("comments")
             )
+            # La subred del bridge, tal como la declara la API: `cidr` en PVE 8/9
+            # (medido en este nodo: {"iface": "vmbr1", "cidr": "10.10.10.1/24"}), y
+            # `address`+`netmask` en versiones anteriores. La dirección del bridge es
+            # la PUERTA de esa subred, y por eso cuenta como ocupada.
+            subred = interfaz.get("cidr") or ""
+            if not subred and interfaz.get("address") and interfaz.get("netmask"):
+                subred = f"{interfaz['address']}/{interfaz['netmask']}"
+            if subred:
+                estado["bridges_direcciones"][interfaz["iface"]] = subred
+                estado["direcciones_usadas"].append(subred)
 
     for recurso in recursos:
         vmid = recurso.get("vmid")
@@ -184,6 +205,12 @@ def estado_desde_api(datos):
                 # ese invitado: con el contenedor sin privilegios, root dentro no es
                 # root fuera (ver docs/decisiones/0004). Por eso esto se verifica.
                 "privilegiado": tipo == "lxc" and not bool(config.get("unprivileged")),
+                # El modo de la CONSOLA. Es lo que decide si la consola de un
+                # contenedor da una shell o un `login`, y el motor necesita la shell
+                # para poner el arranque del camino UNA vez (§5). Medido: Proxmox
+                # OMITE `cmode` cuando vale lo de fábrica (`tty`), así que la ausencia
+                # significa `tty`, no «desconocido».
+                "cmode": (config.get("cmode") or "tty") if tipo == "lxc" else None,
             }
             estado["pools"].setdefault(lab, {})
         else:
@@ -197,6 +224,36 @@ def estado_desde_api(datos):
 
     estado["vmids_usados"] = sorted(set(estado["vmids_usados"]))
     estado["bridges_nodo"] = sorted(set(estado["bridges_nodo"]))
+    return estado
+
+
+def estado_con_direcciones(estado, interfaces):
+    """Mete en el estado las direcciones que usan los contenedores del nodo.
+
+    `interfaces` es {vmid: [interfaz]} tal cual lo devuelve
+    `GET /nodes/<nodo>/lxc/<vmid>/interfaces` (medido: cada entrada trae `name`,
+    `inet` y `inet6`, con la máscara). Sólo se miran las IPv4: el motor no gestiona
+    IPv6 dentro de los labs.
+
+    Por qué esto es una función pura y no un bucle de plantilla: es la MISMA pregunta
+    que hace `direccion_libre` («¿está libre esta dirección?»), y tenerla en dos
+    sitios sería tener dos verdades. Se prueba con fixtures, sin Proxmox.
+
+    Lo que NO se puede saber por API, y se dice en vez de fingirlo: la dirección de
+    una VM QEMU. Su config no lleva `ip=` (lo configura el invitado por dentro) y no
+    hay endpoint de interfaces más que para contenedores; haría falta el agente de
+    invitado, que aquí no está. Así que una VM ajena con dirección estática en el
+    mismo bridge es invisible para el motor, y por eso el puesto de control se elige
+    contando por ARRIBA (`.254`, `.253`…), lejos de donde suele haber servidores.
+    """
+    usadas = set(str(d) for d in (estado.get("direcciones_usadas") or []))
+    for vmid in sorted((interfaces or {}), key=lambda v: str(v)):
+        for interfaz in (interfaces.get(vmid) or []):
+            inet = interfaz.get("inet")
+            if inet:
+                usadas.add(str(inet))
+    estado = dict(estado)
+    estado["direcciones_usadas"] = sorted(usadas)
     return estado
 
 
@@ -338,6 +395,37 @@ def estado_bridges_texto(decision):
     return "\n".join(lineas)
 
 
+def _invitado_normalizado(recurso):
+    """Un invitado del clúster, con los nombres que usa el motor.
+
+    La API habla en inglés (`node`, `type`, `name`) y el dominio del motor en
+    castellano (`nodo`, `tipo`, `rol_o_nombre`). Esta es la única traducción, y por
+    eso la usan los tres filtros que recorren `GET /cluster/resources`.
+    """
+    return {
+        "vmid": int(recurso["vmid"]),
+        "tipo": "lxc" if recurso.get("type") == "lxc" else "qemu",
+        "nodo": recurso.get("node"),
+        "rol_o_nombre": recurso.get("name") or str(recurso.get("vmid")),
+    }
+
+
+def pve_contenedores_cluster(cluster_recursos):
+    """TODOS los contenedores del clúster, de este lab o de cualquier otro.
+
+    Hace falta para una sola pregunta, y es la del camino (§5): ¿qué direcciones está
+    usando ya alguien en la red del nodo, para poder elegir una LIBRE para la pata de
+    gestión del puesto de control? No se filtra por pool a propósito: un contenedor
+    ajeno con dirección en el mismo bridge ocupa igual. Las VMs QEMU no aparecen
+    porque la API no sabe decir sus direcciones sin agente de invitado (y se dice).
+    """
+    return sorted(
+        (_invitado_normalizado(r) for r in (cluster_recursos or [])
+         if r.get("type") == "lxc" and r.get("vmid") is not None),
+        key=lambda i: i["vmid"],
+    )
+
+
 def pve_invitados_del_pool(cluster_recursos, lab):
     """Los invitados que la API dice que están en el pool del lab.
 
@@ -350,14 +438,7 @@ def pve_invitados_del_pool(cluster_recursos, lab):
             continue
         if recurso.get("vmid") is None:
             continue
-        salida.append(
-            {
-                "vmid": int(recurso["vmid"]),
-                "tipo": "lxc" if recurso.get("type") == "lxc" else "qemu",
-                "nodo": recurso.get("node"),
-                "rol_o_nombre": recurso.get("name") or str(recurso.get("vmid")),
-            }
-        )
+        salida.append(_invitado_normalizado(recurso))
     return sorted(salida, key=lambda i: i["vmid"])
 
 
@@ -372,14 +453,7 @@ def pve_invitados_fuera_del_pool(cluster_recursos, lab):
     for recurso in cluster_recursos or []:
         if recurso.get("pool") == lab or recurso.get("vmid") is None:
             continue
-        salida.append(
-            {
-                "vmid": int(recurso["vmid"]),
-                "tipo": "lxc" if recurso.get("type") == "lxc" else "qemu",
-                "nodo": recurso.get("node"),
-                "rol_o_nombre": recurso.get("name") or str(recurso.get("vmid")),
-            }
-        )
+        salida.append(_invitado_normalizado(recurso))
     return sorted(salida, key=lambda i: i["vmid"])
 
 
@@ -656,6 +730,8 @@ class FilterModule:
             "estado_vacio": estado_vacio,
             "estado_normalizar": estado_normalizar,
             "estado_desde_api": estado_desde_api,
+            "estado_con_direcciones": estado_con_direcciones,
+            "pve_contenedores_cluster": pve_contenedores_cluster,
             "estado_resumen": estado_resumen,
             "estado_bridges_candidatos": estado_bridges_candidatos,
             "estado_bridges_a_borrar": estado_bridges_a_borrar,

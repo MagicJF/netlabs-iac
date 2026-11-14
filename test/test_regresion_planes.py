@@ -66,9 +66,14 @@ def leer(ruta):
 
 
 def declara_config(lab):
-    """¿El lab declara ya `config:` o `imagen:`? Se mira el texto: el YAML crudo."""
+    """¿El lab DECLARA ya `config:` o `imagen:`? Se mira el YAML sin comentarios: una
+    mención en un comentario (los `# LÍMITES` hablan del vocabulario) no es una
+    declaración, y el test vigila declaraciones, no prosa."""
     texto = leer(os.path.join(RAIZ, "labs", lab, f"{lab}.yml"))
-    return "config:" in texto or "imagen:" in texto
+    codigo = "\n".join(
+        linea for linea in texto.splitlines() if not linea.lstrip().startswith("#")
+    )
+    return "config:" in codigo or "imagen:" in codigo
 
 
 def plan_generado(lab):

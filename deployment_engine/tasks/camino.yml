@@ -1,0 +1,224 @@
+---
+# PROPÓSITO:   EL CAMINO, por el lado del motor. Deja la clave del camino en su sitio
+#              (en su propia máquina y dentro del invitado), le manda UNA vez por la
+#              consola el arranque de la salida hacia casa, y COMPRUEBA de punta a
+#              punta que el puerto reenviado contesta. Es lo que hace que desde el
+#              nodo de control se pueda entrar en la red de un lab (§5).
+# INVARIANTES: escribe FUERA del repo en un solo sitio: el `~/.ssh` del nodo de
+#              control (su par de claves y UNA línea autorizada con `restrict` y
+#              `permitlisten`, que no da shell ni nada más que ese reenvío). Es de su
+#              propia máquina, y es idempotente: volver a pasar por aquí deja lo mismo.
+#              La clave privada NO viaja en el plan ni se escribe en ningún diario:
+#              sólo se usa aquí, para armar el guion, y con `no_log`.
+#              Si el camino no responde, esto PARA diciendo qué pieza falta; nunca lo
+#              rodea por otra vía (regla 16).
+# LÍMITES:     el invitado tiene que existir y estar arrancado (lo dice el plan, que
+#              emite `arrancar_invitado` antes). Si el invitado no tiene dirección en
+#              el bridge de gestión del nodo, el túnel no puede salir y se dice.
+#              El motor NO toca el hipervisor: ni rutas, ni NAT, ni ficheros suyos.
+# VER:         docs/camino-del-puesto-de-control.md; docs/decisiones/0004-*.md
+
+# Entradas (las pone el paso del plan, nunca un lab):
+#   camino_rol            el rol del invitado que hace de puesto de control
+#   camino_tipo           lxc | qemu
+#   camino_vmid           su vmid
+#   camino_puerto         el puerto local del nodo de control que el invitado deja
+#                         reenviado (se deriva del vmid: nada que guardar)
+#   camino_salida_host    a dónde sale (el nodo de control): ENTORNO, de secrets.yml
+#   camino_salida_puerto  por qué puerto sale (443)
+#   camino_usuario        con qué usuario entra en el nodo de control
+#   camino_clave          la ruta de su clave privada del camino (fuera del repo)
+#   camino_solo_comprobar si es true, no se manda nada por consola: sólo se comprueba
+#
+# Dos modos de llamada, y el porqué de cada uno:
+#   * `camino_solo_clave: true` -- lo llama el verbo ANTES de calcular el plan, para
+#     saber cuál es la clave pública del camino (el plan la necesita: se inyecta al
+#     CREAR el invitado, y después ya no se puede). `camino_clave_generar` decide si
+#     ese verbo puede generarla: `apply` sí (es un verbo de escritura), `plan` y
+#     `preflight` NO -- mirar qué haría el motor no debe crear ficheros, ni siquiera
+#     en la máquina del motor.
+#   * el modo normal -- lo llama `apply` para cada paso del camino, con el invitado.
+
+- name: "CAMINO · mirar si el motor ya tiene su par de claves del camino"
+  ansible.builtin.stat:
+    path: "{{ camino_clave | expanduser }}"
+  register: camino_clave_estado
+  changed_when: false
+
+# El par de claves del camino lo genera el motor UNA vez, en su propia máquina. No es
+# una credencial del lab: es de quien despliega, y por eso vive en su `~/.ssh` y no en
+# el repo (regla 3). `plan` y `preflight` no lo generan: mirar no crea nada.
+- name: "CAMINO · generar el par de claves del camino (sólo la primera vez)"
+  ansible.builtin.command:
+    argv:
+      - ssh-keygen
+      - "-t"
+      - ed25519
+      - "-f"
+      - "{{ camino_clave | expanduser }}"
+      - "-N"
+      - ""
+      - "-C"
+      - "netlabs_v4_b camino: no da shell, sólo el reenvío del lab"
+  when:
+    - not camino_clave_estado.stat.exists
+    - camino_clave_generar | default(true) | bool
+  changed_when: true
+  no_log: true
+
+- name: "CAMINO · mirar si ya existe la clave pública del camino"
+  ansible.builtin.stat:
+    path: "{{ (camino_clave | expanduser) }}.pub"
+  register: camino_clave_publica_estado
+  changed_when: false
+
+- name: "CAMINO · leer la clave pública del camino (si ya existe)"
+  ansible.builtin.set_fact:
+    camino_clave_publica: >-
+      {{ lookup('file', (camino_clave | expanduser) ~ '.pub') | trim
+         if camino_clave_publica_estado.stat.exists else '' }}
+    camino_autorizadas: "{{ (camino_clave | expanduser) | dirname }}/authorized_keys"
+  changed_when: false
+
+- name: "CAMINO · parar si el lab declara camino y el motor no tiene clave pública"
+  ansible.builtin.fail:
+    msg: |-
+      El lab '{{ pve_lab }}' declara un camino (su puesto de control sale hacia casa),
+      pero el motor todavía no tiene su par de claves del camino en
+      {{ camino_clave }}. Sin la clave pública no se puede crear el puesto de control
+      --la clave se inyecta AL CREARLO, y después ya no se puede-- así que esto para
+      aquí en vez de crear un invitado al que no se podría entrar.
+      Lo que lo arregla, y lo hace solo: `./lab --lab {{ pve_lab }} apply` (apply
+      genera el par de claves del camino la primera vez; `plan` y `preflight` no, para
+      que mirar no escriba nada).
+  when:
+    - camino_clave_publica | length == 0
+    - not (camino_solo_clave | default(false) | bool)
+# PRIMERO se quitan las líneas viejas de ESTE lab. No es limpieza cosmética: el comentario
+# lleva el lab y el puerto, y si el invitado se rehace cambia de vmid y por tanto de puerto;
+# una línea vieja con la misma clave taparía la nueva (OpenSSH usa la primera que casa) y el
+# camino se quedaría mudo sin que nada diera error. Solo se tocan las líneas de este lab.
+- name: "CAMINO · quitar las líneas viejas de este lab en el nodo de control (si las hay)"
+  ansible.builtin.lineinfile:
+    path: "{{ camino_autorizadas }}"
+    regexp: '^.*netlabs_v4_b-camino-{{ pve_lab }}-(?!{{ camino_puerto }}$)[0-9]+.*$'
+    state: absent
+    mode: '0600'
+  when: not (camino_solo_clave | default(false) | bool)
+
+# Y DESPUÉS la de este puerto, con `restrict` + `port-forwarding` + `permitlisten`: esa clave
+# no da shell, no ejecuta comandos, no abre túneles que no sean este reenvío concreto. El
+# `regexp` hace que volver a pasar por aquí deje la MISMA línea en su sitio, no una más.
+- name: "CAMINO · autorizar SÓLO el reenvío del puerto {{ camino_puerto }} en el nodo de control"
+  ansible.builtin.lineinfile:
+    path: "{{ camino_autorizadas }}"
+    regexp: '^.*netlabs_v4_b-camino-{{ pve_lab }}-{{ camino_puerto }}.*$'
+    line: >-
+      restrict,port-forwarding,permitlisten="{{ camino_puerto }}" {{ camino_clave_publica }}
+      netlabs_v4_b-camino-{{ pve_lab }}-{{ camino_puerto }}
+    create: true
+    mode: '0600'
+    insertafter: EOF
+    state: present
+    regexp: "netlabs_v4_b-camino-{{ camino_puerto }}$"
+  when: not (camino_solo_clave | default(false) | bool)
+
+# Lo que el invitado va a ejecutar, armado aquí y sólo aquí. `no_log` porque el guion
+# lleva dentro la clave privada: no se imprime, ni se diaria, ni se guarda.
+- name: "CAMINO · armar la línea que se manda por consola (una sola, en base64)"
+  ansible.builtin.set_fact:
+    camino_linea: >-
+      {{ (lookup('file', camino_clave | expanduser)
+          | interior_guion_camino(camino_salida_host, camino_salida_puerto,
+                                  camino_usuario, camino_puerto)
+          | interior_linea_consola) | b64encode }}
+    # `interior_marca_camino` es un FILTRO: se llama con `|` aunque no necesite
+    # entrada (una marca fija). Escribirlo como variable da «undefined», que es
+    # exactamente lo que pasó la primera vez.
+    camino_marca_ok: "{{ '' | interior_marca_camino }}"
+    camino_marca_fallo: "CONSOLA_FALLO_NETLABS"
+  when:
+    - not (camino_solo_comprobar | default(false) | bool)
+    - not (camino_solo_clave | default(false) | bool)
+  changed_when: false
+  no_log: true
+
+# La consola: UNA línea, pero no una sola tentativa. Hasta que el invitado no lleva unos
+# segundos arrancado su consola no da shell, y entonces la línea se pierde sin ruido (el
+# terminal devuelve el eco, no la salida). Como el guion es idempotente, reintentar la
+# MISMA línea es seguro y es lo único que hace falta para que esto no sea una lotería.
+- name: "CAMINO · dar por no enviado el arranque (el primer intento siempre se hace)"
+  ansible.builtin.set_fact:
+    camino_consola_rc: 1
+  changed_when: false
+  when:
+    - not (camino_solo_comprobar | default(false) | bool)
+    - not (camino_solo_clave | default(false) | bool)
+
+- name: "CAMINO · mandar el arranque del camino por la consola del invitado"
+  ansible.builtin.include_tasks: ../tasks/camino_consola.yml
+  loop: "{{ range(1, (engine_camino_intentos | int) + 1) | list }}"
+  loop_control:
+    loop_var: camino_consola_intento
+    label: "intento {{ camino_consola_intento }}"
+  # Sólo se vuelve a intentar si el intento anterior NO trajo la marca de éxito. El
+  # `default(1)` no es adorno: esta misma tarea se incluye ANTES de planificar (con
+  # `camino_solo_clave`), y ahí la variable todavía no existe -- preguntar por ella sin
+  # red es un error, no un `no`.
+  when:
+    - (camino_consola_rc | default(1) | int) != 0
+    - not (camino_solo_comprobar | default(false) | bool)
+    - not (camino_solo_clave | default(false) | bool)
+  vars:
+    camino_consola_tipo: "{{ camino_tipo }}"
+    camino_consola_vmid: "{{ camino_vmid }}"
+    camino_consola_linea: "{{ camino_linea }}"
+    camino_consola_marca_ok: "{{ camino_marca_ok }}"
+    camino_consola_marca_fallo: "{{ camino_marca_fallo }}"
+    camino_consola_etiqueta: "arranque del camino del rol {{ camino_rol }} (intento {{ camino_consola_intento }})"
+
+# LA PRUEBA DE PUNTA A PUNTA: si el puerto reenviado del nodo de control contesta, la
+# cadena entera funciona (nodo de control -> 443 -> puesto -> vuelta). No hay forma de
+# fingirlo: el puerto sólo contesta si el túnel está arriba.
+- name: "CAMINO · esperar a que conteste el puerto {{ camino_puerto }} (la cadena entera)"
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: "{{ camino_puerto }}"
+    delay: "{{ engine_camino_retardo }}"
+    timeout: "{{ engine_camino_espera }}"
+    state: started
+  register: camino_puerto_estado
+  failed_when: false
+  changed_when: false
+  when: not (camino_solo_clave | default(false) | bool)
+
+- name: "CAMINO · parar si el puerto reenviado no contesta"
+  ansible.builtin.fail:
+    msg: |-
+      El camino del lab '{{ pve_lab }}' NO está en pie: el invitado {{ camino_vmid }}
+      (rol '{{ camino_rol }}') no ha dejado reenviado el puerto {{ camino_puerto }} del
+      nodo de control, así que desde aquí no se puede entrar en la red del lab.
+      Lo que se intentó, en orden: generar el par de claves del camino, autorizar el
+      reenvío en `{{ camino_autorizadas }}`, mandar el arranque por la consola del
+      invitado y esperar el puerto. El diario de la consola está en
+      {{ pve_carpeta_logs }}/camino.jsonl.
+      Causas medidas y qué mirar:
+        - el invitado está parado: `apply` lo arranca antes de llegar aquí (paso
+          `arrancar_invitado`); si se paró a mano, vuelve a lanzar `apply`;
+        - el invitado no alcanza el nodo de control: su pata en el bridge de gestión
+          del nodo tiene que tener dirección y salida;
+        - el guion se mandó pero el sshd del nodo de control rechaza la clave: mira el
+          `eco` de la última línea de {{ pve_carpeta_logs }}/camino.jsonl.
+      El motor NO rodea esto por ninguna otra vía (regla 16).
+  when:
+    - not (camino_solo_clave | default(false) | bool)
+    - camino_puerto_estado is failed or not (camino_puerto_estado.state | default('') == 'started')
+
+- name: "CAMINO · el camino del rol '{{ camino_rol }}' está en pie"
+  ansible.builtin.debug:
+    msg: >-
+      camino del lab '{{ pve_lab }}': el puerto {{ camino_puerto }} del nodo de control
+      contesta, así que la cadena nodo de control -> {{ camino_salida_host }}:{{ camino_salida_puerto }}
+      -> rol '{{ camino_rol }}' -> vuelta funciona. Ansible puede entrar en el lab.
+  changed_when: false
+  when: not (camino_solo_clave | default(false) | bool)

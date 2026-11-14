@@ -1,0 +1,60 @@
+---
+# PROPÓSITO:   el DESPACHADOR de un paso del plan. Mira por qué VÍA va el paso (`via`)
+#              y llama a la puerta que le toca: la API del hipervisor, el camino, el
+#              interior de un invitado o la sonda de un escalón. Es el único sitio del
+#              motor donde un paso del plan se convierte en llamadas.
+# INVARIANTES: el plan se ejecuta EN ORDEN, paso a paso: por eso el bucle vive en el
+#              verbo y aquí sólo se elige la puerta, sin reordenar nada. Un paso sin
+#              ejecutor PARA el verbo diciendo cuál es -- no se salta en silencio, ni
+#              se rodea por otra vía (regla 16). Ninguna puerta se abre desde aquí:
+#              aquí sólo se llama a la que ya existe.
+# LÍMITES:     no decide nada sobre el estado del mundo: el plan ya lo decidió. Si un
+#              paso llega aquí, es porque hay que darlo.
+# VER:         deployment_engine/tools/plan.py (las acciones y su `via`);
+#              AGENTS.md §Reglas duras (12: cuatro puertas); README.md §Arquitectura
+
+# `item` es el paso del plan que el verbo está recorriendo (lo pasa el bucle).
+
+- name: "PASO {{ item.orden }} · por la API de Proxmox: {{ item.metodo }} {{ item.ruta }}"
+  ansible.builtin.include_tasks: ../tasks/pve_api_y_esperar.yml
+  vars:
+    pve_api_metodo: "{{ item.metodo }}"
+    pve_api_ruta: "{{ item.ruta }}"
+    pve_api_cuerpo: "{{ item.parametros }}"
+    pve_api_etiqueta: "paso {{ item.orden }}: {{ item.accion }} -- {{ item.porque }}"
+  when: (item.via | default('api')) == 'api'
+
+- name: "PASO {{ item.orden }} · por el CAMINO del lab: {{ item.accion }}"
+  ansible.builtin.include_tasks: ../tasks/camino.yml
+  vars:
+    camino_rol: "{{ item.rol }}"
+    camino_vmid: "{{ item.parametros.vmid }}"
+    camino_tipo: >-
+      {{ (identidad.invitados | selectattr('rol', 'equalto', item.rol) | first).tipo }}
+    camino_puerto: "{{ item.parametros.puerto }}"
+    camino_salida_host: "{{ item.parametros.salida_host }}"
+    camino_salida_puerto: "{{ item.parametros.salida_puerto }}"
+    camino_usuario: "{{ parametros_motor.camino_usuario }}"
+    camino_clave: "{{ parametros_motor.camino_clave }}"
+    camino_solo_comprobar: "{{ item.accion == 'comprobar_camino' }}"
+  when: (item.via | default('api')) == 'camino'
+
+# Aquí irán las ramas del INTERIOR (routeros por su REST, linux por SSH) y la de la
+# SONDA del escalón, cada una con su fichero. Mientras no estén, el paso siguiente las
+# caza y el verbo PARA con el nombre del paso que falta: es la capa que está en
+# construcción, dicha en voz alta.
+- name: "PASO {{ item.orden }} · parar si este paso no tiene ejecutor todavía"
+  ansible.builtin.fail:
+    msg: |-
+      El plan del lab '{{ pve_lab }}' tiene un paso que este motor TODAVÍA no sabe
+      ejecutar, y se ha parado aquí a propósito (no se salta nada en silencio):
+
+        paso {{ item.orden }} ({{ item.accion }}, vía '{{ item.via | default('api') }}')
+        {{ item.porque }}
+
+      Lo que falta es el ejecutor de la vía '{{ item.via | default('api') }}' (la capa
+      de configuración del interior está en construcción). Los pasos anteriores a este
+      ya se han dado --el plan es idempotente, así que volver a lanzar `apply` cuando
+      ese ejecutor exista sigue exactamente desde aquí--, y ninguno posterior se ha
+      tocado.
+  when: (item.via | default('api')) not in ['api', 'camino']

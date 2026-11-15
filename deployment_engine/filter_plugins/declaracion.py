@@ -18,6 +18,11 @@
 #              `preflight`, que sí lee la API. Que el interior de un invitado se
 #              pueda alcanzar tampoco: eso necesita el camino en pie, y se dice al
 #              aplicar.
+#              Además de validar, ACONSEJA (`declaracion_consejos`): lo que es legal
+#              pero casi siempre es un olvido (el escalón antes de quien da la
+#              dirección, la dirección estática dentro del rango del DHCP, la
+#              pasarela que no es nadie del lab...). Los consejos NO bloquean ni
+#              cambian el plan: el criterio lo sigue teniendo quien declara.
 # VER:         README.md §Verificación; AGENTS.md §Reglas duras;
 #              docs/decisiones/0005-el-driver-del-interior.md; ./lab check declaracion
 
@@ -205,6 +210,18 @@ def _validar_interior(invitado, etiqueta, rol, errores):
                     "falten, en orden (las patas se deciden al crear y no se cambian en "
                     "caliente)"
                 )
+
+    # El área `exterior` no admite opciones: es una MARCA. La pata de fuera, su interfaz y su
+    # dirección las deriva el motor (el plan tiende la pata, y el router pide dirección por
+    # DHCP desde dentro), así que una opción aquí sería una invención del lab -- y este
+    # vocabulario es cerrado (regla 15): se rechaza antes de tocar nada.
+    exterior = declarado.get("exterior")
+    if exterior not in (None, {}, [], ""):
+        errores.append(
+            f"`{etiqueta}` ({rol}): el área 'exterior' no lleva opciones y se declaró "
+            f"{exterior!r}. Es una marca (`exterior: {{}}`): que este router ES la salida "
+            "del lab. La pata de fuera, la interfaz y la dirección las pone el motor."
+        )
 
     # Y la dirección: un invitado con config tiene que ser alcanzable.
     direccion = invitado.get("direccion")
@@ -711,6 +728,469 @@ def declaracion_validar(declaracion, carpeta=None):
     return errores
 
 
+# ---------------------------------------------------------------------------
+# Consejos -- lo que es LEGAL pero casi siempre es un olvido
+# ---------------------------------------------------------------------------
+# Un validador que sólo dice "no" obliga a aprender a golpes, y la mitad de los
+# tropiezos de un lab nuevo son legales y silenciosos: un invitado que arranca en
+# el mismo escalón que quien le da la dirección, una dirección estática dentro del
+# rango del DHCP (que un cliente dinámico le puede robar), una pasarela que no es
+# nadie del lab, una VM sin imagen, un bridge declarado por el que no pasa nadie,
+# dos servidores DHCP en el mismo bridge, o una dirección dinámica en un bridge del
+# lab donde no hay quien la dé, o un router que es la salida del lab mientras ningún
+# servidor DHCP del lab anuncia DNS (sale a internet y no resuelve un solo nombre).
+#
+# NO son errores: no bloquean, no cambian el plan y no tocan los diarios. Son eso,
+# consejos, y el criterio lo sigue teniendo quien declara. Cada uno es
+# `{codigo, donde, mensaje, remedio}`: el código agrupa (y es lo que se prueba en
+# `test/test_declaracion.py`), `donde` localiza, y `remedio` dice qué escribir.
+CONSEJOS_CONOCIDOS = (
+    "escalones",
+    "dhcp",
+    "pasarela",
+    "imagen",
+    "bridge-vacio",
+    "dos-dhcp",
+    "sin-quien-la-dirija",
+    "exterior-sin-dns",
+    "exterior-con-ruta",
+)
+
+
+def _indice_de_interfaz(interfaz):
+    """`eth0`/`ether1` -> 0; la PRIMERA pata, en los dos vocabularios.
+
+    Linux cuenta desde cero (`eth0`) y RouterOS desde uno (`ether1`), y las dos
+    formas nombran la misma posición: la primera pata declarada.
+    """
+    texto = str(interfaz or "")
+    numero = re.match(r"^ether(\d+)$", texto) or re.match(r"^eth(\d+)$", texto)
+    if not numero:
+        return None
+    return int(numero.group(1)) - 1 if texto.startswith("ether") else int(numero.group(1))
+
+
+def _bridge_de_interfaz(invitado, interfaz):
+    """Sobre qué bridge del lab está esa pata, o None si esa pata no existe.
+
+    Sirve para un invitado que declara TODAS sus patas (`bridges:`), que es un
+    RouterOS o una VM. NO sirve para el puesto de control: sus patas extra
+    (`direcciones`) no están en `bridges:` porque una por cada bridge del lab se las
+    pone el motor. Para ésas está `_bridge_de`, que va por la RED de la dirección.
+    """
+    indice = _indice_de_interfaz(interfaz)
+    patas = patas_declaradas(invitado)
+    if indice is None or not (0 <= indice < len(patas)):
+        return None
+    return patas[indice]
+
+
+def _misma_red(una, otra, prefijo):
+    """¿Están las dos direcciones en la misma red de `prefijo` bits?
+
+    Se comparan los octetos que cubre el prefijo, como texto: se lee de un vistazo y
+    no hace falta aritmética de bits. Con un prefijo que no cae en un octeto no se
+    opina (devolver un "no" falso sería peor que no decir nada).
+    """
+    octetos = prefijo // 8
+    if prefijo % 8 or not 1 <= octetos <= 4:
+        return False
+    return ".".join(_direccion_sin_mascara(una).split(".")[:octetos]) == ".".join(
+        _direccion_sin_mascara(otra).split(".")[:octetos]
+    )
+
+
+def _redes_de_los_bridges(declaracion):
+    """[(nombre, direccion-con-mascara)]: la RED de cada bridge es su identidad.
+
+    Un bridge del lab se declara con su dirección (`192.0.2.1/24`) y esa dirección es
+    la puerta de su red; por eso es también lo que dice sobre qué bridge cae una
+    dirección cualquiera del lab.
+    """
+    return [
+        (bridge["nombre"], str(bridge["direccion"]))
+        for bridge in (declaracion.get("lab") or {}).get("bridges") or []
+        if isinstance(bridge, dict) and bridge.get("nombre") and bridge.get("direccion")
+    ]
+
+
+def _bridge_de(valor, redes):
+    """El bridge del lab cuya red contiene esa dirección, o None.
+
+    `redes` sale de `_redes_de_los_bridges`. Es la forma de saber el bridge de una
+    dirección declarada SIN depender de qué interfaz la lleva: el puesto de control
+    declara `eth1` pero no declara sobre qué bridge está (una por cada bridge del lab
+    se la pone el motor),
+    y su dirección sí lo dice.
+    """
+    for nombre, direccion_bridge in redes:
+        base, _, prefijo = direccion_bridge.partition("/")
+        if prefijo.isdigit() and _misma_red(valor, base, int(prefijo)):
+            return nombre
+    return None
+
+
+def _invitados(declaracion):
+    """(seccion, indice, rol, tipo, invitado), en orden de declaración."""
+    salida = []
+    for seccion, tipo in (("vms", "qemu"), ("containers", "lxc")):
+        for indice, invitado in enumerate(declaracion.get(seccion) or []):
+            if isinstance(invitado, dict):
+                salida.append((seccion, indice, invitado.get("rol"), tipo, invitado))
+    return salida
+
+
+def _servidores_dhcp(declaracion):
+    """Quién da direcciones, en qué bridge y desde qué escalón.
+
+    Los dos vocabularios: un puesto de control Linux (`dhcp_servidor`) y un
+    RouterOS (`dhcp`). Sin esto no se puede saber si un invitado con `direccion:
+    dhcp` tiene quien le conteste, ni si arranca antes de que le contesten.
+
+    El bridge se saca de la RED que el servidor reparte (el rango, o la red que
+    anuncia), que es lo que de verdad dice sobre qué red está sirviendo; la interfaz
+    queda como segunda vía, porque un RouterOS sí declara todas sus patas.
+    """
+    redes = _redes_de_los_bridges(declaracion)
+    servidores = []
+    for seccion, indice, rol, _tipo, invitado in _invitados(declaracion):
+        config = invitado.get("config") or {}
+        linux = (config.get("linux") or {}).get("dhcp_servidor")
+        if isinstance(linux, dict) and linux.get("interfaz"):
+            rango = str(linux.get("rango") or "")
+            principio = rango.partition("-")[0] if rango else ""
+            servidores.append({
+                "rol": rol,
+                "escalon": invitado.get("escalon"),
+                "bridge": (
+                    _bridge_de(principio, redes)
+                    or _bridge_de_interfaz(invitado, linux["interfaz"])
+                ),
+                "rango": rango,
+                "donde": f"`{seccion}[{indice}]` ({rol})",
+            })
+        for i, servidor in enumerate((config.get("routeros") or {}).get("dhcp") or []):
+            if not isinstance(servidor, dict) or not servidor.get("interfaz"):
+                continue
+            rango = str((servidor.get("pool") or {}).get("rango") or "")
+            principio = rango.partition("-")[0] if rango else ""
+            servidores.append({
+                "rol": rol,
+                "escalon": invitado.get("escalon"),
+                "bridge": (
+                    _bridge_de((servidor.get("red") or {}).get("prefijo") or principio, redes)
+                    or _bridge_de_interfaz(invitado, servidor["interfaz"])
+                ),
+                "rango": rango,
+                "donde": f"`{seccion}[{indice}]`.config.routeros.dhcp[{i}] ({rol})",
+            })
+    return servidores
+
+
+def _direcciones_estaticas(declaracion):
+    """Las direcciones que el lab FIJA, con el bridge sobre el que las fija.
+
+    Incluye las de los bridges: la dirección de un bridge es la puerta de los
+    invitados que cuelgan de él, y por eso cuenta como "alguien del lab" cuando se
+    mira si una pasarela existe. El bridge de cada dirección se deduce de su RED
+    (una dirección dice a qué red pertenece), no de la interfaz que la lleva.
+    """
+    redes = _redes_de_los_bridges(declaracion)
+    estaticas = []
+    for indice, bridge in enumerate((declaracion.get("lab") or {}).get("bridges") or []):
+        if isinstance(bridge, dict) and bridge.get("direccion"):
+            estaticas.append({
+                "rol": None,
+                "bridge": bridge.get("nombre"),
+                "direccion": str(bridge["direccion"]),
+                "donde": f"`lab.bridges[{indice}]`",
+            })
+    for seccion, indice, rol, _tipo, invitado in _invitados(declaracion):
+        direccion = invitado.get("direccion")
+        if direccion not in (None, "") and str(direccion) != "dhcp":
+            estaticas.append({
+                "rol": rol,
+                "bridge": (
+                    _bridge_de(direccion, redes)
+                    or _bridge_de_interfaz(
+                        invitado, "eth0" if invitado.get("bridge") else "ether1"
+                    )
+                ),
+                "direccion": str(direccion),
+                "donde": f"`{seccion}[{indice}]` ({rol})",
+            })
+        config = invitado.get("config") or {}
+        for vocabulario, clave in (("routeros", "direcciones"), ("linux", "direcciones")):
+            for i, pata in enumerate((config.get(vocabulario) or {}).get(clave) or []):
+                if isinstance(pata, dict) and pata.get("direccion"):
+                    estaticas.append({
+                        "rol": rol,
+                        "bridge": (
+                            _bridge_de(pata["direccion"], redes)
+                            or _bridge_de_interfaz(invitado, pata.get("interfaz"))
+                        ),
+                        "direccion": str(pata["direccion"]),
+                        "donde": f"`{seccion}[{indice}]`.config.{vocabulario}.{clave}[{i}] ({rol})",
+                    })
+    return estaticas
+
+
+def _pasarelas(declaracion):
+    """Las pasarelas que el lab nombra: rutas y la que anuncia su DHCP."""
+    salida = []
+    for seccion, indice, rol, _tipo, invitado in _invitados(declaracion):
+        routeros = (invitado.get("config") or {}).get("routeros") or {}
+        for i, ruta in enumerate(routeros.get("rutas") or []):
+            if isinstance(ruta, dict) and ruta.get("pasarela"):
+                salida.append({
+                    "rol": rol,
+                    "valor": str(ruta["pasarela"]),
+                    "donde": f"`{seccion}[{indice}]`.config.routeros.rutas[{i}] ({rol})",
+                })
+        for i, servidor in enumerate(routeros.get("dhcp") or []):
+            if not isinstance(servidor, dict):
+                continue
+            pasarela = (servidor.get("red") or {}).get("pasarela")
+            if pasarela:
+                salida.append({
+                    "rol": rol,
+                    "valor": str(pasarela),
+                    "donde": f"`{seccion}[{indice}]`.config.routeros.dhcp[{i}].red ({rol})",
+                })
+    return salida
+
+
+def _ip_en_rango(direccion, rango):
+    """¿Cae la dirección dentro del rango `inicio-fin`? Se comparan enteros.
+
+    Comparar texto daría `192.0.2.9 > 192.0.2.50`, que es falso por la razón
+    equivocada: aquí se comparan los octetos como números.
+    """
+    if "-" not in str(rango):
+        return False
+    inicio, _, fin = str(rango).partition("-")
+
+    def entero(valor):
+        trozos = _direccion_sin_mascara(valor).split(".")
+        if len(trozos) != 4:
+            return None
+        try:
+            return sum(int(t) << (8 * (3 - i)) for i, t in enumerate(trozos))
+        except ValueError:
+            return None
+
+    extremo = entero(direccion)
+    minimo, maximo = entero(inicio), entero(fin)
+    if None in (extremo, minimo, maximo):
+        return False
+    return minimo <= extremo <= maximo
+
+
+def declaracion_consejos(declaracion, carpeta=None):
+    """Los consejos del estado deseado: legal, pero casi siempre un olvido.
+
+    La declaración tiene que ser COHERENTE antes de pedir consejo (los consejos no
+    sustituyen a los errores): si hay errores, esto devuelve lo que se pueda leer
+    sin tropezar, y quien llama enseña primero los errores.
+    """
+    consejos = []
+    if not isinstance(declaracion, dict) or not isinstance(declaracion.get("lab"), dict):
+        return consejos
+
+    def aconsejar(codigo, donde, mensaje, remedio):
+        consejos.append(
+            {"codigo": codigo, "donde": donde, "mensaje": mensaje, "remedio": remedio}
+        )
+
+    invitados = _invitados(declaracion)
+    servidores = _servidores_dhcp(declaracion)
+    estaticas = _direcciones_estaticas(declaracion)
+    supernet = _supernet_de(declaracion)
+    bridges = [
+        b["nombre"]
+        for b in (declaracion["lab"].get("bridges") or [])
+        if isinstance(b, dict) and b.get("nombre")
+    ]
+    # Quién cuelga de cada bridge: sirve para el bridge vacío y para saber sobre qué
+    # red cae una dirección estática.
+    por_bridge = {nombre: [] for nombre in bridges}
+    for seccion, indice, rol, _tipo, invitado in invitados:
+        for nombre in patas_declaradas(invitado):
+            por_bridge.setdefault(nombre, []).append(f"`{seccion}[{indice}]` ({rol})")
+
+    # --- 1. el escalón: nadie arranca antes que quien le da la dirección -------
+    for servidor in servidores:
+        for seccion, indice, rol, tipo, invitado in invitados:
+            if str(invitado.get("direccion")) != "dhcp":
+                continue
+            if servidor["bridge"] not in patas_declaradas(invitado):
+                continue
+            if tipo == "lxc" and modulo_interior.tiene_camino(invitado):
+                continue  # el puesto de control no se pide la dirección a sí mismo
+            escalon, del_servidor = invitado.get("escalon"), servidor["escalon"]
+            if not isinstance(escalon, int) or not isinstance(del_servidor, int):
+                continue
+            if escalon <= del_servidor:
+                aconsejar(
+                    "escalones",
+                    f"`{seccion}[{indice}]` ({rol})",
+                    f"pide su dirección por DHCP en `{servidor['bridge']}`, donde se la da "
+                    f"{servidor['donde']} (escalón {del_servidor}), y está en el escalón "
+                    f"{escalon}: arrancarían a la vez, y quién contesta primero es una "
+                    "carrera, no un diseño",
+                    f"pon a '{rol}' en un escalón POSTERIOR al {del_servidor} (regla 18: "
+                    "nunca se arranca un escalón antes de que el anterior sirva)",
+                )
+
+    # --- 2. una dirección estática dentro del rango del DHCP ------------------
+    for servidor in servidores:
+        if not servidor["rango"]:
+            continue
+        for estatica in estaticas:
+            if estatica["bridge"] != servidor["bridge"]:
+                continue
+            if _ip_en_rango(estatica["direccion"], servidor["rango"]):
+                aconsejar(
+                    "dhcp",
+                    estatica["donde"],
+                    f"fija {_direccion_sin_mascara(estatica['direccion'])} y esa dirección "
+                    f"cae DENTRO del rango que reparte {servidor['donde']} "
+                    f"({servidor['rango']}) en el mismo bridge: un cliente dinámico puede "
+                    "pedirla antes y dejarla ocupada",
+                    "saca la dirección del rango del pool (los estáticos van fuera), o "
+                    "declara `reservas: derivadas` para que el DHCP la respete",
+                )
+
+    # --- 3. una pasarela que no es nadie del lab ------------------------------
+    if supernet:
+        conocidas = {_direccion_sin_mascara(e["direccion"]) for e in estaticas}
+        for pasarela in _pasarelas(declaracion):
+            valor = pasarela["valor"]
+            if valor in conocidas or not _ip_en_supernet(valor, supernet):
+                continue
+            aconsejar(
+                "pasarela",
+                pasarela["donde"],
+                f"usa {valor} como pasarela y esa dirección no es de nadie del lab, "
+                f"aunque cae dentro de su supernet ({supernet}): o es un número mal "
+                "escrito, o falta el equipo que la tiene",
+                "revisa el número, o declara el invitado (o el bridge) que tiene esa "
+                "dirección",
+            )
+
+    # --- 4. una VM con configuración y sin imagen ------------------------------
+    for seccion, indice, rol, tipo, invitado in invitados:
+        if tipo == "qemu" and invitado.get("config") and not invitado.get("imagen"):
+            aconsejar(
+                "imagen",
+                f"`{seccion}[{indice}]` ({rol})",
+                "es una VM que declara `config` y no declara `imagen`: nacerá sin disco, "
+                "así que no arrancará nada que configurar (y la imagen sólo se puede "
+                "adjuntar AL CREAR: después habría que recrear la máquina)",
+                "declara `imagen:` con la imagen de fábrica de ese invitado",
+            )
+
+    # --- 5. un bridge por el que no pasa nadie --------------------------------
+    for nombre in bridges:
+        if not por_bridge.get(nombre):
+            aconsejar(
+                "bridge-vacio",
+                f"`lab.bridges` ('{nombre}')",
+                "el lab declara ese bridge y no cuelga nadie de él: se creará en el "
+                "nodo sin que nadie lo use",
+                f"quítalo de `lab.bridges`, o cuelga de '{nombre}' el invitado que "
+                "faltaba",
+            )
+
+    # --- 6. dos servidores DHCP en el mismo bridge ----------------------------
+    por_bridge_servidores = {}
+    for servidor in servidores:
+        if servidor["bridge"]:
+            por_bridge_servidores.setdefault(servidor["bridge"], []).append(servidor)
+    for bridge, suyos in por_bridge_servidores.items():
+        if len(suyos) > 1:
+            quienes = ", ".join(s["donde"] for s in suyos)
+            aconsejar(
+                "dos-dhcp",
+                f"`lab.bridges` ('{bridge}')",
+                f"hay más de un servidor DHCP en el mismo bridge ({quienes}): los dos "
+                "reparten en la misma red y quién contesta primero es una carrera",
+                "deja un solo servidor DHCP por bridge (o separa las redes)",
+            )
+
+    # --- 7. una dirección dinámica donde no hay quien la dé --------------------
+    servidos = {s["bridge"] for s in servidores if s["bridge"]}
+    for seccion, indice, rol, tipo, invitado in invitados:
+        if str(invitado.get("direccion")) != "dhcp":
+            continue
+        if tipo == "lxc" and modulo_interior.tiene_camino(invitado):
+            continue
+        for nombre in patas_declaradas(invitado):
+            if nombre in bridges and nombre not in servidos:
+                aconsejar(
+                    "sin-quien-la-dirija",
+                    f"`{seccion}[{indice}]` ({rol})",
+                    f"pide su dirección por DHCP en `{nombre}`, que es un bridge DEL LAB, "
+                    "y no hay ningún servidor DHCP declarado que sirva en él: nadie le "
+                    "va a contestar",
+                    f"declara un servidor DHCP en '{nombre}' (el router de esa red o el "
+                    "puesto de control), o dale una dirección estática",
+                )
+
+    # --- 8. la salida del lab, pero sin quién resuelva nombres ----------------
+    # Un router con `exterior` da SALIDA a internet. Pero un invitado que lo tiene de
+    # pasarela pregunta por NOMBRES a quien le dio la dirección -- el servidor DHCP de su
+    # red --, y si ese servidor no anuncia DNS el lab sale a internet y no resuelve nada.
+    # Es el fallo que más veces se lee como "no tiene salida", y no lo es.
+    salidas = []
+    anuncian_dns = []
+    for seccion, indice, rol, _tipo, invitado in invitados:
+        config = invitado.get("config") or {}
+        routeros = config.get("routeros") or {}
+        if "exterior" in routeros:
+            salidas.append(f"`{seccion}[{indice}]` ({rol})")
+            # Y una ruta por defecto declarada en el que es la salida es una de dos: su
+            # cliente de fuera ya le enseña una (la aprende por DHCP), así que las dos
+            # compiten por el mismo destino -- y la declarada obliga al lab a saber la
+            # pasarela de FUERA, que es justo lo que `exterior` evita tener que saber.
+            por_defecto = [
+                ruta
+                for ruta in routeros.get("rutas") or []
+                if isinstance(ruta, dict) and str(ruta.get("destino")) in ("0.0.0.0/0", "::/0")
+            ]
+            if por_defecto:
+                aconsejar(
+                    "exterior-con-ruta",
+                    f"`{seccion}[{indice}]`.config.routeros.rutas ({rol})",
+                    "este router es la salida del lab y además le declaras una ruta por "
+                    "defecto: la que pone el motor por la puerta de fuera y la tuya compiten "
+                    "por el mismo destino",
+                    "quita la ruta por defecto declarada: la salida la pone el motor por la "
+                    "puerta de fuera, y así el lab no necesita saber la pasarela de la red de "
+                    "casa",
+                )
+        for servidor in (config.get("routeros") or {}).get("dhcp") or []:
+            if isinstance(servidor, dict) and (servidor.get("red") or {}).get("dns"):
+                anuncian_dns.append(f"`{seccion}[{indice}]`.config.routeros.dhcp ({rol})")
+        servidor_linux = (config.get("linux") or {}).get("dhcp_servidor")
+        if isinstance(servidor_linux, dict) and (servidor_linux.get("red") or {}).get("dns"):
+            anuncian_dns.append(
+                f"`{seccion}[{indice}]`.config.linux.dhcp_servidor ({rol})"
+            )
+    if salidas and not anuncian_dns:
+        aconsejar(
+            "exterior-sin-dns",
+            ", ".join(salidas),
+            "este router es la salida del lab, y ningún servidor DHCP del lab anuncia DNS: "
+            "los invitados que salgan por él tendrán salida y no resolverán ningún nombre "
+            "(ni `apt`, ni `ping`, ni nada que se llame en vez de numerarse)",
+            "añade `red: {…, dns: [<la dirección del router de esa red>]}` al servidor DHCP "
+            "de la red por la que salen",
+        )
+
+    return consejos
+
+
 def declaracion_normalizar(declaracion, carpeta=None):
     """Devuelve la declaración normalizada, o falla con TODAS las incoherencias.
 
@@ -780,4 +1260,5 @@ class FilterModule:
             "declaracion_validar": declaracion_validar,
             "declaracion_normalizar": declaracion_normalizar,
             "declaracion_supernet": declaracion_supernet,
+            "declaracion_consejos": declaracion_consejos,
         }

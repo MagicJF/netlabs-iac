@@ -393,7 +393,9 @@ def _redes_del_invitado(invitado, declaracion, estado, parametros):
         return _red_del_invitado(invitado, declaracion, estado, parametros)
     patas = invitado.get("bridges") or []
     if len(patas) <= 1:
-        return {"net0": _net0(invitado)}
+        red = {"net0": _net0(invitado)}
+        red.update(_pata_de_fuera(invitado, parametros))
+        return red
     red = {}
     for indice, bridge in enumerate(patas):
         mac = modulo_identidad.identidad_mac_de_pata(
@@ -403,7 +405,33 @@ def _redes_del_invitado(invitado, declaracion, estado, parametros):
             red[f"net{indice}"] = f"name=eth{indice},bridge={bridge},hwaddr={mac}"
         else:
             red[f"net{indice}"] = f"virtio={mac},bridge={bridge}"
+    red.update(_pata_de_fuera(invitado, parametros))
     return red
+
+
+def _pata_de_fuera(invitado, parametros):
+    """La pata del EXTERIOR (área `interior.exterior`), como `{clave: valor}`, o {}.
+
+    Es la ÚLTIMA pata y va sin dirección: se tiende al bridge del nodo que tiene salida
+    (valor de ENTORNO, `pve_bridge_gestion` en secrets.yml, nunca un valor de lab) y la
+    dirección se la pide el propio router por DHCP desde dentro. Se añade al nacer por la
+    misma razón que las del puesto de control: cambiarle las patas a un invitado en marcha
+    obliga a reiniciarlo, y aquí no se reinicia lo que está trabajando (§5).
+    """
+    if not modulo_interior.interfaz_exterior(invitado):
+        return {}
+    puente = str(parametros.get("bridge_gestion") or "")
+    if not puente:
+        raise modulo_interior.ErrorMotor(
+            f"el invitado {invitado.get('rol')} declara exterior (salida del lab) y el "
+            "motor no sabe por dónde sale este nodo: falta `pve_bridge_gestion` en "
+            "secrets.yml (el bridge del nodo con dirección y salida)"
+        )
+    indice = len(modulo_interior.patas_de_un_invitado(invitado))
+    mac = modulo_identidad.identidad_mac_de_pata(
+        invitado["vmid"], indice, _prefijo_mac(parametros)
+    )
+    return {f"net{indice}": f"virtio={mac},bridge={puente}"}
 
 
 def _net0(invitado):

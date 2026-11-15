@@ -566,6 +566,7 @@ def check_privilegios():
 
 def check_declaracion():
     fallos = []
+    avisos = []
     labs = directorios_de_labs()
     for lab in labs:
         try:
@@ -573,14 +574,27 @@ def check_declaracion():
         except yaml.YAMLError as error:
             fallos.append(f"labs/{lab}/{lab}.yml: YAML inválido: {error}")
             continue
-        for error in modulo_declaracion.declaracion_validar(declaracion, carpeta=lab):
+        errores = modulo_declaracion.declaracion_validar(declaracion, carpeta=lab)
+        for error in errores:
             fallos.append(f"labs/{lab}/{lab}.yml: {error}")
+        # Los CONSEJOS sólo se dan si la declaración es coherente: sobre un lab roto
+        # el consejo sería ruido encima del fallo que hay que arreglar primero.
+        if not errores:
+            for consejo in modulo_declaracion.declaracion_consejos(declaracion, carpeta=lab):
+                avisos.append((lab, consejo))
     if fallos:
         print("FALLA declaracion: el estado deseado es incoherente:")
         for fallo in fallos:
             print(f"  - {fallo}")
         return 1
-    print(f"OK    declaracion: {len(labs)} declaración(es) coherente(s)")
+    # Un consejo no bloquea: el lab es coherente y el plan sale igual. Se enseña
+    # porque es legal y silencioso (el escalón antes de quien da la dirección, la
+    # dirección estática dentro del rango del DHCP, la pasarela que no es nadie...).
+    for lab, consejo in avisos:
+        print(f"AVISO declaracion: labs/{lab}/{lab}.yml: {consejo['donde']}: {consejo['mensaje']}")
+        print(f"       -> {consejo['remedio']}")
+    cola = f" ({len(avisos)} consejo(s) que no bloquean)" if avisos else ""
+    print(f"OK    declaracion: {len(labs)} declaración(es) coherente(s){cola}")
     return 0
 
 
@@ -603,7 +617,17 @@ def _conjuntos_declarados(lab):
     nombres = set()
     for seccion in ("vms", "containers"):
         for invitado in declaracion.get(seccion) or []:
-            direcciones.add(str(invitado["direccion"]).split("/", 1)[0])
+            # Sólo las direcciones ESTÁTICAS pueden chocar entre labs. `dhcp` no es una
+            # dirección: es la MARCA de que la reparte el router de su bridge, y dos
+            # invitados dinámicos de labs distintos no pueden coincidir por construcción
+            # -- viven en bridges distintos, y su dirección la elige el DHCP de cada uno.
+            # Un invitado sin dirección (un conmutador puro) no declara ninguna, así que
+            # tampoco hay nada que comparar. Meter la marca aquí convertía dos labs con
+            # invitados dinámicos --que conviven sin problema-- en una colisión falsa.
+            direccion = str(invitado.get("direccion") or "")
+            if direccion == "dhcp" or "/" not in direccion:
+                continue
+            direcciones.add(direccion.split("/", 1)[0])
             nombres.add(f"{lab}-{invitado['rol']}")
     return {"bridges": bridges, "direcciones": direcciones, "nombres": nombres}
 

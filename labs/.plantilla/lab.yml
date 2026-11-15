@@ -9,7 +9,8 @@
 #              propósito: los checks y `./lab list` lo ignoran, porque no es un lab
 #              — y por eso mismo nada avisaría de que el esqueleto nace inválido.
 # LÍMITES:     es un esqueleto, no un ejemplo: no lleva valores de ningún lab real.
-# VER:         README.md §Cómo se usa; AGENTS.md §Mapa
+# VER:         docs/crear-un-lab.md (las decisiones, en orden, y el porqué de cada campo);
+#              README.md §Cómo se usa; AGENTS.md §Mapa
 lab:
   # Tiene que ser EXACTAMENTE el nombre de la carpeta: el pool de Proxmox se llama
   # como la carpeta y es lo que distingue "esto es de este lab".

@@ -38,6 +38,17 @@
     interior_areas_declaradas: "{{ interior_declarado_invitado | interior_areas }}"
   changed_when: false
 
+# La pata de FUERA (área `exterior`): por dónde sale este nodo y qué dirección libre hay en
+# esa red. Son valores del ENTORNO -- el lab no declara ni una dirección de casa --, así que
+# los DERIVA el motor del estado y viajan en los parámetros del interior. Sólo se derivan si
+# este invitado declara la salida: en cualquier otro caso no hay nada que preguntar (y un lab
+# sin salida no debe ni tocar el bridge del nodo).
+- name: "DRIVER ROUTEROS · la salida del lab, si '{{ interior_rol }}' la declara (puerta y dirección, derivadas)"
+  ansible.builtin.set_fact:
+    parametros_motor: "{{ parametros_motor | combine(estado | interior_salida(parametros_motor)) }}"
+  changed_when: false
+  when: "'exterior' in interior_areas_declaradas"
+
 # AQUÍ no se pone el puesto de control en el inventario. Antes sí, porque la llamada se le
 # delegaba; ahora la hace el motor y el puesto sólo hace de camino (el túnel ya reenvía el
 # REST de este router), así que lo único que hace falta es POR QUÉ PUERTO se llama: eso se

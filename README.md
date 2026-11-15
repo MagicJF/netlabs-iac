@@ -114,7 +114,8 @@ inventario que mantener: lo que se despliega es **exactamente lo declarado**, y 
 resto (vmid, MAC, nombre canónico, pool) lo deriva el motor leyendo el clúster.
 
 **Cómo se declara un lab.** `./lab new <nombre>` scaffoldea la carpeta desde
-`labs/.plantilla/` y se rellena el YAML:
+`labs/.plantilla/` y se rellena el YAML — las decisiones, una por una, con su trampa
+y el check que las vigila, están en [docs/crear-un-lab.md](docs/crear-un-lab.md):
 
 ```yaml
 lab:
@@ -150,7 +151,7 @@ configurar dentro** de cada equipo, y el motor lo converge como una fase más de
 
 - **`config:`**, con **exactamente una clave de tipo** (`linux` o `routeros`), que elige el
   driver. Dentro van las **áreas** (los campos que el motor sabe tocar y de los que
-  responde): `identidad`, `servicios`, `direcciones`, `rutas`, `dhcp`, `cortafuegos`,
+  responde): `identidad`, `servicios`, `direcciones`, `rutas`, `dhcp`, `exterior`,
   `reenvio`, `dhcp_servidor`, `camino`…
 - **`imagen:`** en una VM QEMU: el disco de fábrica que se importa al crearla (un CHR).
 - **`direccion:`** admite tres formas: `<ip>/<prefijo>` (estática), **`dhcp`** (dinámica: el
@@ -477,7 +478,7 @@ credenciales y sin Proxmox**:
 | `puerta` | las cuatro puertas: `/api2/json` sólo en `pve_api.yml`, `/rest` sólo en `ros_api.yml`, el SSH del interior sólo en `interior_ssh.yml` / `inventario_invitados.yml`, el protocolo de consola sólo en `camino_consola.yml` |
 | `privilegios` | nada del motor concede privilegios de la API fuera de la guarda de `preflight`, y ningún invitado declarado nace privilegiado |
 | `supernet` | toda dirección y todo rango de un lab cae dentro de su `lab.supernet`, y los supernets de dos labs no se solapan |
-| `declaracion` | coherencia del estado deseado: un rol en dos listas, un bridge citado que no existe, dos roles con la misma dirección, un bridge con un nombre que el núcleo rechazaría (guiones, >15 caracteres), un `dhcp` con áreas que pidan entrar… |
+| `declaracion` | coherencia del estado deseado: un rol en dos listas, un bridge citado que no existe, dos roles con la misma dirección, un bridge con un nombre que el núcleo rechazaría (guiones, >15 caracteres), un `dhcp` con áreas que pidan entrar… **y además ACONSEJA** lo que es legal pero casi siempre es un olvido (arrancar en el mismo escalón que quien te da la dirección, una dirección estática dentro del rango del DHCP, una pasarela que no es nadie del lab, una VM sin imagen, un bridge por el que no pasa nadie, dos DHCP en un bridge): un consejo dice dónde, qué pasa y qué escribir, y **no bloquea** |
 | `colisiones` | los labs declarados no comparten bridges, direcciones ni nombres |
 | `pureza-lab` | ni un valor de lab (ni su nombre) dentro de `deployment_engine/` |
 | `readme` | el README no lleva ningún valor de lab |
@@ -693,6 +694,8 @@ Una línea cada una, y nada más:
   [deployment_engine/tools/framework_check.py](deployment_engine/tools/framework_check.py)
 - El **driver puro del interior** (declarado + leído → pasos, en los dos sentidos):
   [deployment_engine/filter_plugins/interior.py](deployment_engine/filter_plugins/interior.py)
+- La **guía para escribir un lab** (las decisiones, en orden, con su trampa y su check):
+  [docs/crear-un-lab.md](docs/crear-un-lab.md)
 - El **camino del puesto de control** (la consola, el túnel, el puerto derivado):
   [docs/camino-del-puesto-de-control.md](docs/camino-del-puesto-de-control.md)
 - Las **decisiones** que no se re-litigan:
@@ -706,4 +709,5 @@ Una línea cada una, y nada más:
   [0008](docs/decisiones/0008-una-direccion-por-pata.md),
   [0009](docs/decisiones/0009-verify-mira-dentro.md),
   [0010](docs/decisiones/0010-el-rest-por-el-camino.md),
-  [0011](docs/decisiones/0011-el-agente-de-invitado.md)
+  [0011](docs/decisiones/0011-el-agente-de-invitado.md),
+  [0012](docs/decisiones/0012-la-salida-del-lab.md)

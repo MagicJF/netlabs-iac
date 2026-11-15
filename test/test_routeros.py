@@ -26,6 +26,7 @@
 
 # Uso:  python3 test/test_routeros.py     (código de salida != 0 si algo falla)
 
+import copy
 import os
 import sys
 
@@ -652,6 +653,219 @@ igual(
     "un router ya convergido no genera NINGUNA llamada, ni el guion ni nada (idempotencia)",
 )
 
+
+# ---------------------------------------------------------------------------
+# 5. La SALIDA del lab: un router que declara `exterior`
+# ---------------------------------------------------------------------------
+# Un router con `exterior` es la puerta del lab hacia fuera. Su pata de fuera la añade el
+# PLAN (una más, sobre el bridge del nodo que tiene salida), y el número y la puerta los
+# DERIVA el motor del estado: el lab declara la salida, no la red de casa. Aquí se prueba la
+# mitad del driver: que la interfaz y la numeración se derivan, que lo que falta se pide, que
+# lo que está no se vuelve a pedir, y que la dirección/ruta de fuera NO se confunden con los
+# residuos de fábrica (si se confundieran, el lab se quedaría sin salida en la primera pasada
+# y la segunda pediría un reinicio del router: la idempotencia se rompe justo por ahí).
+print("\nLA SALIDA DEL LAB: dirección derivada, masquerade y resolutor\n")
+
+BORDE_SALIDA = copy.deepcopy(BORDE)
+BORDE_SALIDA["config"]["routeros"]["exterior"] = {}
+# Y NO declara ruta por defecto: la pone el motor por la puerta de fuera. Declararla además
+# son dos compitiendo por el mismo destino (para eso está el consejo `exterior-con-ruta`), y
+# obligaría al lab a saberse la pasarela de la red de casa -- justo lo que `exterior` evita.
+BORDE_SALIDA["config"]["routeros"].pop("rutas", None)
+igual(
+    motor.interfaz_exterior(BORDE_SALIDA), "ether3",
+    "la interfaz de fuera se DERIVA: es la siguiente a las dos que declaró (el lab no la "
+    "nombra, porque no está entre sus patas y la validación la rechazaría)",
+)
+igual(motor.interfaz_exterior(BORDE), "", "un router sin `exterior` no tiene pata de fuera")
+
+# Y la NUMERACIÓN también se deriva del estado: la puerta es la dirección del bridge por el
+# que sale el nodo, y la dirección del invitado se cuenta por ARRIBA entre las libres (así no
+# cae dentro de un pool que reparta un router del lab). Sin nada declarado en el lab.
+ESTADO_SALIDA = {
+    "bridges_direcciones": {"vmbr1": "192.0.2.1/24"},
+    "direcciones_usadas": ["192.0.2.252"],
+}
+PARAMETROS_SALIDA = {
+    **PARAMETROS,
+    **motor.salida_derivada(ESTADO_SALIDA, {**PARAMETROS, "bridge_gestion": "vmbr1"}),
+}
+igual(
+    {clave: PARAMETROS_SALIDA[clave] for clave in ("salida_puerta", "salida_direccion")},
+    {"salida_puerta": "192.0.2.1", "salida_direccion": "192.0.2.254/24"},
+    "la puerta es la dirección del bridge y la dirección es la libre de más arriba: las dos "
+    "DERIVADAS del estado, ninguna declarada por el lab",
+)
+igual(
+    motor.salida_derivada(
+        {"bridges_direcciones": {"vmbr1": "192.0.2.1/24"},
+         "direcciones_usadas": ["192.0.2.254/24"]},
+        {**PARAMETROS, "bridge_gestion": "vmbr1"},
+    )["salida_direccion"],
+    "192.0.2.253/24",
+    "y la que ya está en uso se esquiva: cuenta hacia abajo hasta la primera libre",
+)
+
+# a) La pata de fuera recién tendida: no tiene dirección, ni ruta por defecto, ni NAT, ni
+#    resolutor. Sólo las dos patas del lab tienen dirección.
+CRUDO_SALIDA = copy.deepcopy(CRUDO_RECIEN_NACIDO)
+CRUDO_SALIDA["/ip/address"] = respuesta([
+    {".id": "*1", "address": "10.40.0.1/24", "interface": "ether1", "dynamic": "false"},
+    {".id": "*2", "address": "10.40.1.1/24", "interface": "ether2", "dynamic": "false"},
+])
+CRUDO_SALIDA["/ip/route"] = respuesta([
+    {".id": "*1", "dst-address": "10.40.0.0/24", "gateway": "ether1", "dynamic": "true",
+     "connect": "true", "active": "true"},
+])
+CRUDO_SALIDA["/ip/firewall/nat"] = respuesta([])
+CRUDO_SALIDA["/ip/dns"] = respuesta({"allow-remote-requests": "false", "servers": ""})
+LEIDO_SALIDA = motor.leido_routeros(CRUDO_SALIDA, BORDE_SALIDA, "admin", CLAVE_PUBLICA, "motor")
+igual(
+    {clave: LEIDO_SALIDA["areas"]["exterior"][clave]
+     for clave in ("interfaz", "direccion", "por_defecto", "masquerade", "resolutor")},
+    {"interfaz": "ether3", "direccion": "", "por_defecto": "", "masquerade": False,
+     "resolutor": False},
+    "se lee que a la pata de fuera le falta todo (y la interfaz, derivada, es ether3)",
+)
+OPERACIONES_SALIDA = motor.operaciones_de_pasos(
+    motor.pasos_de_convergencia(
+        BORDE_SALIDA, IDENTIDAD, DECLARACION, LEIDO_SALIDA, PARAMETROS_SALIDA
+    )
+)
+DE_FUERA = [op for op in OPERACIONES_SALIDA if op.get("area") == "exterior"]
+igual(
+    [(op["op"], op.get("direccion") or op.get("pasarela") or op.get("servidores")) for op in DE_FUERA],
+    [
+        ("poner_direccion", "192.0.2.254/24"),
+        ("poner_ruta", "192.0.2.1"),
+        ("poner_masquerade", None),
+        ("activar_resolutor", ["192.0.2.1"]),
+    ],
+    "y se decide lo mínimo: numerar la pata (con la dirección DERIVADA), mandar lo que no es "
+    "suyo por la puerta de fuera, traducir lo que sale y encender el resolutor apuntando a esa "
+    "misma puerta",
+)
+LLAMADAS_SALIDA = motor.escrituras_routeros(
+    OPERACIONES_SALIDA, BORDE_SALIDA, DECLARACION, IDENTIDAD, PARAMETROS_ROUTEROS, LEIDO_SALIDA
+)
+igual(
+    [(l["metodo"], l["ruta"], l["cuerpo"]) for l in LLAMADAS_SALIDA
+     if l.get("area") == "exterior"],
+    [
+        ("POST", "/ip/address/add",
+         {"address": "192.0.2.254/24", "interface": "ether3"}),
+        ("POST", "/ip/route/add",
+         {"dst-address": "0.0.0.0/0", "gateway": "192.0.2.1"}),
+        ("POST", "/ip/firewall/nat/add",
+         {"chain": "srcnat", "out-interface": "ether3", "action": "masquerade",
+          "comment": motor.MARCA_EXTERIOR}),
+        ("POST", "/ip/dns/set", {"allow-remote-requests": "yes", "servers": "192.0.2.1"}),
+    ],
+    "y se escribe por la puerta del REST: dirección, ruta por defecto por la puerta de fuera, "
+    "masquerade y resolutor apuntando a esa puerta -- el motor no necesita conocer ninguna "
+    "dirección de casa porque las DERIVA del estado",
+)
+comprobar(
+    all("www" not in str(l.get("cuerpo")) for l in LLAMADAS_SALIDA),
+    "y por la pata de fuera tampoco se toca `www`: es donde vive REST, o sea la vuelta",
+)
+
+# b) Al día: la dirección derivada está puesta, la ruta por defecto está, la regla está, el
+#    resolutor está apuntando a la puerta. CERO pasos.
+AL_DIA_SALIDA = copy.deepcopy(SIN_RESIDUO)
+AL_DIA_SALIDA["/ip/address"] = respuesta([
+    {".id": "*3", "address": "192.0.2.254/24", "interface": "ether3", "dynamic": "false"},
+])
+AL_DIA_SALIDA["/ip/firewall/nat"] = respuesta([
+    {".id": "*2", "chain": "srcnat", "action": "masquerade", "out-interface": "ether3",
+     "comment": motor.MARCA_EXTERIOR},
+])
+AL_DIA_SALIDA["/ip/dns"] = respuesta({"allow-remote-requests": "true", "servers": "192.0.2.1"})
+AL_DIA_SALIDA["/ip/route"] = respuesta([
+    {".id": "*1", "dst-address": "10.40.0.0/24", "gateway": "ether1", "dynamic": "true",
+     "connect": "true", "active": "true"},
+    {".id": "*2", "dst-address": "0.0.0.0/0", "gateway": "192.0.2.1", "dynamic": "false",
+     "active": "true"},
+])
+LEIDO_AL_DIA_SALIDA = motor.leido_routeros(
+    AL_DIA_SALIDA, BORDE_SALIDA, "admin", CLAVE_PUBLICA, "motor"
+)
+igual(
+    {clave: LEIDO_AL_DIA_SALIDA["areas"]["exterior"][clave]
+     for clave in ("direccion", "por_defecto", "masquerade", "resolutor", "servidores")},
+    {"direccion": "192.0.2.254/24", "por_defecto": "192.0.2.1", "masquerade": True,
+     "resolutor": True, "servidores": "192.0.2.1"},
+    "se lee la dirección, la ruta y el resolutor tal cual están: la salida no se supone, "
+    "se comprueba",
+)
+igual(
+    LEIDO_AL_DIA_SALIDA["areas"]["cliente_dhcp"]["habilitado"], False,
+    "y la pata de FUERA no cuenta como cliente de fábrica: el de fábrica es el que coge "
+    "dirección en una pata DEL LAB, y esta es la salida",
+)
+OPERACIONES_AL_DIA_SALIDA = motor.operaciones_de_pasos(
+    motor.pasos_de_convergencia(
+        BORDE_SALIDA, IDENTIDAD, DECLARACION, LEIDO_AL_DIA_SALIDA, PARAMETROS_SALIDA
+    )
+)
+igual(
+    [op for op in OPERACIONES_AL_DIA_SALIDA if op.get("area") == "exterior"],
+    [],
+    "cero operaciones en la salida: ni renumera la pata, ni añade otra ruta, ni vuelve a tocar "
+    "el NAT o el resolutor (idempotencia por construcción: se compara contra lo que el motor "
+    "DERIVA)",
+)
+# La trampa que se probó al implementarlo: en RouterOS la ruta por defecto de fuera es DINÁMICA,
+# que es exactamente la forma del residuo del cliente de fábrica. Si contara como residuo, este
+# router pediría un reinicio en CADA pasada.
+igual(
+    [op for op in OPERACIONES_AL_DIA_SALIDA
+     if "reinicio" in str(op.get("parametros") or {})],
+    [],
+    "y una ruta por defecto que no declaró el lab no se toma por un residuo del cliente de "
+    "fábrica: en un router que es la salida es justo lo que tiene que haber",
+)
+# Y la pelea que se vio de verdad al aplicarlo: el área `direcciones` quitaba la dirección
+# que el área `exterior` acababa de poner (regla 17: "lo no declarado, fuera"), y `rutas`
+# hacía lo propio con la ruta por defecto. La pata de fuera no es una pata del lab.
+igual(
+    LEIDO_AL_DIA_SALIDA["areas"]["direcciones"]["estaticas"], [],
+    "la dirección de la pata de fuera NO se lee como una dirección del lab: si se leyera, "
+    "esta área la quitaría en cada pasada",
+)
+igual(
+    LEIDO_AL_DIA_SALIDA["areas"]["rutas"]["estaticas"], [],
+    "ni la ruta por defecto se lee como una ruta declarada del lab: la manda `exterior`",
+)
+
+# c) La pasada que se vio de verdad: la pata con DOS direcciones (una por pasada, cuando el
+#    motor la renumeraba). Se adopta la primera y se quita la otra: una sola, y estable.
+DOS_SALIDA = copy.deepcopy(AL_DIA_SALIDA)
+DOS_SALIDA["/ip/address"] = respuesta([
+    {".id": "*5", "address": "192.0.2.250/24", "interface": "ether3", "dynamic": "false"},
+    {".id": "*6", "address": "192.0.2.253/24", "interface": "ether3", "dynamic": "false"},
+])
+LEIDO_DOS_SALIDA = motor.leido_routeros(DOS_SALIDA, BORDE_SALIDA, "admin", CLAVE_PUBLICA, "motor")
+igual(
+    {clave: LEIDO_DOS_SALIDA["areas"]["exterior"][clave]
+     for clave in ("direccion", "de_la_red", "todas")},
+    {"direccion": "192.0.2.250/24", "de_la_red": "192.0.2.250",
+     "todas": ["192.0.2.250/24", "192.0.2.253/24"]},
+    "se leen TODAS las de la pata, con su `.id` (es lo único con lo que se puede quitar una)",
+)
+OPERACIONES_DOS = [
+    op for op in motor.operaciones_de_pasos(
+        motor.pasos_de_convergencia(
+            BORDE_SALIDA, IDENTIDAD, DECLARACION, LEIDO_DOS_SALIDA, PARAMETROS_SALIDA
+        )
+    ) if op.get("area") == "exterior"
+]
+igual(
+    [(op["op"], op.get("direccion"), op.get("id")) for op in OPERACIONES_DOS],
+    [("quitar_direccion", "192.0.2.253/24", "*6")],
+    "y la que sobra se quita, con su identificador: la pata se queda con UNA -- la que ya "
+    "tenía -- en vez de ir dejando una nueva por pasada",
+)
 
 print("\n" + "=" * 62)
 if FALLOS:

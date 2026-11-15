@@ -1,0 +1,210 @@
+# Crear un lab: las decisiones, en orden
+
+<!-- PROPÓSITO: la guía de campo para escribir un lab. NO es una plantilla que se pega: es el
+     orden en que se TOMA cada decisión, con su valor por defecto, su trampa y el check que la
+     vigila. La plantilla que sí se copia es `labs/.plantilla/` (`./lab new <nombre>`); esto es
+     el porqué de lo que hay dentro.
+     INVARIANTES: nada de lo que aquí se decide pertenece al motor. Un lab nuevo no toca ni un
+     fichero de `deployment_engine/` (regla 7); si necesita una primitiva que no existe, la pide
+     al motor con un ADR (regla 15), no la inventa en su YAML.
+     LÍMITES: esto describe el vocabulario de HOY. Lo que está declarado como pendiente
+     (puentes y cortafuegos de RouterOS; pasarela, rutas, dns y claves de Linux) se nombra aquí
+     para que no lo busques: no está implementado.
+     VER: AGENTS.md; README.md; deployment_engine/filter_plugins/declaracion.py;
+     labs/lab-red-routeros/ (el ejemplo trabajado); ./lab check declaracion -->
+
+## La forma de un lab, en tres piezas
+
+```
+labs/<lab>/
+├── <lab>.yml    el estado deseado. Es la FUENTE DE VERDAD: lo que no está aquí no existe
+├── <lab>.md     el documento. Dos regiones: la tabla la escribe el motor, la prosa la escribes tú
+└── logs/        lo que dejó el motor (api.jsonl, interior.jsonl, camino.jsonl). Nunca a mano
+```
+
+`./lab new <lab>` scaffoldea las dos primeras desde `labs/.plantilla/`. A partir de ahí el lab
+es tuyo: no se hereda de ningún sitio ni se genera solo. **Lo que se escribe una vez es lo que
+se lee después**, así que el orden de abajo importa.
+
+## 1. Qué quieres poder demostrar
+
+Antes de escribir nada: ¿qué tiene que pasar para que este lab valga? De esa respuesta sale la
+forma, y **la forma más pequeña que demuestre eso es la correcta**. Los labs del repo son, en
+orden de tamaño, el catálogo de formas que ya existen:
+
+- **un invitado y nada más** — que el motor crea, identifica y entra en un Linux.
+- **dos redes y un router** — que el motor construye un camino entre dos L2 y enruta.
+- **una red de routers** — que el motor encadena equipos, reparte direcciones y converge por escalones.
+- **algo que aún no se sabe** — un lab de investigación: mide, y luego se decide.
+
+Regla de crecimiento: **una pieza nueva por lab, y sólo cuando la anterior está verde**. Un lab
+que hace cinco cosas nuevas a la vez te dice que algo falla, pero no cuál.
+
+## 2. El nombre
+
+En minúsculas y con guiones (`mi-lab`). El nombre no es decorativo: de él salen la carpeta, el
+pool de Proxmox (que se llama como la carpeta), el nombre canónico de cada invitado
+(`<lab>-<rol>`) y la frontera de propiedad. Cámbialo después y `destroy` ya no sabe qué es tuyo.
+
+## 3. El supernet
+
+Un bloque por lab, distinto del de todos los demás: es lo que hace que dos labs no se pisen ni
+al convivir en el mismo nodo. Sale de una decisión consciente, no de la comodidad. El check
+`supernet` avisa si dos labs del repo se solapan, y `colisiones` si dos labs declaran lo mismo.
+
+**Por defecto:** un `/16` libre. Los direccionamientos de los ejemplo de esta guía son de
+documentación (`192.0.2.0/24`, TEST-NET-1): no los copies como si fueran de tu lab.
+
+## 4. Los bridges
+
+Se **declaran** en `lab.bridges`, con nombre y con su dirección. No hay bridges implícitos.
+
+- El nombre es del lab (`vmb_<algo>` por convención del repo). Nada más mirarlo se sabe que no
+  es un bridge del nodo.
+- **Su dirección es la puerta de esa red**: `192.0.2.1/24` quiere decir que quien cuelga de ese
+  bridge tiene ahí su gateway. Por eso el bridge de gestión del lab y el router que lo atiende
+  pueden compartir red (la dirección del bridge es de un extremo, la del router del otro).
+- El motor **sólo crea el bridge si falta**, y le pone su marca (`lab=<lab>`); un bridge sin esa
+  marca no se adopta y no se toca. `destroy` sólo borra lo que lleva su marca y no está en uso.
+
+**Trampa:** declarar un bridge por el que luego no pasa nadie. Sale en el check y en el nodo, y
+no sirve para nada.
+
+## 5. Los invitados
+
+Uno por rol, en `vms:` (QEMU) o `containers:` (LXC). Cada uno:
+
+- **`rol`**: el nombre de la pieza en tu topología (`router-borde`, `puesto-1`). Es lo único que
+  te identifica, y de él salen el nombre canónico y la descripción del invitado.
+- **`tipo`**: una VM si necesita su propio kernel (un CHR, una imagen de fábrica); un
+  contenedor si basta un Linux ligero. **Por defecto: contenedor** (arranca en segundos).
+- **`escalon`**: el orden en que el motor enciende y converge. **Nadie arranca antes de que
+  quien le da la dirección esté sirviendo** (regla 18: así la carrera del DHCP muere por
+  construcción). Si te equivocas, el consejo `escalones` te lo dice con el número que toca.
+- **`bridges`/`bridge`**: sus patas. Una VM declara todas y el orden importa (`ether1` es la
+  primera); un contenedor normalmente una.
+- **`direccion`**: en la primera pata, `"dhcp"` o una dirección con máscara. La dirección
+  estática va **fuera del rango del DHCP** (si no, un cliente dinámico puede pedirla antes: eso
+  es el consejo `dhcp`).
+- **Recursos**: `cores`, `memoria`, `disco`. El mínimo honesto que necesita la pieza. Los CHR
+  van con lo justo; un contenedor Alpine, con menos todavía.
+- **`imagen`** (VMs): de fábrica, la del fabricante. La imagen sólo se puede adjuntar **al crear**
+  la máquina: sin ella, nace sin disco y no arranca nada (el consejo `imagen` lo recuerda).
+
+**Lo que NO se declara nunca:** ni vmids ni MACs. El motor los deriva (el menor vmid libre del
+clúster, la MAC como función del vmid) y las reservas DHCP se derivan de ahí. Si ves una MAC en
+un YAML, es un bug.
+
+## 6. El interior: `config:`
+
+Un invitado, por defecto, es un aparato vacío que el motor enciende. `config:` le dice que
+además **hay que entrar en él y configurarlo**, con el vocabulario **cerrado** de su driver:
+
+- **RouterOS** (`config.routeros`): `identidad`, `direcciones`, `servicios`, `cliente_dhcp`,
+  `rutas`, `dhcp`, `exterior`. Se configura **por su REST**, a través del camino (ADR 0010).
+- **Linux** (`config.linux`): `camino`, `direccion`, `direcciones`, `reenvio`, `dhcp_servidor`.
+  Se entra **por SSH**, y sólo desde `tasks/interior_ssh.yml`.
+- **Pendiente, y se nota que lo está**: `puentes` y `cortafuegos` (RouterOS); `pasarela`,
+  `rutas`, `dns` y `claves` (Linux). **No están implementadas y el validador las rechaza.**
+
+### `exterior`: que el lab salga a internet
+
+Un RouterOS declara `exterior: {}` para decir que **ese router es la salida del lab**. Es una
+**marca**, sin opciones: la pata de fuera la tiende el motor al nacer —la última, sin
+dirección— sobre el bridge del nodo que tiene salida (`pve_bridge_gestion`, un valor de
+entorno), y su dirección, su puerta y su DNS los **deriva el motor** del estado, con la misma
+regla que la pata del puesto de control en ese bridge (la dirección del bridge es la puerta;
+la del invitado se cuenta por arriba entre las libres). Las tres las propone el motor, no el
+lab: por eso **el lab no declara ni una dirección de casa** y por eso, si declaras opciones en
+`exterior`, el validador te para (ADR 0012).
+
+Con la marca, el motor configura cuatro cosas: la dirección de la pata de fuera (derivada), la
+ruta por defecto por la puerta de fuera (derivada), MASQUERADE por esa interfaz, y el resolutor
+DNS encendido apuntando a esa puerta.
+
+Dos tropiezos que ya están cazados, para que no los repitas:
+
+- **Un router de salida NO declara ruta por defecto.** La pone el motor por la puerta de
+  fuera. Si la declaras, salta el consejo `exterior-con-ruta` (dos rutas compitiendo) y además
+  obligas al lab a saberse la pasarela de casa, que es justo lo que `exterior` evita.
+- **Sus redes tienen que anunciar DNS.** Si ningún servidor DHCP del lab anuncia DNS, el lab
+  sale a internet y no resuelve un solo nombre: salta `exterior-sin-dns`. El DNS que anuncies
+  tiene que ser alguien que resuelva de verdad (el router de salida lo hace, porque
+  `exterior` le enciende el resolutor).
+
+Y los clientes **no se configuran por dentro**: su pasarela y su DNS los reparte el DHCP del
+router. Un contenedor con su red bien servida tiene internet sin una línea de `config:`.
+
+El ejemplo trabajado está en `labs/conectividad-exterior/`.
+
+El lab **no puede inventarse una primitiva**. Si necesitas algo que no está, se le pide al motor
+—con su ADR, su driver, su lectura de vuelta y sus pruebas— y luego se declara. Es la regla que
+mantiene el motor genérico.
+
+Dentro de un área declarada, **lo que no está en el YAML se quita del equipo**; fuera de las
+áreas declaradas, el motor no toca nada. Declarar es tomar posesión.
+
+## 7. El puesto de control: `lab.camino`
+
+Un lab puede declarar `lab.camino`: eso pide un **puesto de control**, un LXC con `rol: control`
+que construye el túnel hacia casa y por el que el motor entra en todos los demás (`ProxyJump`).
+Hace falta cuando el motor tiene que configurar el interior de algo; no hace falta para que el
+lab exista. El cómo está en [camino-del-puesto-de-control.md](camino-del-puesto-de-control.md).
+
+**Trampa:** un lab con `config:` en algún invitado y **sin** puesto de control se despliega
+igual, pero el trabajo del interior se queda **blando**: se declara, se avisa y se sigue. Si el
+interior importa, el camino no es opcional.
+
+## 8. Quién da las direcciones
+
+Dos sitios, y ninguno se improvisa:
+
+- **El puesto de control** (`config.linux.dhcp_servidor`), con `reservas: derivadas` para que el
+  motor le ponga a un invitado la dirección que se deriva de su vmid. Es lo más cómodo para las
+  patas de gestión.
+- **Un RouterOS** (`config.routeros.dhcp`), para las redes que enruta.
+
+**Un servidor DHCP por bridge.** Dos en la misma L2 es una carrera (consejo `dos-dhcp`). Y quien
+pide por DHCP tiene que ir **después** de quien le contesta.
+
+## 9. Y entonces, en este orden
+
+| cuándo | qué |
+| --- | --- |
+| mientras escribes | `./lab check declaracion` — valida **y aconseja** |
+| al terminar de escribir | `./lab check docs --actualizar` (regenera la tabla) y `./lab check docs` |
+| antes de tocar el nodo | `./lab --lab <lab> preflight` — ¿el mundo es como crees? |
+| para LEERLO antes de crearlo | `./lab --lab <lab> plan` — y con `config:`, `plan --api` |
+| cuando el plan te convenza | `./lab --lab <lab> apply` — debe converger en UNA pasada |
+| la segunda pasada | `./lab --lab <lab> apply` — debe dar `changed=0` y **sólo lecturas** |
+| para saber si está | `./lab --lab <lab> verify` |
+| antes de subirlo | `./lab check` (todo) y `ansible-lint` |
+| para deshacerlo | `./lab --lab <lab> destroy --yes` |
+
+**El plan se lee.** Un lab no se despliega «a ver qué pasa»: `plan` dice vmids, MACs, direcciones
+y reservas **sin tocar el nodo**, y ahí se ven los errores que ningún check puede ver.
+
+## 10. La prosa del documento
+
+La tabla de `<lab>.md` la escribe el motor (`check docs --actualizar`). La prosa es tuya, y el
+esqueleto nace con estos encabezados, en este orden:
+
+- `## Por qué así` — qué topología es y por qué ésa y no otra.
+- `## Qué se rompió (y cómo se arregló)` — lo que falló al desplegarla de verdad. Es lo que más
+  vale del documento: nadie más va a tropezar donde tú tropezaste.
+- `## Qué está verificado, y qué no` — qué comprobaste y con qué salida.
+- `## Qué queda fuera` — los límites, dichos en claro.
+
+Son un punto de partida, no una norma que ningún check vigile: los labs que ya existen tienen los
+suyos, y su prosa no la reescribe nadie. Lo que sí es norma es lo de abajo.
+
+**La prosa no repite valores de la tabla**: los cita. Si el dato no está en la tabla y hace
+falta, se añade a la tabla (el esqueleto es rígido; el cuerpo es libre).
+
+## 11. Lo que el motor no te va a perdonar
+
+- Declarar un vmid, una MAC o un valor de casa (la puerta de internet, el DNS de fuera, una ruta
+  por defecto de verdad): **eso es del entorno, no del lab**.
+- Copiar un fichero del motor para un lab, o un verbo para un lab.
+- Escribir en `labs/<lab>/logs/`.
+- Decir que funciona sin la salida del comando que lo prueba.

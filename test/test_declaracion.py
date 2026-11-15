@@ -132,6 +132,17 @@ comprobar(
 )
 errores = errores_de(lambda d: d["vms"][0]["config"]["routeros"].__setitem__("inventado", {}))
 comprobar(dice(errores, "inventado"), "un área que no existe se caza con su nombre")
+
+# `exterior` existe, pero es una MARCA: la pata de fuera y su dirección las deriva el motor.
+# Una opción aquí es el lab inventándose una primitiva por la puerta de atrás (regla 15).
+errores = errores_de(
+    lambda d: d["vms"][0]["config"]["routeros"].__setitem__("exterior", {"interfaz": "ether3"})
+)
+comprobar(
+    dice(errores, "exterior") and dice(errores, "opciones"),
+    "`exterior` con opciones se caza: es una marca (`exterior: {}`), no un sitio donde el "
+    "lab nombre interfaces (no las ha declarado, y por eso no son suyas)",
+)
 errores = errores_de(lambda d: d["containers"][0]["config"]["linux"].__setitem__("docker", {}))
 comprobar(dice(errores, "docker"), "y una primitiva que el lab se inventa, también (regla 15)")
 
@@ -236,6 +247,135 @@ comprobar(
     dice(errores, "dhcp") and dice(errores, "ENTRAR"),
     "un invitado con áreas que piden entrar y `direccion: dhcp` se caza: no se sabe a dónde conectar",
 )
+
+
+# ---------------------------------------------------------------------------
+
+print("\nLOS CONSEJOS: LO QUE ES LEGAL PERO CASI SIEMPRE ES UN OLVIDO\n")
+
+
+def consejos_de(mutar):
+    """Los consejos del lab de aceptación con un cambio aplicado encima."""
+    declaracion = copy.deepcopy(BASE)
+    mutar(declaracion)
+    return modulo.declaracion_consejos(declaracion, CARPETA)
+
+
+def aconseja(consejos, codigo):
+    return any(consejo["codigo"] == codigo for consejo in consejos)
+
+
+def _invitado(declaracion, rol):
+    for seccion in ("vms", "containers"):
+        for invitado in declaracion.get(seccion) or []:
+            if invitado.get("rol") == rol:
+                return invitado
+    raise AssertionError(f"el lab de aceptación ya no tiene el rol '{rol}'")
+
+
+# El caso limpio: un lab que sigue las convenciones del repo no recibe ni un consejo.
+# Es la mitad de la prueba: un consejo que salta siempre no enseña nada, sólo hace ruido.
+igual(consejos_de(lambda d: None), [], "el lab de aceptación no tiene nada que aconsejar")
+
+# Y cada consejo tiene que poder SALIR de verdad. Se rompe el lab a propósito, uno por
+# uno: un consejo que no se ha visto dispararse no es un consejo, es decoración.
+CASOS = [
+    (
+        "escalones",
+        lambda d: _invitado(d, "servidor").__setitem__("escalon", 1),
+        "un invitado que pide dirección por DHCP en el MISMO escalón que quien se la da "
+        "(arrancarían a la vez: carrera, no diseño)",
+    ),
+    (
+        "dhcp",
+        lambda d: _control(d)["config"]["linux"]["direcciones"][0].__setitem__(
+            "direccion", "10.40.1.150/24"
+        ),
+        "una dirección estática dentro del rango que reparte el DHCP (un cliente "
+        "dinámico puede pedirla antes)",
+    ),
+    (
+        "pasarela",
+        lambda d: _invitado(d, "nucleo")["config"]["routeros"]["rutas"][0].__setitem__(
+            "pasarela", "10.40.1.99"
+        ),
+        "una pasarela que cae dentro de la supernet del lab y no es de nadie",
+    ),
+    (
+        "imagen",
+        lambda d: _invitado(d, "borde").pop("imagen"),
+        "una VM que declara `config` y no declara `imagen` (nacería sin disco)",
+    ),
+    (
+        "bridge-vacio",
+        lambda d: d["lab"]["bridges"].append({"nombre": "vmb_vacio", "direccion": "10.40.3.1/24"}),
+        "un bridge por el que no pasa nadie",
+    ),
+    (
+        "dos-dhcp",
+        lambda d: _invitado(d, "borde")["config"]["routeros"]["dhcp"].append(
+            {
+                "interfaz": "ether2",
+                "pool": {"rango": "10.40.1.100-10.40.1.200"},
+                "red": {"prefijo": "10.40.1.0/24", "pasarela": "10.40.1.1"},
+            }
+        ),
+        "dos servidores DHCP en el mismo bridge",
+    ),
+    (
+        "sin-quien-la-dirija",
+        lambda d: (
+            d["lab"]["bridges"].append({"nombre": "vmb_sola", "direccion": "10.40.4.1/24"}),
+            _invitado(d, "servidor").__setitem__("bridge", "vmb_sola"),
+        ),
+        "una dirección dinámica en un bridge del lab donde no hay quien la dé",
+    ),
+    (
+        "exterior-sin-dns",
+        lambda d: (
+            _invitado(d, "borde")["config"]["routeros"].__setitem__("exterior", {}),
+            _invitado(d, "borde")["config"]["routeros"]["dhcp"][0]["red"].pop("dns"),
+            _invitado(d, "nucleo")["config"]["routeros"]["dhcp"][0]["red"].pop("dns"),
+        ),
+        "un router que es la SALIDA del lab y ningún servidor DHCP que anuncie DNS: "
+        "sale a internet y no resuelve un solo nombre",
+    ),
+    (
+        "exterior-con-ruta",
+        lambda d: _invitado(d, "borde")["config"]["routeros"].__setitem__("exterior", {}),
+        "un router que es la salida del lab y además le declaran ruta por defecto: su "
+        "la que pone el motor por la puerta de fuera y la tuya compiten por el mismo destino",
+    ),
+]
+
+for codigo, mutar, texto in CASOS:
+    declaracion = copy.deepcopy(BASE)
+    mutar(declaracion)
+    consejos = modulo.declaracion_consejos(declaracion, CARPETA)
+    comprobar(
+        aconseja(consejos, codigo),
+        f"el consejo '{codigo}' sale: {texto}",
+    )
+    # Un consejo es un consejo: el lab mutado sigue siendo COHERENTE (el validador no
+    # tiene nada que decirle) y por tanto el plan sale igual. Si esto fallara, el caso
+    # no estaría probando un consejo sino un error.
+    comprobar(
+        not modulo.declaracion_validar(declaracion, CARPETA),
+        f"y con el consejo '{codigo}' la declaración sigue siendo coherente: no bloquea",
+    )
+    # El consejo trae las tres cosas: dónde, qué pasa y qué escribir.
+    completo = all(c["donde"] and c["mensaje"] and c["remedio"] for c in consejos)
+    comprobar(completo, f"el consejo '{codigo}' dice dónde, qué pasa y qué escribir")
+
+# Ningún consejo puede salir con un código que no esté declarado: un código suelto es
+# un consejo que nadie documenta ni prueba.
+sueltos = {
+    c["codigo"]
+    for _, mutar, _ in CASOS
+    for c in consejos_de(mutar)
+    if c["codigo"] not in modulo.CONSEJOS_CONOCIDOS
+}
+igual(sueltos, set(), "todos los códigos de consejo están en CONSEJOS_CONOCIDOS")
 
 
 # ---------------------------------------------------------------------------

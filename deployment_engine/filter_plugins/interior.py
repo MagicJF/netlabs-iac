@@ -56,7 +56,9 @@ AREAS = {
     # porque el vocabulario es cerrado y hay que nombrarla, y `areas_de` la funde en
     # `direccion` para que la convergencia tenga un solo camino.
     "linux": ("camino", "direccion", "direcciones", "reenvio", "dhcp_servidor"),
-    "routeros": ("identidad", "direcciones", "servicios", "cliente_dhcp", "rutas", "dhcp"),
+    "routeros": (
+        "identidad", "direcciones", "servicios", "cliente_dhcp", "rutas", "dhcp", "exterior",
+    ),
 }
 
 # Las áreas que el encargo nombra y el motor TODAVÍA no converge. Se declaran aquí
@@ -237,6 +239,35 @@ def direccion_libre(subred, usadas, desde_arriba=True):
             continue
         return candidata
     raise ErrorMotor(f"no queda ninguna dirección libre en {subred}")
+
+
+def salida_derivada(estado, parametros):
+    """Lo que el motor DERIVA para la pata de fuera de un lab: puerta y dirección.
+
+    Son valores del ENTORNO -- por dónde sale este nodo y qué dirección libre hay en esa
+    red -- así que el lab no los declara: el lab sólo dice QUE este router es la salida.
+
+    Es la MISMA regla que la pata del puesto de control en ese mismo bridge: la dirección
+    del bridge es la puerta, y la del invitado se elige contando por ARRIBA entre las
+    libres (así nunca cae dentro de un pool que reparta un router del lab). El DNS se toma
+    también como la puerta: es donde este nodo sirve el resolutor de esa red (medido).
+
+    (Se probó a pedir la dirección por DHCP, que sería lo natural, y en este entorno no
+    puede ser: medido con captura, las ofertas del bridge de salida salen con el checksum
+    UDP mal formado y un CHR las descarta -- se queda en `searching...` indefinidamente.
+    Ver docs/decisiones/0012 y el documento del lab.)
+    """
+    puente = str(parametros.get("bridge_gestion") or "")
+    subred = str((estado.get("bridges_direcciones") or {}).get(puente) or "")
+    if not puente or "/" not in subred:
+        raise ErrorMotor(
+            f"este lab declara `exterior` (salida a internet) y el motor no sabe por "
+            f"dónde sale el nodo: falta `pve_bridge_gestion` en secrets.yml o ese bridge "
+            f"no tiene dirección en el nodo (salió: puente='{puente}', red='{subred}')"
+        )
+    puerta, _, prefijo = subred.partition("/")
+    direccion = direccion_libre(subred, estado.get("direcciones_usadas") or [], desde_arriba=True)
+    return {"salida_puerta": puerta, "salida_direccion": f"{direccion}/{prefijo}"}
 
 
 def patas_del_puesto_control(invitado, declaracion, estado, parametros):
@@ -937,6 +968,81 @@ def _dhcp_canonico(declarado, leido, declaracion, identidad, invitado):
     return operaciones
 
 
+def _misma_red(una, otra, prefijo):
+    """¿Dos direcciones caen en la misma red? (a mano: el motor no importa librerías).
+
+    Se usa para decidir si la dirección que YA tiene la pata de fuera es de la red por la que
+    se sale -- y adoptarla, en vez de renumerarla en cada pasada.
+    """
+    try:
+        octetos_una = [int(x) for x in str(una).split(".")]
+        octetos_otra = [int(x) for x in str(otra).split(".")]
+        bits = int(prefijo)
+    except (TypeError, ValueError):
+        return False
+    if len(octetos_una) != 4 or len(octetos_otra) != 4 or not 0 <= bits <= 32:
+        return False
+    mascara = ((1 << bits) - 1) << (32 - bits) if bits else 0
+    valores = [
+        (o[0] << 24) | (o[1] << 16) | (o[2] << 8) | o[3] for o in (octetos_una, octetos_otra)
+    ]
+    return (valores[0] & mascara) == (valores[1] & mascara)
+
+
+def _exterior_canonico(declarado, leido, parametros):
+    """Diferencia del área `exterior`: que la pata de fuera tenga salida, y nada más.
+
+    Cuatro hechos, y ninguno se supone:
+      * una dirección en la pata de fuera -- la que el motor DERIVA de la red por la que sale
+        el nodo (el lab no declara ninguna dirección de casa);
+      * una ruta por defecto (la que sea: si el lab ya declaró una, esa vale -- el consejo
+        `exterior-con-ruta` avisa de que lo normal es no declararla y dejar que la ponga el
+        motor por la puerta de fuera);
+      * la regla de MASQUERADE del motor (sus direcciones son privadas: sin traducirlas la
+        respuesta no vuelve);
+      * el resolutor DNS encendido Y apuntando a la puerta de fuera, que es donde este nodo
+        sirve el DNS de esa red (sin eso, los invitados que salen por aquí resuelven con
+        quien no es).
+
+    Lo que no es del motor no se toca: otra regla de NAT, otra ruta, otra dirección en esa
+    interfaz (regla 17: el motor manda dentro de lo que declara, y sólo ahí).
+    """
+    if not isinstance(leido, dict):
+        return []
+    interfaz = str(leido.get("interfaz") or "")
+    direccion = str(parametros.get("salida_direccion") or "")
+    puerta = str(parametros.get("salida_puerta") or "")
+    operaciones = []
+    # La dirección, y una sola: si la pata YA tiene una de la red por la que se sale, el motor
+    # la ADOPTA (no la renumera). Medido: derivándola en cada pasada el motor dejaba una
+    # dirección nueva por pasada -- y el `changed` no bajaba nunca a cero. Las que sobren se
+    # quitan, que es la regla de siempre dentro de un área declarada (regla 17).
+    ya_puesta = str(leido.get("de_la_red") or "")
+    deseada = direccion
+    if ya_puesta and "/" in direccion and _misma_red(ya_puesta, puerta or direccion, direccion.split("/")[1]):
+        deseada = f"{ya_puesta}/{direccion.split('/')[1]}"
+    puestas = [str(d) for d in (leido.get("todas") or [])]
+    for puesta in puestas:
+        if puesta != deseada:
+            operaciones.append(
+                {
+                    "op": "quitar_direccion",
+                    "interfaz": interfaz,
+                    "direccion": puesta,
+                    "id": str((leido.get("ids") or {}).get(puesta) or ""),
+                }
+            )
+    if deseada and deseada not in puestas:
+        operaciones.append({"op": "poner_direccion", "interfaz": interfaz, "direccion": deseada})
+    if puerta and not str(leido.get("por_defecto") or ""):
+        operaciones.append({"op": "poner_ruta", "destino": "0.0.0.0/0", "pasarela": puerta})
+    if not leido.get("masquerade"):
+        operaciones.append({"op": "poner_masquerade", "interfaz": interfaz})
+    if not leido.get("resolutor") or puerta not in str(leido.get("servidores") or ""):
+        operaciones.append({"op": "activar_resolutor", "servidores": [puerta] if puerta else []})
+    return operaciones
+
+
 def _direccion_linux_canonica(declarado, leido):
     """Diferencia del área `direccion` de un Linux.
 
@@ -1161,6 +1267,8 @@ def pasos_de_convergencia(invitado, identidad, declaracion, leido, parametros):
             operaciones = _rutas_canonicas(declaradas[area], actual)
         elif area == "dhcp":
             operaciones = _dhcp_canonico(declaradas[area], actual, declaracion, identidad, invitado)
+        elif area == "exterior":
+            operaciones = _exterior_canonico(declaradas[area], actual, parametros)
         elif area == "direccion":
             operaciones = _direccion_linux_canonica(declaradas[area], actual)
         elif area == "reenvio":
@@ -1684,6 +1792,14 @@ LECTURAS_ROUTEROS = {
         ("/ip/dhcp-server/network", "las redes que anuncia"),
         ("/ip/dhcp-server/lease", "sus concesiones y sus reservas"),
     ),
+    # La salida del lab: la tabla de NAT (para saber si la regla del motor está), el
+    # resolutor y el cliente de fuera (su concesión es la prueba de que la pata tiene red).
+    "exterior": (
+        ("/ip/address", "la dirección de la pata de fuera (si la tiene)"),
+        ("/ip/route", "por dónde manda lo que no es de ninguna de sus redes"),
+        ("/ip/firewall/nat", "sus reglas de NAT (la del motor, si está)"),
+        ("/ip/dns", "cómo tiene el resolutor y a quién le pregunta"),
+    ),
 }
 
 # El nombre del rango de direcciones que el motor crea en el router. Se deriva del rango
@@ -1697,6 +1813,50 @@ PREFIJO_POOL = "netlabs-"
 # `ether1` del router). El motor la usa para poner la dirección de gestión DERIVADA del
 # `direccion:` del invitado, que es lo que impide dejarlo sin camino de vuelta.
 INTERFAZ_GESTION_ROUTEROS = "ether1"
+
+# --- El exterior: la salida del lab -------------------------------------------
+# Un router que declara `exterior` es la puerta del lab hacia fuera. La pata de fuera la
+# añade el PLAN (una más, la ÚLTIMA, sobre el bridge del nodo que tiene salida: valor de
+# entorno, `pve_bridge_gestion` en secrets.yml, nunca del lab), así que su interfaz no se
+# declara: se deriva de cuántas patas declaró el invitado. En un router con dos bridges el
+# exterior es `ether3`.
+#
+# Lo que hace el motor con esa pata es lo mínimo para que haya salida, y ninguna de las
+# tres cosas lleva un valor de casa dentro:
+#   * un cliente DHCP en esa interfaz, que es lo que le da dirección, ruta por defecto y
+#     servidores DNS de la red de fuera (sin que el motor tenga que saber ninguno);
+#   * MASQUERADE por esa interfaz, porque las direcciones del lab son privadas y sin
+#     traducirlas no vuelven;
+#   * el resolutor DNS del router encendido (`allow-remote-requests`), para que los
+#     invitados que lo tienen de pasarela puedan resolver nombres.
+MARCA_EXTERIOR = "netlabs-exterior"
+
+
+def patas_de_un_invitado(invitado):
+    """Las patas DECLARADAS de un invitado, en orden: la lista `bridges` de una VM, o el
+    `bridge` suelto de un contenedor.
+
+    Vive aquí y no se importa de `declaracion.py` a propósito: la flecha va de la
+    validación al interior, nunca al revés (sería un círculo).
+    """
+    patas = invitado.get("bridges")
+    if isinstance(patas, list) and patas:
+        return [str(pata) for pata in patas]
+    if invitado.get("bridge"):
+        return [str(invitado["bridge"])]
+    return []
+
+
+def interfaz_exterior(invitado):
+    """La interfaz de la pata de fuera de un RouterOS, o '' si no declara `exterior`.
+
+    Se DERIVA: es la siguiente a las patas declaradas (el plan añade la suya al final).
+    Así el lab no nombra una interfaz que no ha declarado -- si lo hiciera, la validación
+    la rechazaría, porque no está entre sus patas, y con razón.
+    """
+    if "exterior" not in ((invitado.get("config") or {}).get("routeros") or {}):
+        return ""
+    return f"ether{len(patas_de_un_invitado(invitado)) + 1}"
 
 # Los campos que son credenciales: si alguno viaja en el cuerpo de una llamada, su valor
 # se tapa en el diario. Por NOMBRE y no por confianza en el llamante: la contraseña del
@@ -1844,10 +2004,21 @@ def leido_routeros(leidos, invitado=None, usuario_motor="", clave_publica="", cr
             "ids": _ros_ids(servicios, lambda s: s.get("name")),
         }
 
-    # --- cliente_dhcp: el de fábrica ---
+    # --- cliente_dhcp: el de fábrica, el de las patas DEL LAB ---
+    # El cliente de la pata de FUERA (área `exterior`) no cuenta aquí, y es una decisión:
+    # no es un residuo, es la salida del lab. Si contara, el motor lo quitaría --quitar el
+    # cliente de fábrica se lleva TODOS los que encuentre-- y el lab se quedaría sin salida
+    # en la primera pasada; y mientras estuviera vivo, el residuo dinámico no se declararía
+    # nunca y el intercambio de la dirección de gestión no llegaría a hacerse, así que la
+    # segunda pasada pediría cosas de más (la idempotencia se rompe justo por aquí).
+    exterior = interfaz_exterior(invitado)
     cliente = []
     if "/ip/dhcp-client" in leidos:
-        cliente = _ros_lista((leidos.get("/ip/dhcp-client") or {}).get("json"))
+        cliente = [
+            entrada
+            for entrada in _ros_lista((leidos.get("/ip/dhcp-client") or {}).get("json"))
+            if str(entrada.get("interface")) != exterior
+        ]
         areas["cliente_dhcp"] = {
             "habilitado": any(not _ros_si(c.get("disabled")) for c in cliente),
             "interfaces": [str(c.get("interface")) for c in cliente],
@@ -1858,6 +2029,13 @@ def leido_routeros(leidos, invitado=None, usuario_motor="", clave_publica="", cr
     direcciones = []
     if "/ip/address" in leidos:
         direcciones = _ros_lista((leidos.get("/ip/address") or {}).get("json"))
+        # La pata de FUERA no es una pata del lab: su dirección no la manda esta área, la
+        # manda `exterior`. Si se leyera aquí, esta área la tomaría por una dirección de
+        # más (regla 17) y la quitaría en cada pasada -- y con ella la salida del lab.
+        de_fuera = interfaz_exterior(invitado)
+        direcciones = [
+            d for d in direcciones if str(d.get("interface")) != de_fuera
+        ]
         estaticas = [
             {"interfaz": str(d.get("interface")), "direccion": str(d.get("address"))}
             for d in direcciones
@@ -1884,6 +2062,11 @@ def leido_routeros(leidos, invitado=None, usuario_motor="", clave_publica="", cr
     # --- rutas: las que pone el motor son estáticas; las demás son del sistema ---
     if "/ip/route" in leidos:
         rutas = _ros_lista((leidos.get("/ip/route") or {}).get("json"))
+        # La ruta por defecto es de `exterior` cuando este router es la salida (él la pone,
+        # por la puerta de fuera): si esta área la leyera, la tomaría por una ruta de más y
+        # la quitaría en cada pasada -- y el lab se quedaría sin salida.
+        if interfaz_exterior(invitado):
+            rutas = [r for r in rutas if str(r.get("dst-address")) != "0.0.0.0/0"]
         estaticas = [
             {"destino": str(r.get("dst-address")), "pasarela": str(r.get("gateway"))}
             for r in rutas
@@ -1956,6 +2139,57 @@ def leido_routeros(leidos, invitado=None, usuario_motor="", clave_publica="", cr
             ],
         }
 
+    # --- exterior: la salida del lab ---
+    # Cuatro hechos, los cuatro leídos del equipo: la dirección de la pata de fuera, si
+    # tiene ruta por defecto (y por dónde), si está la regla de NAT del motor, y cómo tiene
+    # el resolutor (encendido y con quién resuelve). Nada se supone: se lee.
+    if exterior and "/ip/firewall/nat" in leidos:
+        propias = _ros_lista((leidos.get("/ip/address") or {}).get("json"))
+        # Las de la pata de fuera, con su `.id` (es lo único con lo que se puede quitar una,
+        # y aquí SÍ puede haber más de una: cada pasada que no adoptara la que hay dejaría
+        # otra puesta -- medido, y por eso el motor ADOPTA la primera que encuentre).
+        de_la_pata = [
+            d for d in propias
+            if str(d.get("interface")) == exterior and not _ros_si(d.get("dynamic"))
+        ]
+        direccion_propia = str(de_la_pata[0].get("address")) if de_la_pata else ""
+        # La dirección de la pata, en la forma en que se compara (sin el prefijo), para saber
+        # si la que hay es de la red por la que se sale.
+        direccion_desnuda = direccion_propia.split("/")[0]
+        rutas_propias = _ros_lista((leidos.get("/ip/route") or {}).get("json"))
+        por_defecto = next(
+            (
+                str(r.get("gateway"))
+                for r in rutas_propias
+                if str(r.get("dst-address")) == "0.0.0.0/0" and not _ros_si(r.get("dynamic"))
+            ),
+            "",
+        )
+        reglas = _ros_lista((leidos.get("/ip/firewall/nat") or {}).get("json"))
+        nuestra = None
+        for regla in reglas:
+            if str(regla.get("comment") or "").strip() == MARCA_EXTERIOR:
+                nuestra = regla
+                break
+        ajustes_dns = (leidos.get("/ip/dns") or {}).get("json")
+        areas["exterior"] = {
+            "interfaz": exterior,
+            "direccion": direccion_propia,
+            "de_la_red": direccion_desnuda,   # la de la pata, sin el prefijo
+            "todas": [str(d.get("address")) for d in de_la_pata],
+            "ids": {str(d.get("address")): str(d.get(".id") or "") for d in de_la_pata},
+            "por_defecto": por_defecto,
+            "masquerade": nuestra is not None,
+            "id_masquerade": str((nuestra or {}).get(".id") or ""),
+            "resolutor": (
+                _ros_si(ajustes_dns.get("allow-remote-requests"))
+                if isinstance(ajustes_dns, dict) else False
+            ),
+            "servidores": (
+                str(ajustes_dns.get("servers") or "") if isinstance(ajustes_dns, dict) else ""
+            ),
+        }
+
     # --- el RESIDUO del cliente de fábrica (§9.2) ---
     # Solo cuenta lo que el cliente de fábrica dejó instalado y la API no puede borrar:
     # una dirección DINÁMICA con el valor de una dirección DECLARADA del invitado, y una
@@ -1980,7 +2214,10 @@ def leido_routeros(leidos, invitado=None, usuario_motor="", clave_publica="", cr
         f"{d['interfaz']}:{d['direccion']}" in declaradas for d in dinamicas
     )
     rutas_crudas = _ros_lista((leidos.get("/ip/route") or {}).get("json"))
-    residuo_ruta = (not cliente_vivo) and any(
+    # Un router que ES la salida del lab tiene una ruta por defecto dinámica A PROPÓSITO:
+    # la puso su cliente de fuera. Eso no es residuo de nadie, es el diseño -- y si contara
+    # como residuo, el plan pediría un reinicio del router en CADA pasada.
+    residuo_ruta = (not cliente_vivo) and not exterior and any(
         _ros_si(r.get("dynamic"))
         and _ros_si(r.get("dhcp"))
         and str(r.get("dst-address")) == "0.0.0.0/0"
@@ -2253,7 +2490,9 @@ def escrituras_routeros(operaciones, invitado, declaracion, identidad, parametro
 
         elif op == "quitar_direccion":
             clave_id = _ros_clave(operacion.get("interfaz"), operacion.get("direccion"))
-            identificador = ((areas.get("direcciones") or {}).get("ids") or {}).get(clave_id)
+            identificador = str(operacion.get("id") or "") or (
+                ((areas.get("direcciones") or {}).get("ids") or {}).get(clave_id)
+            )
             llamada(area, "POST", "/ip/address/remove",
                     {"numbers": identificador or str(operacion.get("direccion"))},
                     f"quitar la dirección {operacion.get('direccion')} de {operacion.get('interfaz')}")
@@ -2270,6 +2509,23 @@ def escrituras_routeros(operaciones, invitado, declaracion, identidad, parametro
             llamada(area, "POST", "/ip/route/remove",
                     {"numbers": identificador or str(operacion.get("destino"))},
                     f"quitar la ruta {operacion.get('destino')} por {operacion.get('pasarela')}")
+
+        elif op == "poner_masquerade":
+            interfaz = str(operacion.get("interfaz"))
+            llamada(area, "POST", "/ip/firewall/nat/add",
+                    {"chain": "srcnat", "out-interface": interfaz,
+                     "action": "masquerade", "comment": MARCA_EXTERIOR},
+                    f"traducir lo que sale del lab por {interfaz} (masquerade): sus "
+                    "direcciones son privadas y sin esto la respuesta no vuelve")
+
+        elif op == "activar_resolutor":
+            servidores = [str(s) for s in (operacion.get("servidores") or []) if str(s)]
+            cuerpo = {"allow-remote-requests": "yes"}
+            if servidores:
+                cuerpo["servers"] = ",".join(servidores)
+            llamada(area, "POST", "/ip/dns/set", cuerpo,
+                    "encender el resolutor DNS y decirle a quién preguntar: los invitados "
+                    "que salen por aquí le preguntan a él")
 
         elif op == "poner_servidor_dhcp":
             interfaz = str(operacion.get("interfaz"))
@@ -2492,6 +2748,7 @@ class FilterModule:
             "interior_puesto_control": puesto_control,
             "interior_direccion_libre": direccion_libre,
             "interior_patas": patas_del_puesto_control,
+            "interior_salida": salida_derivada,
             "interior_puerto_camino": puerto_camino,
             "interior_puerto_rest": puerto_rest_camino,
             "interior_permitlisten": permitlisten_de,

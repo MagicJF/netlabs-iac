@@ -6,7 +6,7 @@
 # Uso:  perfilar.sh <fichero.tsv> <args de ./lab...>
 #   ej: perfilar.sh /tmp/destroy.tsv --lab <lab> destroy --yes
 set -uo pipefail
-cd /home/hermes/repos/netlabs_v4_b || exit 1
+cd /home/hermes/repos/netlabs-iac || exit 1
 
 salida="$1"; shift
 : > "$salida"

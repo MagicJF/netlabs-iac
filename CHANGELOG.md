@@ -18,6 +18,15 @@ aquí está su entrada; los tres tienen que contar lo mismo, y eso es lo que vig
 
 ## [No publicado]
 
+### Cambiado
+
+- **El repositorio se llama `netlabs-iac`** (antes `netlabs_v4_b`): la versión y la
+  variante salen del nombre, que era un sitio del que ya no podían salir nunca. El URL
+  viejo de GitHub redirige. **El motor sigue escribiendo su marca `netlabs_v4_b`** en la
+  descripción de cada invitado y en el comentario de cada bridge: esa marca es estado ya
+  desplegado —de ella depende la propiedad de los bridges y la idempotencia—, así que
+  cambiarla tiene su propia migración, y no va en este cambio.
+
 ## [0.1.0] - 2026-11-15
 
 Primera entrega. Recoge lo que el motor es hoy, después de siete labs: un motor IaC en

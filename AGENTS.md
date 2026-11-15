@@ -1,4 +1,4 @@
-# netlabs_v4_b — esquema y reglas del repositorio
+# netlabs-iac — esquema y reglas del repositorio
 
 Motor IaC en Ansible que despliega topologías (VMs y contenedores LXC) en un nodo
 Proxmox **sólo por su API REST**, asigna por sí mismo la identidad de cada
@@ -230,7 +230,7 @@ verdad** contra un Proxmox real:
 
 Cuando ese **ciclo `destroy → apply → verify` pasa en verde** (y `./lab check` está
 verde), el cambio está listo: **se puede commitear y subir a GitHub**
-(`MagicJF/netlabs_v4_b`), sin pedir permiso para ello. Rama, commits y pull request —o
+(`MagicJF/netlabs-iac`), sin pedir permiso para ello. Rama, commits y pull request —o
 directo a `main`, si es de una línea—; el PR cuenta qué cambia, por qué y con qué
 evidencia, y se mezcla con *squash*: un cambio, un commit en `main`.
 

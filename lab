@@ -54,7 +54,7 @@ RESUMEN_DE = {
 }
 
 AYUDA = """\
-netlabs_v4_b — motor de despliegue en Proxmox por su API REST
+netlabs-iac — motor de despliegue en Proxmox por su API REST
 
     ./lab version                   la versión publicada y el último tag (`vX.Y.Z`)
     ./lab list                      labs declarados en labs/

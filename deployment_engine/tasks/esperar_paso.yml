@@ -1,6 +1,6 @@
 ---
 # PROPÓSITO:   UN ÚNICO sondeo de una tarea asíncrona: pregunta su estado por la
-#              PUERTA (queda en el diario) y, si aún corre, espera antes del
+#              VÍA DE ACCESO (queda en el diario) y, si aún corre, espera antes del
 #              siguiente. Es el cuerpo del bucle de `esperar_tarea.yml`.
 # INVARIANTES: la pregunta pasa por `pve_api.yml`, como TODA llamada a la API: una
 #              línea de diario por sondeo. El bloque entero se SALTA cuando la tarea

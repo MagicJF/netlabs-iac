@@ -168,7 +168,7 @@ def estado_desde_api(datos):
             # La subred del bridge, tal como la declara la API: `cidr` en PVE 8/9
             # (medido en este nodo: {"iface": "vmbr1", "cidr": "10.10.10.1/24"}), y
             # `address`+`netmask` en versiones anteriores. La dirección del bridge es
-            # la PUERTA de esa subred, y por eso cuenta como ocupada.
+            # la PASARELA de esa subred, y por eso cuenta como ocupada.
             subred = interfaz.get("cidr") or ""
             if not subred and interfaz.get("address") and interfaz.get("netmask"):
                 subred = f"{interfaz['address']}/{interfaz['netmask']}"

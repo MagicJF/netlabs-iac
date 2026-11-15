@@ -289,7 +289,7 @@ def interfaces_del_bastion(guest, declaracion, estado, parametros):
         desplegando); las demás las elige el motor por arriba, esquivando las
         direcciones que el lab declara y las que están en uso.
       * La ÚLTIMA interfaz va en el bridge de gestión del NODO (valor de entorno, no del
-        lab): es por donde el puesto sale hacia casa, y es la única que lleva PUERTA
+        lab): es por donde el puesto sale hacia casa, y es la única que lleva PASARELA
         (la dirección que el nodo tiene en ese bridge). Su dirección la elige el motor
         de entre las libres, leyendo las que ya usa cada invitado del nodo.
 
@@ -563,7 +563,7 @@ def _afirmativo(valor):
 
 
 def pasos_del_tunnel(guest, declaracion, estado, parametros, identidad=None):
-    """Los pasos del CAMINO de este invitado (el bastión), en orden.
+    """Los pasos del TÚNEL de este invitado (el bastión), en orden.
 
     El túnel es lo que hace ENTRAR a Ansible en la red del lab, así que va antes de
     converger nada: sin él no se llega a ningún invitado. Tiene dos mitades:

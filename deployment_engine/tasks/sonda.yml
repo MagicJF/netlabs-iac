@@ -1,5 +1,5 @@
 ---
-# PROPÓSITO:   LA SONDA DE UN ESCALÓN. Comprueba que el equipo CONTESTA en el puerto por
+# PROPÓSITO:   LA SONDA DE UNA ETAPA. Comprueba que el equipo CONTESTA en el puerto por
 #              el que se deja ver --la barrera que va DELANTE de converger su interior--
 #              y, con eso, que el etapa SIRVE antes de que el plan toque el siguiente
 #              (regla 18: nunca se arranca un etapa sobre uno que no sirve). Va antes
@@ -8,7 +8,7 @@
 #              adivina: pregunta en la dirección que la declaración promete y, si no
 #              contesta, el verbo PARA con el nombre del rol.
 #
-#              Se ejecuta DESDE EL PUESTO DE CONTROL, por la MISMA vía de acceso que configura el
+#              Se ejecuta DESDE EL BASTIÓN, por la MISMA vía de acceso que configura el
 #              interior (`interior_ssh.yml`): la sonda no abre su propia conexión, porque el
 #              motor tiene una vía de acceso por cosa y no dos túneles para lo mismo.
 # INVARIANTES: la sonda sólo MIRA: no escribe ni cambia el estado de nadie. Se sondea la

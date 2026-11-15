@@ -60,7 +60,7 @@ engine_plantilla_nombre: "{equipo}-{alias}"
 # La escribe `plan` al crear el bridge y la lee `destroy` antes de borrarlo.
 engine_plantilla_comentario_bridge: "lab={lab} gestionado por netlabs_v4_b"
 
-# --- Puerta de la API -----------------------------------------------------
+# --- Vía de acceso a la API -----------------------------------------------------
 # Segundos que se espera una respuesta antes de que la llamada se dé por perdida.
 engine_timeout_api: 30
 # Cuánto se espera a que un invitado conteste al SSH del motor (por el túnel). Es más
@@ -158,7 +158,7 @@ engine_privilegios_por_rol:
 # vías de acceso del motor (regla 12) -- leer y escribir ficheros dentro de un invitado,
 # congelarle el sistema de ficheros o ejecutar programas dentro (medido en el código de
 # PVE del nodo: `exec` pide `Unrestricted`). `Audit` no es eso: cubre lecturas y `ping`,
-# y se pide a la API por la PUERTA, con su línea en el diario. Es lo que deja al motor
+# y se pide a la API por la VÍA DE ACCESO, con su línea en el diario. Es lo que deja al motor
 # VER las direcciones de una VM QEMU, que hoy le son invisibles (ADR 0011).
 engine_privilegios_vedados:
   - Permissions.Modify

@@ -52,9 +52,9 @@ cuerpo ya saltado, que es el caso normal:
 
 | familia | seg | % | qué es |
 | --- | ---: | ---: | --- |
-| **PUERTA ROUTEROS** | **540,0** | **46 %** | 363 tareas = 99 llamadas REST a los CHR, **delegadas al bastión** (retrato de ANTES; hoy, con el ADR 0010: **49,7 s**) |
+| **ACCESO ROUTEROS** | **540,0** | **46 %** | 363 tareas = 99 llamadas REST a los CHR, **delegadas al bastión** (retrato de ANTES; hoy, con el ADR 0010: **49,7 s**) |
 | esperas de tarea (UPID) | 282,6 | 24 % | 13 esperas, la mayor de **50 s** (crear una VM) |
-| PUERTA (Proxmox) | 118,6 | 10 % | creación, arranque, red |
+| ACCESO (Proxmox) | 118,6 | 10 % | creación, arranque, red |
 | CONSOLA | 65,5 | 6 % | 13 usos; uno de **46,1 s** (arranque del bastión) |
 | INTERIOR (SSH) | 55,7 | 5 % | incluye 39,4 s de "ejecutar en `control`" |
 | INVENTARIO | 33,5 | 3 % | incluye 23,2 s de "las opciones de conexión a `control`" |
@@ -158,12 +158,12 @@ De dónde viene el ahorro del `apply` (medido por familias):
 
 | familia | antes | después | delta |
 | --- | ---: | ---: | ---: |
-| PUERTA ROUTEROS | 540,0 s | 462,5 s | **−77,5 s** |
+| ACCESO ROUTEROS | 540,0 s | 462,5 s | **−77,5 s** |
 | ESPERA (bucles) | 282,6 s | 221,1 s | **−61,5 s** |
-| PUERTA (Proxmox) | 118,6 s | 105,6 s | −13,0 s |
+| ACCESO (Proxmox) | 118,6 s | 105,6 s | −13,0 s |
 
 Las llamadas REST a RouterOS del `apply`: 5.167 ms → 4.389 ms → **502 ms** de media (99
-llamadas, 511,6 s → 434,5 s → **49,7 s**). Con eso, PUERTA ROUTEROS deja de ser el 46 % del
+llamadas, 511,6 s → 434,5 s → **49,7 s**). Con eso, ACCESO ROUTEROS deja de ser el 46 % del
 `apply`: baja a **menos del 8 %**.
 
 Lo que **no** se ha movido: `CONSOLA` (65,5 s) e `INTERIOR` (56 s). Son esperas de

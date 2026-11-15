@@ -130,7 +130,7 @@ vms:                       # invitados QEMU
   - rol: <rol>             # el rol identifica a un invitado y sólo a uno
     tipo: rt               # QUÉ equipo es: rt/srv/ws/sw/ctl -- obligatorio (ADR 0015)
     nombre: 1              # opcional: su alias corto. Sin él, el alias es el rol
-    escalon: 1
+    stage: 1
     cores: 2
     memory: 512
     disk: 8
@@ -139,7 +139,7 @@ vms:                       # invitados QEMU
 containers:                # invitados LXC
   - rol: <otro-rol>
     tipo: ws
-    escalon: 2
+    stage: 2
     cores: 1
     memory: 256
     disk: 4

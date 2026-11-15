@@ -533,7 +533,7 @@ actuales: el plan es una **explicación**, no una lista de órdenes.
 
 ## 8. Las vías de acceso y los diarios
 
-| Puerta | Fichero | Transporte | Diario | Qué la vigila |
+| Vía de acceso | Fichero | Transporte | Diario | Qué la vigila |
 | --- | --- | --- | --- | --- |
 | Proxmox | `tasks/pve_api.yml` (existe) | `ansible.builtin.uri` | `logs/api.jsonl`, `api: proxmox` | `check access` (hoy) |
 | RouterOS REST | `tasks/ros_api.yml` (nuevo) | `ansible.builtin.uri` | `logs/api.jsonl`, `api: routeros` | `check access` (ampliado) |
@@ -620,22 +620,22 @@ La cadena completa, resuelta y en orden (es la parte que el encargo anterior dej
 0. **El túnel, antes de todo** (§5): el bastión nace con sus interfaces, recibe su clave por
    API, el motor entra **una vez** por su consola para poner el arranque de la salida hacia casa, y
    comprueba que el puerto reenviado contesta. **Hasta que eso no se cumple, no se toca nada más.**
-1. **Escalón 1 — el bastión** (LXC Linux, `config.linux.dhcp_servidor`): ya arrancado en el
+1. **Etapa 1 — el bastión** (LXC Linux, `config.linux.dhcp_server`): ya arrancado en el
    paso 0, se converge su interior por el túnel recién construido. Es el que da la **primera**
    dirección a los CHR en el bridge de gestión.
    - Su servidor DHCP reserva, por la **MAC derivada del vmid**, la dirección que cada CHR declara
      (§6.2). Nadie escribe una MAC.
    - En su interfaz hace falta el arreglo del checksum medido en v3:
      `ethtool -K <if> tx off gso off tso off`. Sin eso, las ofertas se tiran y nada funciona.
-2. **Escalón 1 — el primer CHR**: se arranca sin dirección y la pide por DHCP. Es **tolerante**
+2. **Etapa 1 — el primer CHR**: se arranca sin dirección y la pide por DHCP. Es **tolerante**
    (pide sin parar hasta que la recibe), así que puede compartir etapa con el bastión.
 3. **El motor ya lo alcanza** por el túnel (§5) en su dirección declarada, y hace la **primera
    convergencia**: usuario y clave del motor, identidad, servicios, direcciones estáticas, y
    deshabilitar el cliente de fábrica.
-4. **Escalón 2 — el segundo etapa de la red** (otro CHR y/o servidores): su dirección en la LAN del
+4. **Etapa 2 — el segundo etapa de la red** (otro CHR y/o servidores): su dirección en la LAN del
    primer CHR es **estática declarada**, y el primer CHR la tiene reservada por MAC derivada. Aquí se
    ve el encadenamiento: el que da la dirección ya está convergido antes de que el otro arranque.
-5. **Escalón 3 — los puestos**: `address: dhcp`, colgados del CHR de su LAN. **No arrancan hasta
+5. **Etapa 3 — los puestos**: `address: dhcp`, colgados del CHR de su LAN. **No arrancan hasta
    que su CHR está sirviendo** (regla 18). Su verificación es la de §6.3.
 
 **Nada de esto puede depender de que un humano lance las cosas en el orden correcto**: el orden está

@@ -11,7 +11,7 @@
          ÚLTIMA y sin dirección, sobre `pve_bridge_gestion` (valor de ENTORNO, en
          secrets.yml; nunca un valor de lab, regla 7). La interfaz del router se DERIVA
          (`ether<interfaces declaradas + 1>`): el lab no nombra lo que no declaró.
-       * La DIRECCIÓN de esa interfaz, su PUERTA y su DNS los DERIVA el motor del estado, con
+       * La DIRECCIÓN de esa interfaz, su PASARELA y su DNS los DERIVA el motor del estado, con
          la misma regla que la interfaz del bastión en ese mismo bridge: la vía de acceso es
          la dirección del bridge por el que sale el nodo, y la del invitado se cuenta por
          arriba entre las libres. El lab no declara ni una dirección de casa.

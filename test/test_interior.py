@@ -295,7 +295,7 @@ except motor.ErrorMotor as error:
 # El puerto del túnel y la línea que se manda por consola
 # ---------------------------------------------------------------------------
 
-print("\nEL CAMINO: PUERTO DERIVADO Y LÍNEA DE CONSOLA\n")
+print("\nEL TÚNEL: PUERTO DERIVADO Y LÍNEA DE CONSOLA\n")
 
 igual(motor.puerto_tunnel(200, PARAMETROS), 20200, "el puerto del túnel se deriva del vmid")
 igual(motor.puerto_tunnel(201, PARAMETROS), 20201, "y dos invitados no comparten puerto")
@@ -721,7 +721,7 @@ igual(
 # La sonda de etapa (regla 18)
 # ---------------------------------------------------------------------------
 
-print("\nLA SONDA DEL ESCALÓN\n")
+print("\nLA SONDA DE LA ETAPA\n")
 
 sonda_borde = motor.espera_de_servicio(BORDE)
 igual(sonda_borde["via"], "sonda", "la sonda no es un `wait_for`: es una petición a lo prometido")
@@ -741,7 +741,7 @@ comprobar(
 # Los pasos del túnel (§5): el plan los emite, el ejecutor los hace
 # ---------------------------------------------------------------------------
 
-print("\nLOS PASOS DEL CAMINO\n")
+print("\nLOS PASOS DEL TÚNEL\n")
 
 CONTROL_CON_VMID = dict(CONTROL, vmid=200, stage=1)
 pasos_tunnel = motor.pasos_del_tunnel(CONTROL_CON_VMID, DECLARACION, ESTADO_NODO, PARAMETROS)
@@ -1079,7 +1079,7 @@ comprobar(
 )
 
 # ---------------------------------------------------------------------------
-# EL REST POR EL CAMINO: el bastión abre, ADEMÁS, el puerto 80 de cada equipo
+# EL REST POR EL TÚNEL: el bastión abre, ADEMÁS, el puerto 80 de cada equipo
 # con el que el motor habla por REST, para que la llamada la haga el motor y no el puesto
 # (nada de `delegate_to`: docs/decisiones/0010-*.md).
 # ---------------------------------------------------------------------------

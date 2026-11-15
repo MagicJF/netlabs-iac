@@ -18,6 +18,8 @@ tercera copia: no se crea.*
 | --- | --- | --- |
 | `README.md` | el motor: verbos, arquitectura, identidad, checks. **Ningún valor de ningún lab** | a mano |
 | `AGENTS.md` | este fichero: esquema y reglas | a mano |
+| `VERSION` | la última versión **publicada** (una línea: `0.1.0`) | a mano, al publicar (ADR 0017) |
+| `CHANGELOG.md` | qué entró en cada versión, para leer | a mano, al publicar |
 | `deployment_engine/tasks/pve_api.yml` | **la vía de acceso a Proxmox** (`/api2/json`) + `api.jsonl` | a mano |
 | `deployment_engine/tasks/ros_api.yml` | **la vía de acceso a RouterOS** (`/rest/…`) + `api.jsonl` | a mano |
 | `deployment_engine/tasks/interior_ssh.yml` | **la vía de acceso al interior Linux** (SSH) + `interior.jsonl` | a mano |
@@ -182,16 +184,38 @@ Un fichero con dos escritores es el que envejece mal. `labs/<lab>/<lab>.md` tien
 | cambiaste un playbook, tarea, filtro o herramienta | `./lab check refs deployment_engine/<ruta>` y revisa los docs que salgan |
 | cambiaste el texto de prosa de un `.md` | `./lab check docs --sellar labs/<lab>/<lab>.md` |
 | creaste o borraste ficheros | `./lab check links` |
+| tocaste `VERSION`, el `CHANGELOG.md`, o vas a publicar | `./lab check version` |
 | antes de cualquier commit | `./lab check` (todo) + `ansible-lint` |
 | tocaste la propiedad de los bridges (`plan`, `destroy`, `estado`) | `python3 test/test_bridges.py` y `./lab check` |
 | tocaste un driver del interior (`routeros`/`linux`) | `./lab check access` + `python3 test/test_interior.py` y `test/test_routeros.py` |
 | vas a decir "hecho" | `./lab check` verde y la evidencia pegada en la respuesta |
 | vas a subir a GitHub | ciclo `destroy → apply → verify` verde + `./lab check` (ver §Commits y subida a GitHub) |
 
-`./lab check [nombre]` corre todo: `links`, `docs`, `refs`, `gateway`,
-`privilegios`, `declaracion`, `address_space`, `colisiones`, `pureza-lab` y `readme`.
+`./lab check [nombre]` corre todo: `links`, `docs`, `refs`, `access`,
+`privilegios`, `declaracion`, `address_space`, `colisiones`, `pureza-lab` y `readme`,
+más `version` (que es del **repositorio**, no del motor: vive en `./lab`).
 Un check que no puede fallar no es un check: para cada uno hay que haberlo visto
 gritar rompiendo a propósito lo que vigila.
+
+## Versionado y entrega
+
+La versión es un número (`MAYOR.MENOR.PARCHE`, SemVer) y **no** parte del nombre del
+repositorio. Mientras la MAYOR sea `0` el producto está en desarrollo y **cualquier
+MENOR puede romper**: eso significa la serie 0.x. `1.0.0` será el día que haya algo
+que prometer (declaración de lab estable y terceros usándola). ADR 0017.
+
+- **La versión publicada vive en tres sitios y los tres dicen lo mismo**: el fichero
+  `VERSION` (una línea), el tag `vX.Y.Z` de `main` y su entrada del `CHANGELOG.md`. Lo
+  vigila `./lab check version`, y `./lab version` lo imprime. Lo que entra en `main` sin
+  publicarse se apunta bajo `## [No publicado]`.
+- **Una rama corta por cambio**, nombrada por el tipo de Conventional Commits
+  (`feat/…`, `fix/…`, `refactor/…`, `docs/…`, `chore/…`, `test/…`): se abre para UN
+  cambio, se cierra con un pull request y se borra. `main` es lo publicado y está
+  siempre verde. Un commit de una línea o una errata puede ir directo: lo que no se
+  sostiene es TODO directo.
+- **Publicar es un acto explícito**: pasar `[No publicado]` a `## [X.Y.Z] - fecha`,
+  subir `VERSION`, `git tag -a vX.Y.Z`, `git push --follow-tags` y `gh release create`
+  con esa entrada del CHANGELOG. Sin ciclo verde contra un Proxmox real, no se publica.
 
 ## Commits y subida a GitHub
 
@@ -206,7 +230,9 @@ verdad** contra un Proxmox real:
 
 Cuando ese **ciclo `destroy → apply → verify` pasa en verde** (y `./lab check` está
 verde), el cambio está listo: **se puede commitear y subir a GitHub**
-(`MagicJF/netlabs_v4_b`), sin pedir permiso para ello.
+(`MagicJF/netlabs_v4_b`), sin pedir permiso para ello. Rama, commits y pull request —o
+directo a `main`, si es de una línea—; el PR cuenta qué cambia, por qué y con qué
+evidencia, y se mezcla con *squash*: un cambio, un commit en `main`.
 
 - Commits en estilo convencional (`feat:`, `fix:`, `docs:`, `test:`...), en
   imperativo y en castellano.
@@ -214,6 +240,8 @@ verde), el cambio está listo: **se puede commitear y subir a GitHub**
   va mal).
 - Si el ciclo **no** pasa, no se sube: se arregla, o se dice en claro qué falta y por
   qué. Un commit que no ha pasado el ciclo es una promesa sin respaldo.
+- Una entrega de partida es la excepción, y se dice: `0.1.0` marca el estado que YA
+  estaba verificado, para tener de dónde comparar.
 
 ## Cabecera obligatoria de cada fichero
 

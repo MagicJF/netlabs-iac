@@ -16,12 +16,12 @@
      Proxmox no se toca en este ADR.
      VER: deployment_engine/tasks/ros_api.yml, tasks/configurar_routeros.yml,
      filter_plugins/interior.py (AREAS), test/test_routeros.py,
-     labs/lab-red-routeros/logs/api.jsonl -->
+     labs/04_lab-red-routeros/logs/api.jsonl -->
 
 **Estado:** aceptada; medida contra un CHR real (RouterOS 7.25.1, QEMU en el Proxmox del
 VPS). La pregunta abierta que queda se dice al final.
 
-**Contexto.** El lab `lab-red-routeros` tiene un CHR de MikroTik (`borde`) al que el motor
+**Contexto.** El lab `04_lab-red-routeros` tiene un CHR de MikroTik (`borde`) al que el motor
 tiene que configurar por REST: identidad, servicios, cliente DHCP de fábrica, direcciones,
 rutas y el servidor DHCP de la LAN. RouterOS **no tiene SSH por API** y su REST no se puede
 llamar desde el nodo de control (no hay ruta al otro lado del router): la puerta

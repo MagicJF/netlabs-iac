@@ -91,7 +91,10 @@ def estado_del_mundo(bridges, configs_ajenas=None, lab="alfa"):
             "lab": lab,
             "nodo": NODO,
             "cluster_recursos": cluster_recursos,
-            "pools_lista": [{"poolid": lab}],
+            # El pool de un lab se llama con el prefijo del motor (`lab_<lab>`), que es lo
+            # que Proxmox exige a un poolid: es el nombre con el que `apply` lo crea, y el
+            # que `estado` tiene que reconocer para saber de quién es cada invitado.
+            "pools_lista": [{"poolid": modulo_identidad.identidad_pool(lab)}],
             "red_nodo": red_nodo,
             "configs": {},
         }

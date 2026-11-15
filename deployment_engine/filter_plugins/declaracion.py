@@ -56,7 +56,10 @@ TIPOS = ("qemu", "lxc")
 # Claves que el motor DERIVA y por tanto están PROHIBIDAS en la declaración. Si
 # aparecen, alguien ha intentado fijar a mano lo que es del motor, y eso es el
 # origen de los conflictos entre labs.
-CLAVES_DERIVADAS = ("vmid", "mac", "nombre", "name", "pool")
+# Lo que el motor DERIVA y el lab no declara nunca. `nombre` salió de esta lista con el ADR
+# 0015: el lab SÍ puede declarar un `nombre:` corto (el ALIAS del invitado: `srv-1`), porque
+# ya no es el nombre entero -- ése lo sigue derivando el motor, con el `tipo:` y ese alias.
+CLAVES_DERIVADAS = ("vmid", "mac", "name", "pool")
 
 # Campos obligatorios de cada invitado declarado, y su tipo esperado. `direccion`
 # NO está aquí a propósito: desde la fase 2 admite tres formas (estática, `dhcp` y
@@ -93,6 +96,17 @@ IP_PATRON = re.compile(r"^\d{1,3}(\.\d{1,3}){3}(/\d{1,2})?$")
 # (secrets.yml). Lo único que puede traer son los dos valores que un lab de verdad
 # puede necesitar distintos: qué host y qué puerto, y son OPCIONALES.
 CLAVES_CAMINO = ("salida", "host", "puerto")
+
+# Los tipos de equipo que un lab declara (`tipo:`) y de los que sale la primera mitad del
+# nombre del invitado: `rt-borde`, `srv-1`, `ws-2`. Vocabulario CERRADO (regla 15): un
+# equipo que no quepa en ninguno pide su tipo al motor, con su ADR -- no se inventa aquí.
+TIPOS_DE_EQUIPO = {
+    "rt": "router (un CHR: la puerta de una red)",
+    "srv": "servidor (nace con su dirección fija y su puerta)",
+    "ws": "puesto de trabajo (pide su dirección por DHCP)",
+    "sw": "conmutador (un equipo que conmuta, o uno sin dirección)",
+    "ctl": "puesto de control (el bastión por el que se entra al lab)",
+}
 
 
 def patas_declaradas(invitado):
@@ -580,12 +594,58 @@ def declaracion_validar(declaracion, carpeta=None):
     direcciones = []
     escalones_usados = []
     puestos_control = []
+    # Los nombres derivados que ya han salido, para vigilar que dos invitados del MISMO lab
+    # no se llamen igual (`srv-1` dos veces). Entre labs distintos SÍ puede repetirse: el pool
+    # y la descripción (`lab=… rol=…`) son los que dicen de quién es cada uno.
+    nombres_derivados = {}
     for etiqueta, tipo, invitado in invitados:
         rol = invitado.get("rol")
         if not isinstance(rol, str) or not rol.strip():
             errores.append(f"`{etiqueta}` no tiene `rol`")
             continue
         roles.append(rol)
+
+        # --- el nombre: qué EQUIPO es, y cómo se le llama (ADR 0015) -----------
+        # El nombre dice qué es el invitado, no de qué lab es: `rt-borde`, `srv-1`. Se deriva
+        # de dos mitades declaradas -- el `tipo:` (obligatorio, vocabulario cerrado) y el
+        # alias, que es su `nombre:` corto, o su rol si no lo declara.
+        equipo = invitado.get("tipo")
+        if equipo is None:
+            errores.append(
+                f"`{etiqueta}` ({rol}): falta `tipo:`. El nombre de un invitado dice qué "
+                "EQUIPO es (no de qué lab es), y el tipo lo declara el lab. Admitidos: "
+                f"{', '.join(sorted(TIPOS_DE_EQUIPO))}."
+            )
+        elif str(equipo) not in TIPOS_DE_EQUIPO:
+            errores.append(
+                f"`{etiqueta}` ({rol}): `tipo: '{equipo}'` no está en el vocabulario "
+                f"({', '.join(sorted(TIPOS_DE_EQUIPO))}). Un equipo nuevo se pide al motor "
+                "con su ADR: no se inventa un tipo aquí."
+            )
+        alias = invitado.get("nombre")
+        if alias is not None:
+            # Un alias puede llegar como NÚMERO (`nombre: 1`), que es lo natural para
+            # numerar puestos, servidores y controles: se lee como texto.
+            if isinstance(alias, int) and not isinstance(alias, bool):
+                alias = str(alias)
+            if not isinstance(alias, str) or not re.match(r"^[A-Za-z0-9][A-Za-z0-9._-]*$", alias):
+                errores.append(
+                    f"`{etiqueta}` ({rol}): `nombre: '{alias}'` no vale como alias: letras, "
+                    "números, punto, guion y guion bajo, empezando por letra o número (es la "
+                    "mitad del nombre del invitado, el que se lee en Proxmox)"
+                )
+                alias = None
+        # Y el nombre entero, para vigilar repeticiones DENTRO del lab (si las dos mitades
+        # están bien; si no, ya hay un error arriba y no se añade ruido).
+        if str(equipo) in TIPOS_DE_EQUIPO:
+            nombre_derivado = f"{equipo}-{alias if isinstance(alias, str) and alias else rol}"
+            if nombre_derivado in nombres_derivados:
+                errores.append(
+                    f"`{etiqueta}` ({rol}): el nombre '{nombre_derivado}' ya lo lleva el rol "
+                    f"'{nombres_derivados[nombre_derivado]}' de este mismo lab -- dos invitados "
+                    "de un lab no pueden llamarse igual (entre labs distintos sí)"
+                )
+            nombres_derivados[nombre_derivado] = rol
 
         # Lo que el motor deriva, prohibido en la declaración.
         for clave in CLAVES_DERIVADAS:
@@ -1212,6 +1272,17 @@ def declaracion_normalizar(declaracion, carpeta=None):
                 {
                     "rol": invitado["rol"],
                     "tipo": tipo,
+                    # El nombre se deriva de estas dos (ADR 0015): `equipo` es el `tipo:` que
+                    # declara el lab (rt/srv/ws/sw/ctl) y `alias`, su `nombre:` corto. Aquí se
+                    # llaman así para no confundirlos con `tipo` -- que en esta normalización
+                    # es la VIRTUALIZACIÓN (`qemu`/`lxc`) -- ni con `nombre`, que es el nombre
+                    # ya derivado que cuelga de la identidad.
+                    "equipo": invitado.get("tipo"),
+                    # El alias llega como texto (`nombre: srv`) o como número (`nombre: 1`):
+                    # la declaración admite las dos formas, y aquí se unifican.
+                    "alias": (
+                        None if invitado.get("nombre") is None else str(invitado["nombre"])
+                    ),
                     "escalon": invitado["escalon"],
                     "cores": invitado["cores"],
                     "memoria": invitado["memoria"],

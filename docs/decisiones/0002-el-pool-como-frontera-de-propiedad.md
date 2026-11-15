@@ -13,16 +13,30 @@
 pertenece un vmid, o cuál está libre? La tentación es un fichero de asignaciones en
 el repositorio, o una banda de vmids reservada por lab.
 
-**Decisión.** El **pool de Proxmox**, llamado como la carpeta del lab, es la frontera
-de propiedad: lo que está en el pool es de este lab. La **descripción** de cada
-invitado, que escribe el propio motor, lleva `lab=` y `rol=`. Con esas dos cosas, y
-leyendo la API, cada verbo reconstruye el mapa rol→vmid. No hay fichero de estado, y
-tampoco hay bandas: el vmid es **el menor libre de todo el clúster**.
+**Decisión.** El **pool de Proxmox** es la frontera de propiedad: lo que está en el
+pool es de este lab. Su nombre lo **deriva el motor** de la carpeta del lab, con su
+prefijo: `lab_<carpeta>` (`identidad_pool`). El prefijo no es decoración: Proxmox exige
+que un poolid **empiece por letra**, y la carpeta de un lab empieza por su número de
+antigüedad (ADR 0016). La **descripción** de cada invitado, que escribe el propio motor,
+lleva `lab=` y `rol=`. Con esas dos cosas, y leyendo la API, cada verbo reconstruye el
+mapa rol→vmid. No hay fichero de estado, y tampoco hay bandas: el vmid es **el menor
+libre de todo el clúster**.
 
 **Por qué.** Un rango de vmids por lab se solapa en cuanto hay dos labs, y ese fue
 exactamente el origen de los conflictos en el intento anterior. El pool es una
 frontera que el propio hipervisor mantiene, y mirar todo el clúster (no sólo el pool)
 hace que dos labs no puedan chocar de vmid **por construcción**, no por disciplina.
+
+**Y se compara con el nombre derivado, no con el de la carpeta.** Medido: cuando la
+comparación de la frontera se hacía contra el nombre de la carpeta, **ningún** invitado
+propio se reconocía —todos caían del lado de «no es de nadie»—, así que el plan los veía
+como ausentes y volvía a crear la topología entera con vmids nuevos en cada pasada: el
+motor duplicaba el lab y dejaba de ser idempotente (regla 6), sin un solo error en el
+diario. Una frontera que se lee con dos nombres distintos no es una frontera. Hoy la
+deriva `identidad_pool` en un solo sitio y **la usan todos** los que preguntan de quién
+es algo: el estado, el asignador, el plan y `destroy`. La prueba está en
+`test/test_identidad.py` (caso 8: la forma CRUDA de `/cluster/resources` → estado →
+identidad, y el invitado propio conserva su vmid).
 
 **El hueco: los bridges.** Un pool contiene **invitados**, no interfaces de red, así
 que la frontera de propiedad no dice nada de un bridge. Y el plan crea un bridge

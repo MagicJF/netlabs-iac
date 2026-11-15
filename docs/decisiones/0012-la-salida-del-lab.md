@@ -3,7 +3,7 @@
 <!-- PROPÓSITO: dejar escrito por qué un RouterOS puede declarar `exterior` (que ES la
      salida del lab a internet) y por qué eso NO mete ni una dirección de casa en el lab.
      Nace de la necesidad de un lab con salida real: el lab de aceptación
-     (`lab-red-routeros`) demuestra que cada invitado toma su dirección del router que le
+     (`04_lab-red-routeros`) demuestra que cada invitado toma su dirección del router que le
      toca, pero nada sale de él -- y para que salga, alguien tiene que traducir y alguien
      tiene que saber por dónde se sale.
      INVARIANTES:
@@ -42,10 +42,10 @@
      VER: deployment_engine/filter_plugins/interior.py (área `exterior`, `interfaz_exterior`,
      `MARCA_EXTERIOR`), deployment_engine/tools/plan.py (`_pata_de_fuera`),
      deployment_engine/filter_plugins/declaracion.py (consejos `exterior-sin-dns` y
-     `exterior-con-ruta`), labs/conectividad-exterior/conectividad-exterior.md (la medida),
+     `exterior-con-ruta`), labs/06_conectividad-exterior/06_conectividad-exterior.md (la medida),
      docs/crear-un-lab.md (la decisión, en su sitio) -->
 
-**Estado:** aceptada; convergida y verificada en el lab `conectividad-exterior` (VPS,
+**Estado:** aceptada; convergida y verificada en el lab `06_conectividad-exterior` (VPS,
 CHR 7.25.1) con el ciclo `destroy → apply → verify`.
 
 **Contexto.** El motor despliega labs cerrados: cada invitado toma su dirección del router

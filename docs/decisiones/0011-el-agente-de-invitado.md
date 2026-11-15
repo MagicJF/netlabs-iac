@@ -2,7 +2,7 @@
 
 <!-- PROPÓSITO: dejar escrito por qué el motor enciende el agente de invitado de Proxmox
      (`agent: 1`) en TODA VM que crea, y por qué el privilegio `VM.GuestAgent.Audit`
-     sale de la lista de VEDADOS. Nace de una medida del lab `research` (labs/research/):
+     sale de la lista de VEDADOS. Nace de una medida del lab `research` (labs/05_research/):
      un CHR de RouterOS trae el agente de FÁBRICA --agente 2.10.50, 21 comandos-- y
      contesta en cuanto la VM nace con la opción puesta. Dentro del router no se instala
      nada, y el interruptor es una línea de la config de la VM.
@@ -29,11 +29,11 @@
      VER: deployment_engine/tools/plan.py (el nacimiento), deployment_engine/vars/engine.yml
      (los privilegios), deployment_engine/tasks/direcciones.yml (la lectura),
      deployment_engine/filter_plugins/estado.py (estado_con_direcciones),
-     labs/research/research.md (la medida), docs/decisiones/0004-*.md (la guarda),
+     labs/05_research/05_research.md (la medida), docs/decisiones/0004-*.md (la guarda),
      ./lab check privilegios -->
 
 **Estado:** aceptada; medida en el lab `research` (VPS, CHR 7.25.1) con su A/B, y pasada
-por el ciclo `destroy → apply → verify` del lab de aceptación `lab-red-routeros`.
+por el ciclo `destroy → apply → verify` del lab de aceptación `04_lab-red-routeros`.
 
 **Contexto.** El motor elige la dirección de la pata de gestión del puesto de control
 preguntándole al nodo qué direcciones están ya en uso. Para eso le pregunta a cada

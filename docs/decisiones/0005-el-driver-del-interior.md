@@ -13,7 +13,7 @@
      va aparte y no está implementado. Lo que aquí no está probado, se dice abajo.
      VER: deployment_engine/tasks/{interior_ssh,inventario_invitados,configurar_linux}.yml,
      deployment_engine/filter_plugins/interior.py, test/test_interior.py,
-     labs/lab-red-routeros/lab-red-routeros.md -->
+     labs/04_lab-red-routeros/04_lab-red-routeros.md -->
 
 **Estado:** aceptada (implementada y probada de punta a punta contra el Proxmox real; el
 driver de RouterOS, en construcción).

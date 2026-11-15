@@ -11,20 +11,20 @@
      (puentes y cortafuegos de RouterOS; pasarela, rutas, dns y claves de Linux) se nombra aquí
      para que no lo busques: no está implementado.
      VER: AGENTS.md; README.md; deployment_engine/filter_plugins/declaracion.py;
-     labs/lab-red-routeros/ (el ejemplo trabajado); ./lab check declaracion -->
+     labs/04_lab-red-routeros/ (el ejemplo trabajado); ./lab check declaracion -->
 
 ## La forma de un lab, en tres piezas
 
 ```
-labs/<lab>/
-├── <lab>.yml    el estado deseado. Es la FUENTE DE VERDAD: lo que no está aquí no existe
-├── <lab>.md     el documento. Dos regiones: la tabla la escribe el motor, la prosa la escribes tú
-└── logs/        lo que dejó el motor (api.jsonl, interior.jsonl, camino.jsonl). Nunca a mano
+labs/NN_<lab>/            el NN es la antigüedad: lo pone `./lab new`, no tú
+├── NN_<lab>.yml    el estado deseado. Es la FUENTE DE VERDAD: lo que no está aquí no existe
+├── NN_<lab>.md     el documento. Dos regiones: la tabla la escribe el motor, la prosa la escribes tú
+└── logs/           lo que dejó el motor (api.jsonl, interior.jsonl, camino.jsonl). Nunca a mano
 ```
 
-`./lab new <lab>` scaffoldea las dos primeras desde `labs/.plantilla/`. A partir de ahí el lab
-es tuyo: no se hereda de ningún sitio ni se genera solo. **Lo que se escribe una vez es lo que
-se lee después**, así que el orden de abajo importa.
+`./lab new <lab>` scaffoldea las dos primeras desde `labs/.plantilla/`, con el nombre del lab
+ya numerado. A partir de ahí el lab es tuyo: no se hereda de ningún sitio ni se genera solo.
+**Lo que se escribe una vez es lo que se lee después**, así que el orden de abajo importa.
 
 ## 1. Qué quieres poder demostrar
 
@@ -42,9 +42,18 @@ que hace cinco cosas nuevas a la vez te dice que algo falla, pero no cuál.
 
 ## 2. El nombre
 
-En minúsculas y con guiones (`mi-lab`). El nombre no es decorativo: de él salen la carpeta, el
-pool de Proxmox (que se llama como la carpeta), el nombre canónico de cada invitado
-(`<lab>-<rol>`) y la frontera de propiedad. Cámbialo después y `destroy` ya no sabe qué es tuyo.
+En minúsculas y con guiones (`mi-lab`). **El número de antigüedad lo pone el wrapper**:
+`./lab new mi-lab` crea `labs/07_mi-lab/` con el siguiente número libre, porque los labs se
+ordenan por antigüedad y la carpeta lo dice (ADR 0016); `ls labs/` se lee de arriba abajo en
+orden histórico. Se puede pedir uno concreto (`./lab new 09_mi-lab`) para insertar algo donde
+corresponde, y dos labs nunca comparten prefijo.
+
+El nombre no es decorativo: de él salen la carpeta, el pool de Proxmox (que se llama como la
+carpeta) y la frontera de propiedad. Cámbialo después y `destroy` ya no sabe qué es tuyo.
+
+Ojo: el nombre del **lab** no es el de los **invitados**. Un invitado se llama por lo que ES
+(`rt-borde`, `srv-1`, `ws-2`) y el lab se ve en su pool y en su descripción, así que dos labs
+pueden repetir `rt-nucleo` sin confundirse (ADR 0015).
 
 ## 3. El supernet
 
@@ -75,9 +84,19 @@ no sirve para nada.
 Uno por rol, en `vms:` (QEMU) o `containers:` (LXC). Cada uno:
 
 - **`rol`**: el nombre de la pieza en tu topología (`router-borde`, `puesto-1`). Es lo único que
-  te identifica, y de él salen el nombre canónico y la descripción del invitado.
-- **`tipo`**: una VM si necesita su propio kernel (un CHR, una imagen de fábrica); un
-  contenedor si basta un Linux ligero. **Por defecto: contenedor** (arranca en segundos).
+  te identifica, y de él salen la descripción del invitado (`lab=… rol=…`) y el alias del nombre
+  si no declaras uno.
+- **`tipo`**: QUÉ EQUIPO es — `rt` (router), `srv` (servidor), `ws` (puesto de trabajo), `sw`
+  (conmutador o equipo sin dirección), `ctl` (puesto de control, el bastión del lab).
+  **Obligatorio**, y del vocabulario cerrado: con él y su alias se compone el nombre del invitado
+  en Proxmox (`rt-borde`, `srv-1`, `ws-2`) — ADR 0015. Un equipo que no quepa en ninguno pide su
+  tipo al motor, con su ADR; no se inventa aquí.
+- **`nombre`**: opcional, el alias corto (`1`, `borde`, `salida`). Si no lo pones, el alias es el
+  rol. Es la segunda mitad del nombre del invitado. Dos invitados del **mismo** lab no pueden
+  componer el mismo nombre (el validador lo rechaza); dos labs distintos sí pueden repetirlo.
+- **Qué es VM y qué es contenedor** se elige por la **sección**, no por un campo: en `vms:` si
+  necesita su propio kernel (un CHR, una imagen de fábrica), en `containers:` si basta un Linux
+  ligero (arranca en segundos).
 - **`escalon`**: el orden en que el motor enciende y converge. **Nadie arranca antes de que
   quien le da la dirección esté sirviendo** (regla 18: así la carrera del DHCP muere por
   construcción). Si te equivocas, el consejo `escalones` te lo dice con el número que toca.
@@ -146,7 +165,7 @@ Dos tropiezos que ya están cazados, para que no los repitas:
 Y los clientes **no se configuran por dentro**: su pasarela y su DNS los reparte el DHCP del
 router. Un contenedor con su red bien servida tiene internet sin una línea de `config:`.
 
-El ejemplo trabajado está en `labs/conectividad-exterior/`.
+El ejemplo trabajado está en `labs/06_conectividad-exterior/`.
 
 El lab **no puede inventarse una primitiva**. Si necesitas algo que no está, se le pide al motor
 —con su ADR, su driver, su lectura de vuelta y sus pruebas— y luego se declara. Es la regla que

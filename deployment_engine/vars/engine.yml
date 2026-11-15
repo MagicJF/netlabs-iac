@@ -45,8 +45,11 @@ engine_nodo_simulado: "nodo-simulado"
 # leyendo la API.
 engine_plantilla_descripcion: "lab={lab} rol={rol} gestionado por netlabs_v4_b"
 
-# Plantilla del nombre canónico de un invitado: <nombre-lab>-<rol>.
-engine_plantilla_nombre: "{lab}-{rol}"
+# Plantilla del nombre de un invitado: el nombre dice QUÉ ES, no de qué lab es (ADR 0015).
+# `{equipo}` es el `tipo:` que declara el lab (rt/srv/ws/sw/ctl) y `{alias}`, el `nombre:`
+# corto si lo declara, o su rol si no. La MAC y la descripción siguen llevando el lab: el
+# nombre es para leerlo, la propiedad (pool + descripción) es para el motor.
+engine_plantilla_nombre: "{equipo}-{alias}"
 
 # Marca que el motor escribe en el `comments` de un bridge que CREA él. Es la
 # TERCERA mitad de la frontera de propiedad, y existe por un hueco concreto: un

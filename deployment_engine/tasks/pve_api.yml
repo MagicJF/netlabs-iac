@@ -155,3 +155,15 @@
   when:
     - not (pve_api_tolerar_error | default(false) | bool)
     - (pve_api_ultimo_error | default('') | length) > 0
+
+# Un error tolerado no se tira a la basura: se apunta. Así el verbo que lo toleró puede
+# DECIR qué toleró, en vez de callarlo -- lo que se tolera y no se cuenta es una mentira
+# por omisión. (Quien tolera se hace responsable: `destroy` tolera el fallo de un PARO
+# porque el BORRADO que viene después, ese sí sin tolerancia, es la guarda de verdad:
+# Proxmox no deja borrar un invitado arrancado.)
+- name: "PUERTA · apuntar el error tolerado"
+  ansible.builtin.set_fact:
+    pve_errores_tolerados: "{{ (pve_errores_tolerados | default([])) + [{'metodo': pve_api_metodo, 'ruta': pve_api_ruta, 'error': pve_api_ultimo_error | trim}] }}"
+  when:
+    - pve_api_tolerar_error | default(false) | bool
+    - (pve_api_ultimo_error | default('') | length) > 0

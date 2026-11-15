@@ -1,4 +1,4 @@
-<!-- PROPÓSITO:   el documento del lab `conectividad-exterior`. Dos regiones, dos escritores.
+<!-- PROPÓSITO:   el documento del lab `06_conectividad-exterior`. Dos regiones, dos escritores.
      INVARIANTES: la región generada (entre los marcadores) la reescribe
                   `./lab check docs --actualizar`; `./lab check docs` falla si el
                   fichero difiere de su render. La prosa de fuera NO la toca ningún
@@ -7,14 +7,14 @@
      VER:         AGENTS.md §Documentación; README.md §Documentación;
                   docs/crear-un-lab.md (la guía de campo: las decisiones, en orden) -->
 
-# conectividad-exterior
+# 06_conectividad-exterior
 
-El lab de aceptación (`lab-red-routeros`) demuestra que cada invitado toma su dirección
+El lab de aceptación (`04_lab-red-routeros`) demuestra que cada invitado toma su dirección
 del router que le toca. Éste demuestra lo que viene después: que lo que cuelga de esas
 redes **sale a internet**, con el router de arriba declarado como la salida (`exterior`).
 
 <!-- generado:inicio -->
-_Datos derivados de `conectividad-exterior.yml`. Los reescribe `./lab check docs --actualizar`;
+_Datos derivados de `06_conectividad-exterior.yml`. Los reescribe `./lab check docs --actualizar`;
 si los editas a mano, `./lab check docs` falla._
 
 ## Invitados declarados
@@ -48,12 +48,12 @@ si los editas a mano, `./lab check docs` falla._
 
 | rol | tipo | nombre canónico | vmid | MAC |
 | --- | --- | --- | --- | --- |
-| borde | VM (qemu) | conectividad-exterior-borde | — | — |
-| control | LXC | conectividad-exterior-control | — | — |
-| nucleo | VM (qemu) | conectividad-exterior-nucleo | — | — |
-| servidor | LXC | conectividad-exterior-servidor | — | — |
-| puesto-1 | LXC | conectividad-exterior-puesto-1 | — | — |
-| puesto-2 | LXC | conectividad-exterior-puesto-2 | — | — |
+| borde | VM (qemu) | {equipo}-{alias} | — | — |
+| control | LXC | {equipo}-{alias} | — | — |
+| nucleo | VM (qemu) | {equipo}-{alias} | — | — |
+| servidor | LXC | {equipo}-{alias} | — | — |
+| puesto-1 | LXC | {equipo}-{alias} | — | — |
+| puesto-2 | LXC | {equipo}-{alias} | — | — |
 
 El **vmid** (el menor libre de *todo* el clúster) y la **MAC** (`BC:24:11` + los
 bytes del vmid) los asigna `apply` leyendo el estado de Proxmox: no se declaran aquí y

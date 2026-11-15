@@ -1,4 +1,4 @@
-PLAN del lab 'lab-dos-redes'
+PLAN del lab '03_lab-dos-redes'
 ============================================================
 
 Identidad asignada por el motor (no declarada, no guardada):
@@ -12,19 +12,19 @@ Llamadas REST que se harían, en orden (14):
 
    1. POST /pools
       comment = topología gestionada por netlabs_v4_b (motor por API)
-      poolid = lab-dos-redes
-      porque: no existe el pool 'lab-dos-redes': es la frontera de propiedad del lab
+      poolid = lab_03_lab-dos-redes
+      porque: no existe el pool 'lab_03_lab-dos-redes': es la frontera de propiedad del lab
 
    2. POST /nodes/nodo-simulado/network
       autostart = 1
-      comments = lab=lab-dos-redes gestionado por netlabs_v4_b
+      comments = lab=03_lab-dos-redes gestionado por netlabs_v4_b
       iface = vmb_perimetro
       type = bridge
       porque: el bridge 'vmb_perimetro' no existe en el nodo nodo-simulado: se crea y se marca como de este lab, para que `destroy` pueda borrarlo después
 
    3. POST /nodes/nodo-simulado/network
       autostart = 1
-      comments = lab=lab-dos-redes gestionado por netlabs_v4_b
+      comments = lab=03_lab-dos-redes gestionado por netlabs_v4_b
       iface = vmb_nucleo
       type = bridge
       porque: el bridge 'vmb_nucleo' no existe en el nodo nodo-simulado: se crea y se marca como de este lab, para que `destroy` pueda borrarlo después
@@ -35,55 +35,55 @@ Llamadas REST que se harían, en orden (14):
    5. POST /nodes/nodo-simulado/qemu
       agent = 1
       cores = 2
-      description = lab=lab-dos-redes rol=borde gestionado por netlabs_v4_b
+      description = lab=03_lab-dos-redes rol=borde gestionado por netlabs_v4_b
       memory = 512
-      name = lab-dos-redes-borde
+      name = rt-borde
       net0 = virtio=BC:24:11:00:00:64,bridge=vmb_perimetro
-      pool = lab-dos-redes
+      pool = lab_03_lab-dos-redes
       vmid = 100
       porque: el rol 'borde' no está desplegado: se crea con el vmid 100 (el menor libre del clúster)
 
    6. POST /nodes/nodo-simulado/qemu
       agent = 1
       cores = 2
-      description = lab=lab-dos-redes rol=nucleo gestionado por netlabs_v4_b
+      description = lab=03_lab-dos-redes rol=nucleo gestionado por netlabs_v4_b
       memory = 1024
-      name = lab-dos-redes-nucleo
+      name = rt-nucleo
       net0 = virtio=BC:24:11:00:00:65,bridge=vmb_nucleo
-      pool = lab-dos-redes
+      pool = lab_03_lab-dos-redes
       vmid = 101
       porque: el rol 'nucleo' no está desplegado: se crea con el vmid 101 (el menor libre del clúster)
 
    7. POST /nodes/nodo-simulado/lxc
       cores = 1
-      description = lab=lab-dos-redes rol=puesto-1 gestionado por netlabs_v4_b
-      hostname = lab-dos-redes-puesto-1
+      description = lab=03_lab-dos-redes rol=puesto-1 gestionado por netlabs_v4_b
+      hostname = ws-1
       memory = 512
       net0 = name=eth0,bridge=vmb_nucleo,hwaddr=BC:24:11:00:00:66,ip=203.0.113.131/24
       ostemplate = local:vztmpl/debian-13-standard_13.6-1_amd64.tar.zst
-      pool = lab-dos-redes
+      pool = lab_03_lab-dos-redes
       vmid = 102
       porque: el rol 'puesto-1' no está desplegado: se crea con el vmid 102 (el menor libre del clúster)
 
    8. POST /nodes/nodo-simulado/lxc
       cores = 1
-      description = lab=lab-dos-redes rol=puesto-2 gestionado por netlabs_v4_b
-      hostname = lab-dos-redes-puesto-2
+      description = lab=03_lab-dos-redes rol=puesto-2 gestionado por netlabs_v4_b
+      hostname = ws-2
       memory = 512
       net0 = name=eth0,bridge=vmb_nucleo,hwaddr=BC:24:11:00:00:67,ip=203.0.113.132/24
       ostemplate = local:vztmpl/debian-13-standard_13.6-1_amd64.tar.zst
-      pool = lab-dos-redes
+      pool = lab_03_lab-dos-redes
       vmid = 103
       porque: el rol 'puesto-2' no está desplegado: se crea con el vmid 103 (el menor libre del clúster)
 
    9. POST /nodes/nodo-simulado/lxc
       cores = 1
-      description = lab=lab-dos-redes rol=servidor gestionado por netlabs_v4_b
-      hostname = lab-dos-redes-servidor
+      description = lab=03_lab-dos-redes rol=servidor gestionado por netlabs_v4_b
+      hostname = srv-1
       memory = 512
       net0 = name=eth0,bridge=vmb_perimetro,hwaddr=BC:24:11:00:00:68,ip=203.0.113.21/24
       ostemplate = local:vztmpl/debian-13-standard_13.6-1_amd64.tar.zst
-      pool = lab-dos-redes
+      pool = lab_03_lab-dos-redes
       vmid = 104
       porque: el rol 'servidor' no está desplegado: se crea con el vmid 104 (el menor libre del clúster)
 

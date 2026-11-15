@@ -3,8 +3,8 @@
   "vmids_usados": [100, 101, 500],
   "bridges_nodo": ["vmbr0", "vmb-ejemplo-topologia"],
   "pools": {
-    "ejemplo-topologia": {"comment": "topología gestionada por netlabs_v4_b"},
-    "otro-lab": {"comment": "otro lab del mismo nodo"}
+    "lab_ejemplo-topologia": {"comment": "topología gestionada por netlabs_v4_b"},
+    "lab_otro-lab": {"comment": "otro lab del mismo nodo"}
   },
   "invitados": {
     "101": {
@@ -17,14 +17,14 @@
       "bridge": "vmb-ejemplo-topologia",
       "mac": "BC:24:11:00:00:65",
       "arrancado": true,
-      "pool": "ejemplo-topologia",
+      "pool": "lab_ejemplo-topologia",
       "nodo": "pve-simulado"
     }
   },
   "invitados_otros": {
     "otro-lab-a": {
       "vmid": 500,
-      "pool": "otro-lab",
+      "pool": "lab_otro-lab",
       "descripcion": "lab=otro-lab rol=a gestionado por netlabs_v4_b"
     }
   }

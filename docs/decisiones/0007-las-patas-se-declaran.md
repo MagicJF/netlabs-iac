@@ -15,7 +15,7 @@
      gestión del nodo, la última).
      VER: filter_plugins/declaracion.py (patas_declaradas, _validar_interior),
      tools/plan.py (_redes_del_invitado), test/test_declaracion.py,
-     labs/lab-red-routeros/lab-red-routeros.yml -->
+     labs/04_lab-red-routeros/04_lab-red-routeros.yml -->
 
 **Estado:** aceptada; medida contra el VPS (CHR 108, RouterOS 7.25.1).
 

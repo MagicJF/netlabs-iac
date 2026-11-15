@@ -29,7 +29,7 @@
      patas_rest_del_puesto_control, guion_camino), docs/camino-del-puesto-de-control.md,
      informe-rendimiento-despliegue.md -->
 
-**Estado:** aceptada; medida contra el VPS (lab de aceptación `lab-red-routeros`, ciclo
+**Estado:** aceptada; medida contra el VPS (lab de aceptación `04_lab-red-routeros`, ciclo
 `destroy → apply → apply → verify` en verde con `changed=0` en la segunda pasada). Las 99
 llamadas REST del `apply` pasan de **4,39 s** a **0,50 s** de media (mediana 465 ms): la
 puerta baja de **434,5 s a 49,7 s** y el `apply` entero, de **1.028,7 s a 650 s**.

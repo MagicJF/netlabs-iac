@@ -1,5 +1,5 @@
 ---
-# PROPÓSITO:   declarar la topología del lab `lab-dos-redes`: DOS redes separadas
+# PROPÓSITO:   declarar la topología del lab `03_lab-dos-redes`: DOS redes separadas
 #              (perímetro y núcleo), con un borde y un conmutador de núcleo como
 #              VMs y tres contenedores de servicio/puesto repartidos entre las dos.
 #              Es el lab de complejidad media del repositorio: más ancho que el de
@@ -17,7 +17,7 @@
 #              motor SÍ sabe configurar el interior (vocabulario de la fase 2), y lo
 #              ejerce ese lab de aceptación. `disco` se declara y se valida, pero la
 #              API no recibe todavía ninguna orden de disco (límite en tools/plan.py).
-# VER:         labs/lab-dos-redes/lab-dos-redes.md; README.md §Identidad
+# VER:         labs/03_lab-dos-redes/03_lab-dos-redes.md; README.md §Identidad
 #
 # QUÉ HAY QUE SUSTITUIR PARA LLEVARLO A UN PROXMOX REAL
 #
@@ -32,9 +32,13 @@
 #      API.
 #   3. El resto (credenciales, nodo, plantilla de contenedor) NO está aquí: va en
 #      `deployment_engine/secrets.yml` y `deployment_engine/vars/engine.yml`.
+#
+# EL NOMBRE de cada invitado dice QUÉ ES, no de qué lab es (ADR 0015): `rt-borde`,
+# `rt-nucleo`, `srv-1`, `ws-1` y `ws-2`. Dos labs pueden repetir nombre (`rt-borde`
+# también existe en otro lab): el pool y la descripción dicen de quién es cada uno.
 
 lab:
-  nombre: lab-dos-redes
+  nombre: 03_lab-dos-redes
 
   # Tres escalones, cada uno con un motivo distinto: primero el borde (es la
   # puerta), después el conmutador del núcleo (da red a la segunda red) y sólo
@@ -57,6 +61,7 @@ vms:
   # El borde: una VM que hace de cortafuegos y puerta de la red de perímetro. Su
   # interior no se configura; aquí sólo se despliega y se arranca.
   - rol: borde
+    tipo: rt          # hace de puerta de la red -> es un router -> 'rt-borde'
     escalon: 1
     cores: 2
     memoria: 512
@@ -67,6 +72,7 @@ vms:
   # El conmutador del núcleo: la segunda VM, y la única QEMU en la red de núcleo.
   # Ejercita la rama QEMU del plan más de una vez, y en un escalón distinto.
   - rol: nucleo
+    tipo: rt          # el otro router del lab -> 'rt-nucleo' (alias = su rol)
     escalon: 2
     cores: 2
     memoria: 1024
@@ -78,6 +84,8 @@ vms:
 containers:
   # Un servidor en el perímetro: lo que se publica de cara afuera.
   - rol: servidor
+    tipo: srv         # un servidor -> 'srv-' + su alias
+    nombre: 1         # -> 'srv-1'
     escalon: 3
     cores: 1
     memoria: 512
@@ -87,6 +95,8 @@ containers:
 
   # Dos puestos en el núcleo. Comparten escalón: no dependen el uno del otro.
   - rol: puesto-1
+    tipo: ws          # un puesto de trabajo -> 'ws-1'
+    nombre: 1
     escalon: 3
     cores: 1
     memoria: 512
@@ -95,6 +105,8 @@ containers:
     direccion: 203.0.113.131/24
 
   - rol: puesto-2
+    tipo: ws          # y el segundo -> 'ws-2'
+    nombre: 2
     escalon: 3
     cores: 1
     memoria: 512

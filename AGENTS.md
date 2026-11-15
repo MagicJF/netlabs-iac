@@ -120,13 +120,17 @@ falla una tarea— existe una vía de depuración por SSH **para quien diagnosti
 
 ## Identidad: quién pone los números
 
-El **lab declara roles** (`switch`, `workstation-1`), su topología (bridges,
-direcciones, recursos) y, si quiere que el motor entre en ellos, **qué configurar
-dentro** (`config:`, `imagen:`). **El lab no declara vmids ni MACs, nunca** (la MAC
-es función del vmid, y las reservas DHCP se derivan de él: regla 14).
-- El **motor deriva** el vmid (el menor libre **de todo el clúster**), el nombre
-  canónico (`<lab>-<rol>`), la MAC (`f(vmid)`) y la descripción del invitado
-  (`lab=<lab> rol=<rol> gestionado por netlabs_v4_b`).
+- El **lab declara roles** (`switch`, `workstation-1`), su topología (bridges,
+  direcciones, recursos), el **tipo de equipo** de cada invitado (`tipo:`, obligatorio y del
+  vocabulario cerrado `rt`/`srv`/`ws`/`sw`/`ctl`) y, si quiere que el motor entre en ellos,
+  **qué configurar dentro** (`config:`, `imagen:`). Un `nombre:` corto por invitado es
+  opcional: es su alias, y si falta se usa el rol. **El lab no declara vmids ni MACs, nunca**
+  (la MAC es función del vmid, y las reservas DHCP se derivan de él: regla 14).
+- El **motor deriva** el vmid (el menor libre **de todo el clúster**), el NOMBRE
+  (`<tipo>-<alias>`: dice qué EQUIPO es, no de qué lab es — `rt-borde`, `srv-1`; dos labs
+  pueden repetir `rt-nucleo`, y por eso el nombre no es una prueba de pertenencia), la MAC
+  (`f(vmid)`) y la descripción del invitado (`lab=<lab> rol=<rol> gestionado por
+  netlabs_v4_b`), que es la que dice de quién es cada uno.
 - **Sin fichero de estado.** La asignación se re-deriva leyendo la API: el **pool**
   del lab (llamado como su carpeta) es la frontera de propiedad, y la
   **descripción** de cada invitado lleva el rol.

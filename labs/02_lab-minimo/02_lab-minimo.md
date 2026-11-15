@@ -1,14 +1,14 @@
-<!-- PROPÓSITO:   el documento del lab `lab-minimo`.
+<!-- PROPÓSITO:   el documento del lab `02_lab-minimo`.
      INVARIANTES: la región generada la reescribe `documentos.py`; la prosa es libre.
      LÍMITES:     no repite los valores de la tabla; los cita.
      VER:         AGENTS.md §Documentación -->
-# lab-minimo
+# 02_lab-minimo
 
 La topología más pequeña que el motor puede converger: **un bridge y un
 contenedor**.
 
 <!-- generado:inicio -->
-_Datos derivados de `lab-minimo.yml`. Los reescribe `./lab check docs --actualizar`;
+_Datos derivados de `02_lab-minimo.yml`. Los reescribe `./lab check docs --actualizar`;
 si los editas a mano, `./lab check docs` falla._
 
 ## Invitados declarados
@@ -33,7 +33,7 @@ si los editas a mano, `./lab check docs` falla._
 
 | rol | tipo | nombre canónico | vmid | MAC |
 | --- | --- | --- | --- | --- |
-| workstation-1 | LXC | lab-minimo-workstation-1 | — | — |
+| workstation-1 | LXC | {equipo}-{alias} | — | — |
 
 El **vmid** (el menor libre de *todo* el clúster) y la **MAC** (`BC:24:11` + los
 bytes del vmid) los asigna `apply` leyendo el estado de Proxmox: no se declaran aquí y
@@ -63,7 +63,7 @@ Igual que cualquier otro lab: rellenar `deployment_engine/secrets.yml` (host de 
 API en `pve_nodo`, nombre del nodo en `pve_nombre_nodo` — pueden no coincidir),
 sustituir las direcciones (están en `198.51.100.0/24`, rango reservado para
 documentación por la RFC 5737, inexistente en la realidad) y entonces
-`./lab --lab lab-minimo plan --api`, `preflight`, `apply`, `verify`. El nombre del
+`./lab --lab 02_lab-minimo plan --api`, `preflight`, `apply`, `verify`. El nombre del
 bridge ya cumple el formato que el núcleo exige (sin guiones, ≤15 caracteres).
 
 ## Por qué así
@@ -72,7 +72,7 @@ Un solo escalón: no hay nada que esperar antes del contenedor. No hay VM, así 
 este lab no ejercita la rama QEMU del plan; para eso está el otro ejemplo.
 
 - **Lo verificado aquí:** el plan derivado de esta declaración es distinto del de
-  `ejemplo-topologia` y no menciona ningún recurso que no esté declarado aquí.
+  `01_ejemplo-topologia` y no menciona ningún recurso que no esté declarado aquí.
 - **Lo no verificado:** todo lo que exige un Proxmox alcanzable.
 
 ## Ver también (punteros al código)

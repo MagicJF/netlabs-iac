@@ -70,5 +70,5 @@ pedían.
   `ip=…,gw=…`; uno sin nada y con interior, con `ip=dhcp`.
 - La lectura de dentro (`/interfaces`) enseña la dirección que el equipo **consiguió**, no la
   que el motor quería: si el CHR no reparte, no aparece, y eso es el fallo — no un verde.
-- El conjunto entero: `labs/conectividad-exterior` con una estación por router y un servidor
+- El conjunto entero: `labs/06_conectividad-exterior` con una estación por router y un servidor
   fijo, y la comprobación de que los tres salen a internet.

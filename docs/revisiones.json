@@ -18,16 +18,16 @@
   },
   "README.md": {
     "citados": {
-      "deployment_engine/filter_plugins/estado.py": "6d4126c2eb6428f6715cf916ec14e48be9264ab57bcca0450c5566cf3e6a9a4e",
-      "deployment_engine/filter_plugins/identidad.py": "773d13a7c740c6cabe1c4ac5611837af070f646f286327bbc5d21d6895fef6db",
-      "deployment_engine/filter_plugins/interior.py": "0d1f594c6e21edc5018a85d0c8a7132cc76a9b8e5540b7fd598463e5d88c09b9",
+      "deployment_engine/filter_plugins/estado.py": "eba22149806a75c3114d36b7edd0063d4b9948ff2cfb3c39f8e00ce14ce2bc7d",
+      "deployment_engine/filter_plugins/identidad.py": "c10565745a0cff8f203624893ccaca45e4d1aea186c8c534430a3f887fbe1d3b",
+      "deployment_engine/filter_plugins/interior.py": "d02bbdfca568539c059998020b86d4d1829a4bb2abbfa2d6671218e8c82bda00",
       "deployment_engine/playbooks/plan.yml": "107e7eaec53eb46a5b8e4ece25fd85f63ff97111d301023b7b1dced05f8a840f",
-      "deployment_engine/tasks/pve_api.yml": "4628a91b351f10d2f28bf99a40973ae6fa8255e1ed79827d8a8174ff323df6d7",
+      "deployment_engine/tasks/pve_api.yml": "0de4b967d7ace2e526b5f25a4593c07ea837754284b227f38a29113c7e270127",
       "deployment_engine/tasks/pve_api_y_esperar.yml": "23072f383630d6bc98600bbecc5336121f7f6577fd597c322eb5a45dd058150c",
       "deployment_engine/tools/documentos.py": "e2570908b54f9b60bcede738376125b2f43b1f25afad9a6bc17b25133137479c",
       "deployment_engine/tools/framework_check.py": "5d65582d5b1c868aea0229bdd79aedf1a70ba8b9f65396e3e05c90936b35b977",
-      "deployment_engine/tools/plan.py": "4ce21cecf655f12d836769ea8398aea4174e4fb9ddfc48c59b06c3399ff0e076",
-      "deployment_engine/vars/engine.yml": "c2e4bc015b95285a36940e6e0ca75f398af4d830d22dacb8edfe1541b6df8b0b"
+      "deployment_engine/tools/plan.py": "c8269ef6890a93d94a715adee3b0b102f955cff4050c248afa7223d26ca6b719",
+      "deployment_engine/vars/engine.yml": "727e13a766d2b18b923099b2fe7e5e748c23b02f375ebe6a0a88550c8f865c32"
     }
   },
   "docs/camino-del-puesto-de-control.md": {
@@ -50,8 +50,8 @@
   },
   "docs/decisiones/0002-el-pool-como-frontera-de-propiedad.md": {
     "citados": {
-      "deployment_engine/filter_plugins/estado.py": "6d4126c2eb6428f6715cf916ec14e48be9264ab57bcca0450c5566cf3e6a9a4e",
-      "deployment_engine/filter_plugins/identidad.py": "773d13a7c740c6cabe1c4ac5611837af070f646f286327bbc5d21d6895fef6db"
+      "deployment_engine/filter_plugins/estado.py": "eba22149806a75c3114d36b7edd0063d4b9948ff2cfb3c39f8e00ce14ce2bc7d",
+      "deployment_engine/filter_plugins/identidad.py": "c10565745a0cff8f203624893ccaca45e4d1aea186c8c534430a3f887fbe1d3b"
     }
   },
   "docs/decisiones/0003-documento-con-dos-regiones.md": {
@@ -68,54 +68,54 @@
   },
   "docs/decisiones/0005-el-driver-del-interior.md": {
     "citados": {
-      "deployment_engine/filter_plugins/interior.py": "1987c26ddded5e15dd25d5027b56fa04a8722f6fa5e8d61a9d4f1395e5801ce8"
+      "deployment_engine/filter_plugins/interior.py": "d02bbdfca568539c059998020b86d4d1829a4bb2abbfa2d6671218e8c82bda00"
     }
   },
   "docs/decisiones/0006-escribir-en-routeros.md": {
     "citados": {
-      "deployment_engine/filter_plugins/interior.py": "1987c26ddded5e15dd25d5027b56fa04a8722f6fa5e8d61a9d4f1395e5801ce8",
+      "deployment_engine/filter_plugins/interior.py": "d02bbdfca568539c059998020b86d4d1829a4bb2abbfa2d6671218e8c82bda00",
       "deployment_engine/tasks/ros_api.yml": "e6feb51074fb7178407251918147b903d535d544b9fae204797bc5252d966360"
     }
   },
   "docs/decisiones/0008-una-direccion-por-pata.md": {
     "citados": {
-      "deployment_engine/filter_plugins/interior.py": "1987c26ddded5e15dd25d5027b56fa04a8722f6fa5e8d61a9d4f1395e5801ce8",
-      "deployment_engine/tools/plan.py": "86b1e59b16f1b60499162da589ddc45862eb198310cc6053b4a86c3cb87231c8"
+      "deployment_engine/filter_plugins/interior.py": "d02bbdfca568539c059998020b86d4d1829a4bb2abbfa2d6671218e8c82bda00",
+      "deployment_engine/tools/plan.py": "c8269ef6890a93d94a715adee3b0b102f955cff4050c248afa7223d26ca6b719"
     }
   },
   "docs/decisiones/0009-verify-mira-dentro.md": {
     "citados": {
-      "deployment_engine/filter_plugins/estado.py": "6d4126c2eb6428f6715cf916ec14e48be9264ab57bcca0450c5566cf3e6a9a4e",
-      "deployment_engine/filter_plugins/interior.py": "1987c26ddded5e15dd25d5027b56fa04a8722f6fa5e8d61a9d4f1395e5801ce8",
+      "deployment_engine/filter_plugins/estado.py": "eba22149806a75c3114d36b7edd0063d4b9948ff2cfb3c39f8e00ce14ce2bc7d",
+      "deployment_engine/filter_plugins/interior.py": "d02bbdfca568539c059998020b86d4d1829a4bb2abbfa2d6671218e8c82bda00",
       "deployment_engine/playbooks/verify.yml": "e41dd8f5ab67657ae20266c3767e325538772b20a12266ba20fbd6453c10b121",
       "deployment_engine/tasks/configurar_linux.yml": "6b184fd397eaf29263444c0e81965d16930733a3cac19e9236f588ea502d9b5d",
-      "deployment_engine/tasks/configurar_routeros.yml": "9030813446c48f543cbf92409ccd00a258d7907c27373f97da71a9a3f76e6abf",
+      "deployment_engine/tasks/configurar_routeros.yml": "a971ae25fc36a58d0b4c25231a982db2e5af61e682bacfcfbe511fd362dbdcc2",
       "deployment_engine/tasks/interior_verificar.yml": "85321430dd6167de698a9c882a8416370cee70f7bba477632dadf5f3c913dc8f",
       "deployment_engine/tasks/ros_api.yml": "e6feb51074fb7178407251918147b903d535d544b9fae204797bc5252d966360"
     }
   },
   "docs/decisiones/0010-el-rest-por-el-camino.md": {
     "citados": {
-      "deployment_engine/filter_plugins/interior.py": "1987c26ddded5e15dd25d5027b56fa04a8722f6fa5e8d61a9d4f1395e5801ce8",
+      "deployment_engine/filter_plugins/interior.py": "d02bbdfca568539c059998020b86d4d1829a4bb2abbfa2d6671218e8c82bda00",
       "deployment_engine/tasks/camino.yml": "4b435fa39951bca4f4c7e1eb806a3054bd35f99d3f2077c28b7f55bc55f9e92b",
       "deployment_engine/tasks/camino_mundo.yml": "754aded381f391844ea5b7154217d6b3cb79580f4b529ab16108b4932e175a08",
-      "deployment_engine/tasks/configurar_routeros.yml": "9030813446c48f543cbf92409ccd00a258d7907c27373f97da71a9a3f76e6abf",
+      "deployment_engine/tasks/configurar_routeros.yml": "a971ae25fc36a58d0b4c25231a982db2e5af61e682bacfcfbe511fd362dbdcc2",
       "deployment_engine/tasks/ros_api.yml": "e6feb51074fb7178407251918147b903d535d544b9fae204797bc5252d966360"
     }
   },
   "docs/decisiones/0011-el-agente-de-invitado.md": {
     "citados": {
-      "deployment_engine/filter_plugins/estado.py": "6d4126c2eb6428f6715cf916ec14e48be9264ab57bcca0450c5566cf3e6a9a4e",
+      "deployment_engine/filter_plugins/estado.py": "eba22149806a75c3114d36b7edd0063d4b9948ff2cfb3c39f8e00ce14ce2bc7d",
       "deployment_engine/tasks/direcciones.yml": "38b393854895d6ee7f59a2f2eff45583333c6c1985e9fd40877a8ecbf761844e",
-      "deployment_engine/tools/plan.py": "86b1e59b16f1b60499162da589ddc45862eb198310cc6053b4a86c3cb87231c8",
-      "deployment_engine/vars/engine.yml": "0aeff8e4d16b6c0372001966476c6824c16c1b1421fc5949d1995abba4512a87"
+      "deployment_engine/tools/plan.py": "c8269ef6890a93d94a715adee3b0b102f955cff4050c248afa7223d26ca6b719",
+      "deployment_engine/vars/engine.yml": "727e13a766d2b18b923099b2fe7e5e748c23b02f375ebe6a0a88550c8f865c32"
     }
   },
   "docs/decisiones/0012-la-salida-del-lab.md": {
     "citados": {
-      "deployment_engine/filter_plugins/declaracion.py": "0338fcebafd7eb57532d971e329778d5fc76d6044e7150b1f3887baf22af4bf3",
-      "deployment_engine/filter_plugins/interior.py": "0d1f594c6e21edc5018a85d0c8a7132cc76a9b8e5540b7fd598463e5d88c09b9",
-      "deployment_engine/tools/plan.py": "a351ba85237b614b2064d5ca762af018e553598285ef390a92221a8d67e32710"
+      "deployment_engine/filter_plugins/declaracion.py": "8f8b9b47cee9c8b3e1d787a32de1072eb63f464d645143a5fda2507d08952411",
+      "deployment_engine/filter_plugins/interior.py": "d02bbdfca568539c059998020b86d4d1829a4bb2abbfa2d6671218e8c82bda00",
+      "deployment_engine/tools/plan.py": "c8269ef6890a93d94a715adee3b0b102f955cff4050c248afa7223d26ca6b719"
     }
   },
   "docs/decisiones/0013-una-estacion-pregunta-un-servidor-dice.md": {
@@ -127,6 +127,45 @@
   "docs/decisiones/0014-los-diarios-callan-lo-que-no-pasa.md": {
     "citados": {
       "deployment_engine/tools/resumen.py": "3a8571589b6061430935c694e7843a82b5a9c5fa58748964fb2aed4bdf5c44b4"
+    }
+  },
+  "docs/decisiones/0015-el-nombre-dice-que-es-el-equipo.md": {
+    "citados": {
+      "deployment_engine/filter_plugins/identidad.py": "c10565745a0cff8f203624893ccaca45e4d1aea186c8c534430a3f887fbe1d3b"
+    }
+  },
+  "labs/01_ejemplo-topologia/01_ejemplo-topologia.md": {
+    "citados": {
+      "deployment_engine/filter_plugins/identidad.py": "c10565745a0cff8f203624893ccaca45e4d1aea186c8c534430a3f887fbe1d3b",
+      "deployment_engine/tasks/pve_api.yml": "0de4b967d7ace2e526b5f25a4593c07ea837754284b227f38a29113c7e270127",
+      "deployment_engine/tools/framework_check.py": "5d65582d5b1c868aea0229bdd79aedf1a70ba8b9f65396e3e05c90936b35b977",
+      "deployment_engine/tools/plan.py": "c8269ef6890a93d94a715adee3b0b102f955cff4050c248afa7223d26ca6b719"
+    }
+  },
+  "labs/02_lab-minimo/02_lab-minimo.md": {
+    "citados": {
+      "deployment_engine/filter_plugins/identidad.py": "c10565745a0cff8f203624893ccaca45e4d1aea186c8c534430a3f887fbe1d3b",
+      "deployment_engine/tasks/pve_api.yml": "0de4b967d7ace2e526b5f25a4593c07ea837754284b227f38a29113c7e270127",
+      "deployment_engine/tools/framework_check.py": "5d65582d5b1c868aea0229bdd79aedf1a70ba8b9f65396e3e05c90936b35b977"
+    }
+  },
+  "labs/03_lab-dos-redes/03_lab-dos-redes.md": {
+    "citados": {
+      "deployment_engine/filter_plugins/identidad.py": "c10565745a0cff8f203624893ccaca45e4d1aea186c8c534430a3f887fbe1d3b",
+      "deployment_engine/tasks/pve_api.yml": "0de4b967d7ace2e526b5f25a4593c07ea837754284b227f38a29113c7e270127",
+      "deployment_engine/tools/framework_check.py": "5d65582d5b1c868aea0229bdd79aedf1a70ba8b9f65396e3e05c90936b35b977",
+      "deployment_engine/tools/plan.py": "c8269ef6890a93d94a715adee3b0b102f955cff4050c248afa7223d26ca6b719"
+    }
+  },
+  "labs/05_research/05_research.md": {
+    "citados": {
+      "deployment_engine/filter_plugins/estado.py": "eba22149806a75c3114d36b7edd0063d4b9948ff2cfb3c39f8e00ce14ce2bc7d",
+      "deployment_engine/tasks/direcciones.yml": "38b393854895d6ee7f59a2f2eff45583333c6c1985e9fd40877a8ecbf761844e"
+    }
+  },
+  "labs/07_dunder-mifflin/07_dunder-mifflin.md": {
+    "citados": {
+      "deployment_engine/filter_plugins/interior.py": "d02bbdfca568539c059998020b86d4d1829a4bb2abbfa2d6671218e8c82bda00"
     }
   },
   "labs/ejemplo-topologia/ejemplo-topologia.md": {

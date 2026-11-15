@@ -799,7 +799,7 @@ import declaracion as _validador  # noqa: E402
 # plana (`invitados`), no `containers`/`vms`. Si el motor la lee como el fichero del lab,
 # no encuentra el puesto de control, el inventario se queda sin puerto y el paso muere
 # con «No first item, sequence was empty». Pasó: por eso se prueba con esta forma.
-_CRUDA = _yaml.safe_load(open(os.path.join(RAIZ, "labs", "lab-red-routeros", "lab-red-routeros.yml")))
+_CRUDA = _yaml.safe_load(open(os.path.join(RAIZ, "labs", "04_lab-red-routeros", "04_lab-red-routeros.yml")))
 _NORMALIZADA = _validador.declaracion_normalizar(_CRUDA)
 igual(
     motor.puesto_control(_NORMALIZADA), "control",

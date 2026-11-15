@@ -20,7 +20,7 @@
 #                 del invitado declarado en el plan.
 # LÍMITES:     no prueba el driver de verdad (eso es el ciclo contra el VPS): aquí no se
 #              toca ningún equipo. Las respuestas están COPIADAS de un CHR 7.25.1 real
-#              (medido, ver `labs/lab-red-routeros/` y el ADR del interior).
+#              (medido, ver `labs/04_lab-red-routeros/` y el ADR del interior).
 # VER:         docs/decisiones/0006-*.md; filter_plugins/interior.py;
 #              tasks/ros_api.yml; tasks/configurar_routeros.yml
 
@@ -57,7 +57,7 @@ def igual(obtenido, esperado, descripcion):
 # El lab de ACEPTACIÓN, tal cual está declarado, y una identidad de ejemplo.
 # ---------------------------------------------------------------------------
 _CRUDA = _yaml.safe_load(
-    open(os.path.join(RAIZ, "labs", "lab-red-routeros", "lab-red-routeros.yml"))
+    open(os.path.join(RAIZ, "labs", "04_lab-red-routeros", "04_lab-red-routeros.yml"))
 )
 DECLARACION = _validador.declaracion_normalizar(_CRUDA)
 BORDE = [i for i in DECLARACION["invitados"] if i["rol"] == "borde"][0]
@@ -480,6 +480,148 @@ igual(
         ("POST", "/ip/dhcp-server/lease/remove", {"numbers": "*11"}),
     ],
     "y se quitan por su `.id` (el que se leyó), no por descarte",
+)
+
+# ---------------------------------------------------------------------------
+# 2.b UN ROUTER CON DOS ÁMBITOS DHCP: cada servidor compara SÓLO sus reservas
+# ---------------------------------------------------------------------------
+# Medido con `07_dunder-mifflin`, el primer lab con dos LANs en un mismo router: el
+# ámbito de la segunda red pedía QUITAR la reserva de la primera -- que no es suya, y
+# que el otro ámbito está declarando en la misma pasada -- así que el router no
+# convergía nunca (la pasada moría con `[dhcp] quitar_reserva` pendiente). Un router de
+# una empresa pequeña con dos áreas es un caso legítimo, no un lab raro: lo que estaba
+# mal era comparar las concesiones de todas las redes contra las de una.
+print("\nDOS ÁMBITOS EN UN ROUTER: las reservas de una LAN no son de la otra\n")
+
+BORDE_DOS_AMBITOS = copy.deepcopy(BORDE)
+BORDE_DOS_AMBITOS["bridges"] = ["vmb_gestion", "vmb_lan1", "vmb_lan2"]
+BORDE_DOS_AMBITOS["config"]["routeros"]["direcciones"] = [
+    {"interfaz": "ether2", "direccion": "10.40.1.1/24"},
+    {"interfaz": "ether3", "direccion": "10.40.2.1/24"},
+]
+BORDE_DOS_AMBITOS["config"]["routeros"]["dhcp"] = [
+    {
+        "interfaz": "ether2",
+        "pool": {"rango": "10.40.1.100-10.40.1.200"},
+        "red": {"prefijo": "10.40.1.0/24", "pasarela": "10.40.1.1", "dns": ["10.40.1.1"]},
+        "reservas": "derivadas",
+    },
+    {
+        "interfaz": "ether3",
+        "pool": {"rango": "10.40.2.100-10.40.2.200"},
+        "red": {"prefijo": "10.40.2.0/24", "pasarela": "10.40.2.1", "dns": ["10.40.2.1"]},
+        "reservas": "derivadas",
+    },
+]
+igual(
+    [
+        r["rol"] for r in motor.reservas_derivadas(
+            DECLARACION, IDENTIDAD, BORDE_DOS_AMBITOS, en_red="10.40.1.0/24"
+        )
+    ],
+    ["nucleo"],
+    "el ámbito de la LAN 1 reserva a quien tiene dirección declarada DENTRO de su red (el nucleo)",
+)
+igual(
+    motor.reservas_derivadas(DECLARACION, IDENTIDAD, BORDE_DOS_AMBITOS, en_red="10.40.2.0/24"), [],
+    "y el de la LAN 2 no reserva nada: allí no hay nada con dirección fija",
+)
+
+DOS_AMBITOS = dict(CONVERGIDO)
+DOS_AMBITOS["/ip/address"] = respuesta([
+    {".id": "*1", "address": "10.40.0.11/24", "interface": "ether1", "dynamic": "false"},
+    {".id": "*2", "address": "10.40.1.1/24", "interface": "ether2", "dynamic": "false"},
+    {".id": "*3", "address": "10.40.2.1/24", "interface": "ether3", "dynamic": "false"},
+])
+DOS_AMBITOS["/ip/route"] = respuesta([
+    {".id": "*1", "dst-address": "10.40.0.0/24", "gateway": "ether1", "dynamic": "true", "connect": "true"},
+    {".id": "*3", "dst-address": "0.0.0.0/0", "gateway": "10.40.0.1", "dynamic": "false"},
+])
+DOS_AMBITOS["/ip/dhcp-server"] = respuesta([
+    {".id": "*7", "interface": "ether2", "address-pool": "netlabs-10.40.1.100", "name": "netlabs-ether2"},
+    {".id": "*8", "interface": "ether3", "address-pool": "netlabs-10.40.2.100", "name": "netlabs-ether3"},
+])
+DOS_AMBITOS["/ip/pool"] = respuesta([
+    {".id": "*8", "name": "netlabs-10.40.1.100", "ranges": "10.40.1.100-10.40.1.200"},
+    {".id": "*9", "name": "netlabs-10.40.2.100", "ranges": "10.40.2.100-10.40.2.200"},
+])
+DOS_AMBITOS["/ip/dhcp-server/network"] = respuesta([
+    {".id": "*9", "address": "10.40.1.0/24", "gateway": "10.40.1.1", "dns-server": "10.40.1.1"},
+    {".id": "*A", "address": "10.40.2.0/24", "gateway": "10.40.2.1", "dns-server": "10.40.2.1"},
+])
+# La reserva de la LAN 1, atada a SU servidor: la LAN 2 no tiene por qué tocarla.
+DOS_AMBITOS["/ip/dhcp-server/lease"] = respuesta([
+    {".id": "*10", "address": "10.40.1.11", "mac-address": "BC:24:11:00:00:6E",
+     "server": "netlabs-ether2", "dynamic": "false"},
+])
+LEIDO_DOS_AMBITOS = motor.leido_routeros(
+    DOS_AMBITOS, BORDE_DOS_AMBITOS, "admin", CLAVE_PUBLICA, "motor"
+)
+igual(
+    motor.operaciones_de_pasos(
+        motor.pasos_de_convergencia(
+            BORDE_DOS_AMBITOS, IDENTIDAD, DECLARACION, LEIDO_DOS_AMBITOS, PARAMETROS
+        )
+    ),
+    [],
+    "con las dos LANs servidas y sus reservas puestas, CERO operaciones: el segundo ámbito "
+    "no le quita la reserva al primero (era el fallo: no convergía nunca)",
+)
+igual(
+    [
+        (s["interfaz"], s["nombre"]) for s in LEIDO_DOS_AMBITOS["areas"]["dhcp"]["servidores"]
+    ],
+    [("ether2", "netlabs-ether2"), ("ether3", "netlabs-ether3")],
+    "y se leen los DOS servidores, cada uno con su nombre derivado de su interfaz",
+)
+
+# Lo que sí sobra en el SEGUNDO ámbito también se quita: la reserva que no declara
+# ningún ámbito del lab es de nadie, y ahí no se deja.
+DE_MAS_DOS_AMBITOS = dict(DOS_AMBITOS)
+DE_MAS_DOS_AMBITOS["/ip/dhcp-server/lease"] = respuesta([
+    {".id": "*10", "address": "10.40.1.11", "mac-address": "BC:24:11:00:00:6E",
+     "server": "netlabs-ether2", "dynamic": "false"},
+    {".id": "*11", "address": "10.40.2.150", "mac-address": "AA:BB:CC:DD:EE:FF",
+     "server": "netlabs-ether3", "dynamic": "false"},
+])
+LEIDO_DE_MAS_DOS_AMBITOS = motor.leido_routeros(
+    DE_MAS_DOS_AMBITOS, BORDE_DOS_AMBITOS, "admin", CLAVE_PUBLICA, "motor"
+)
+OPERACIONES_DE_MAS_DOS_AMBITOS = motor.operaciones_de_pasos(
+    motor.pasos_de_convergencia(
+        BORDE_DOS_AMBITOS, IDENTIDAD, DECLARACION, LEIDO_DE_MAS_DOS_AMBITOS, PARAMETROS
+    )
+)
+igual(
+    [(op["op"], op.get("mac")) for op in OPERACIONES_DE_MAS_DOS_AMBITOS],
+    [("quitar_reserva", "AA:BB:CC:DD:EE:FF")],
+    "una reserva del segundo ámbito que el lab no declara SÍ se quita: se compara por "
+    "servidor, no se ignora lo que hay en él",
+)
+
+# Y una concesión que no dice a quién sirve (sin `server`, o `all`) se atribuye a la red
+# en la que CAE su dirección: es lo que la deja a la vista de SU ámbito -- y no de los
+# dos -- sin cambiar nada en un router de una sola LAN, donde no hay duda posible.
+SIN_SERVIDOR = dict(DOS_AMBITOS)
+SIN_SERVIDOR["/ip/dhcp-server/lease"] = respuesta([
+    {".id": "*10", "address": "10.40.1.11", "mac-address": "BC:24:11:00:00:6E", "dynamic": "false"},
+    {".id": "*11", "address": "10.40.2.150", "mac-address": "AA:BB:CC:DD:EE:FF", "dynamic": "false"},
+])
+LEIDO_SIN_SERVIDOR = motor.leido_routeros(
+    SIN_SERVIDOR, BORDE_DOS_AMBITOS, "admin", CLAVE_PUBLICA, "motor"
+)
+igual(
+    [
+        (op["op"], op.get("mac"))
+        for op in motor.operaciones_de_pasos(
+            motor.pasos_de_convergencia(
+                BORDE_DOS_AMBITOS, IDENTIDAD, DECLARACION, LEIDO_SIN_SERVIDOR, PARAMETROS
+            )
+        )
+    ],
+    [("quitar_reserva", "AA:BB:CC:DD:EE:FF")],
+    "la que cae en la red del ámbito declarado se respeta, y la que cae en la otra se "
+    "quita: el ámbito se decide por dónde cae la dirección cuando la concesión no lo dice",
 )
 
 # ---------------------------------------------------------------------------

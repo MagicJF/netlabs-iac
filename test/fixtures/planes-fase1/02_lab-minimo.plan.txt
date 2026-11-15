@@ -1,4 +1,4 @@
-PLAN del lab 'lab-minimo'
+PLAN del lab '02_lab-minimo'
 ============================================================
 
 Identidad asignada por el motor (no declarada, no guardada):
@@ -8,12 +8,12 @@ Llamadas REST que se harían, en orden (5):
 
    1. POST /pools
       comment = topología gestionada por netlabs_v4_b (motor por API)
-      poolid = lab-minimo
-      porque: no existe el pool 'lab-minimo': es la frontera de propiedad del lab
+      poolid = lab_02_lab-minimo
+      porque: no existe el pool 'lab_02_lab-minimo': es la frontera de propiedad del lab
 
    2. POST /nodes/nodo-simulado/network
       autostart = 1
-      comments = lab=lab-minimo gestionado por netlabs_v4_b
+      comments = lab=02_lab-minimo gestionado por netlabs_v4_b
       iface = vmb_lab_minimo
       type = bridge
       porque: el bridge 'vmb_lab_minimo' no existe en el nodo nodo-simulado: se crea y se marca como de este lab, para que `destroy` pueda borrarlo después
@@ -23,12 +23,12 @@ Llamadas REST que se harían, en orden (5):
 
    4. POST /nodes/nodo-simulado/lxc
       cores = 1
-      description = lab=lab-minimo rol=workstation-1 gestionado por netlabs_v4_b
-      hostname = lab-minimo-workstation-1
+      description = lab=02_lab-minimo rol=workstation-1 gestionado por netlabs_v4_b
+      hostname = ws-1
       memory = 256
       net0 = name=eth0,bridge=vmb_lab_minimo,hwaddr=BC:24:11:00:00:64,ip=198.51.100.11/24
       ostemplate = local:vztmpl/debian-13-standard_13.6-1_amd64.tar.zst
-      pool = lab-minimo
+      pool = lab_02_lab-minimo
       vmid = 100
       porque: el rol 'workstation-1' no está desplegado: se crea con el vmid 100 (el menor libre del clúster)
 

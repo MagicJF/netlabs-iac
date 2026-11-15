@@ -132,7 +132,10 @@ def estado_desde_api(datos):
       - `red_nodo`: GET /nodes/<nodo>/network -- los bridges que ya existen.
       - `configs`: {vmid: {config}} -- GET /nodes/<nodo>/<tipo>/<vmid>/config, para
         la descripción, los recursos y la red de los invitados DEL lab.
-      - `lab`: el nombre del pool de este lab (su carpeta).
+      - `lab`: el nombre de la CARPETA del lab. El del pool no se escribe a mano: lo
+        deriva `identidad_pool` (prefijo `lab_`, que es lo que Proxmox exige a un poolid),
+        y es con ese nombre -- no con el de la carpeta -- con el que se compara para
+        saber de quién es cada invitado.
     """
     lab = datos["lab"]
     estado = estado_vacio()
@@ -181,7 +184,13 @@ def estado_desde_api(datos):
         tipo = recurso.get("type")
         pool = recurso.get("pool")
         nombre = recurso.get("name") or recurso.get("id") or str(vmid)
-        if pool == lab:
+        # La frontera de propiedad: el invitado es de este lab si está en SU pool, y el
+        # pool lleva el prefijo del motor (`lab_<lab>`, `identidad_pool`), que es lo que
+        # Proxmox exige a un poolid. Compararlo con el nombre de la carpeta -- que es lo
+        # que se hacía -- dejaba a TODOS los invitados propios en `invitados_otros`: el
+        # plan los veía como de nadie, los creaba otra vez con vmids nuevos y el motor
+        # dejaba de ser idempotente (y duplicaba la topología en cada pasada).
+        if pool == modulo_identidad.identidad_pool(lab):
             config = configs.get(str(vmid), {})
             bridge, mac = _red_de_net0(config.get("net0"))
             tipo = "lxc" if tipo == "lxc" else "qemu"
@@ -212,7 +221,7 @@ def estado_desde_api(datos):
                 # significa `tty`, no «desconocido».
                 "cmode": (config.get("cmode") or "tty") if tipo == "lxc" else None,
             }
-            estado["pools"].setdefault(lab, {})
+            estado["pools"].setdefault(modulo_identidad.identidad_pool(lab), {})
         else:
             # Está en el clúster pero NO es de este lab: puede ser de otro lab, o
             # de nadie. Se guarda aparte para poder decirlo en el informe.
@@ -488,11 +497,13 @@ def pve_invitados_del_pool(cluster_recursos, lab):
     """Los invitados que la API dice que están en el pool del lab.
 
     Es lo que se usa para pedir la configuración de cada uno (descripción, recursos,
-    red). Sólo mira el pool: la frontera de propiedad, no un rango de vmids.
+    red). Sólo mira el pool: la frontera de propiedad, no un rango de vmids. El nombre
+    del pool lleva el prefijo del motor (`identidad_pool`), que es lo que Proxmox exige.
     """
+    poolid = modulo_identidad.identidad_pool(lab)
     salida = []
     for recurso in cluster_recursos or []:
-        if recurso.get("pool") != lab:
+        if recurso.get("pool") != poolid:
             continue
         if recurso.get("vmid") is None:
             continue
@@ -507,9 +518,10 @@ def pve_invitados_fuera_del_pool(cluster_recursos, lab):
     antes de borrarlo. Los invitados sin pool cuentan igual que los de otro lab: si
     uno está colgado de un bridge del lab, ese bridge NO se borra.
     """
+    poolid = modulo_identidad.identidad_pool(lab)
     salida = []
     for recurso in cluster_recursos or []:
-        if recurso.get("pool") == lab or recurso.get("vmid") is None:
+        if recurso.get("pool") == poolid or recurso.get("vmid") is None:
             continue
         salida.append(_invitado_normalizado(recurso))
     return sorted(salida, key=lambda i: i["vmid"])

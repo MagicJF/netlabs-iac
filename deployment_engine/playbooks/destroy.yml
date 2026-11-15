@@ -50,6 +50,14 @@
           se hace.
       when: (pve_mundo_error | default('') | length) > 0
 
+    # El pool del lab es su frontera de propiedad, y SU NOMBRE lleva el prefijo del motor
+    # (`identidad_pool`): Proxmox exige que un poolid EMPIECE POR LETRA, y la carpeta de un
+    # lab empieza por su número de antigüedad (ADR 0016). Todo lo que toque el pool usa
+    # `pve_pool`; `pve_lab` sigue siendo el nombre del lab (diarios, informes, descripciones).
+    - name: "DESTROY · el pool del lab (su frontera de propiedad)"
+      ansible.builtin.set_fact:
+        pve_pool: "{{ pve_lab | identidad_pool }}"
+
     # La comprobación de seguridad: nada en el pool que la declaración no reconozca.
     - name: "DESTROY · comprobar que en el pool no hay nada ajeno"
       ansible.builtin.set_fact:
@@ -59,7 +67,7 @@
       ansible.builtin.fail:
         msg: |-
           DESTROY CANCELADO para el lab '{{ pve_lab }}'.
-          En el pool '{{ pve_lab }}' hay invitados que la declaración NO reconoce:
+          En el pool '{{ pve_pool }}' hay invitados que la declaración NO reconoce:
           {% for sobrante in informe.sobran %}
             - vmid={{ sobrante.vmid }} nombre={{ sobrante.nombre }} rol={{ sobrante.rol }} ({{ sobrante.nota }})
           {% endfor %}
@@ -71,7 +79,7 @@
       ansible.builtin.debug:
         msg: >-
           '{{ pve_lab }}': se borrarán {{ informe.encontrados_en_pool }} invitado(s) del
-          pool y, después, el pool si queda vacío.
+          pool '{{ pve_pool }}' y, después, el pool si queda vacío.
 
     # Sólo se borra lo que está EN EL POOL del lab (la frontera de propiedad): un
     # invitado de otro lab jamás entra en esta lista.
@@ -88,9 +96,22 @@
         pve_api_metodo: POST
         pve_api_ruta: "/nodes/{{ item.nodo }}/{{ item.tipo }}/{{ item.vmid }}/status/stop"
         pve_api_etiqueta: "paro del invitado {{ item.vmid }} ({{ item.nombre }})"
+        # El paro se tolera, y se dice. Puede fallar por una razón buena -- el invitado ya
+        # estaba parado -- o por una mala -- no hay manera de pararlo. La guarda de verdad
+        # es el BORRADO que viene después, que NO tolera nada: Proxmox se niega a borrar un
+        # invitado arrancado, así que un paro de verdad fallido se para ahí, con su razón.
+        pve_api_tolerar_error: true
       loop: "{{ estado.invitados | dict2items | map(attribute='value') | selectattr('arrancado') | list }}"
       loop_control:
         label: "{{ item.tipo }}/{{ item.vmid }} {{ item.nombre }}"
+
+    - name: "DESTROY · lo que se toleró al parar (está en el diario, y no todo son buenas noticias)"
+      ansible.builtin.debug:
+        msg: >-
+          {% for fallo in pve_errores_tolerados | default([]) %}
+          · {{ fallo.metodo }} {{ fallo.ruta }} — {{ fallo.error }}
+          {% endfor %}
+      when: (pve_errores_tolerados | default([]) | length) > 0
 
     - name: "DESTROY · borrar cada invitado del lab (esperando a cada borrado)"
       ansible.builtin.include_tasks: ../tasks/pve_api_y_esperar.yml
@@ -108,9 +129,9 @@
       ansible.builtin.include_tasks: ../tasks/pve_api.yml
       vars:
         pve_api_metodo: DELETE
-        pve_api_ruta: "/pools/{{ pve_lab }}"
+        pve_api_ruta: "/pools/{{ pve_pool }}"
         pve_api_etiqueta: "el pool del lab, ya vacío"
-      when: pve_lab in (estado.pools | default({}))
+      when: pve_pool in (estado.pools | default({}))
 
     # --- Los bridges: del nodo, no del lab --------------------------------------
     # Un bridge no está en ningún pool, así que la frontera de propiedad no sirve

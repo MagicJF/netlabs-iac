@@ -13,6 +13,7 @@
 # VER:         README.md §Cómo se usa; AGENTS.md §Mapa
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -45,7 +46,8 @@ AYUDA = """\
 netlabs_v4_b — motor de despliegue en Proxmox por su API REST
 
     ./lab list                      labs declarados en labs/
-    ./lab new <nombre>              scaffoldea labs/<nombre>/ desde labs/.plantilla/
+    ./lab new <nombre>              scaffoldea labs/NN_<nombre>/ desde labs/.plantilla/;
+                                    el NN es el siguiente número libre (por antigüedad)
     ./lab --lab <nombre> plan       ORDENA y muestra las llamadas REST que haría
     ./lab --lab <nombre> preflight  sólo lectura: qué hay, qué falta, qué difiere
     ./lab --lab <nombre> apply      converge lo declarado + verifica
@@ -118,9 +120,41 @@ def orden_list():
     return 0
 
 
+def siguiente_numero_libre():
+    """El número que le toca al siguiente lab.
+
+    Los labs se numeran por ANTIGÜEDAD y la carpeta lo lleva delante (`01_`, `02_`…), así
+    que el número no se inventa: es el mayor que ya hay, más uno. Se mira el mayor y no la
+    cuenta a propósito -- si un lab se renombra o su carpeta desaparece, su número no se
+    reutiliza y el orden histórico no se falsea.
+    """
+    usados = []
+    for lab in labs_declarados():
+        coincidencia = re.match(r"^(\d+)_", lab)
+        if coincidencia:
+            usados.append(int(coincidencia.group(1)))
+    return (max(usados) + 1) if usados else 1
+
+
 def orden_new(nombre):
-    if not nombre or not all(c.isalnum() or c == "-" for c in nombre) or nombre != nombre.lower():
-        return fallo(f"nombre de lab inválido: {nombre!r} (minúsculas, dígitos y guiones)")
+    # El número va DELANTE y lo pone el wrapper, porque el prefijo es una propiedad del
+    # REPOSITORIO (el orden de antigüedad, para que `ls labs/` se lea de arriba abajo) y no
+    # del lab que se está creando. Se puede pedir uno concreto escribiéndolo (`./lab new
+    # 07_lo-que-sea`), y si no, se toma el siguiente libre: así dos labs nunca comparten
+    # prefijo, aunque uno se cree entre medias de otros dos.
+    base = nombre or ""
+    numero_pedido = None
+    coincidencia = re.match(r"^(\d+)_(.+)$", base)
+    if coincidencia:
+        numero_pedido, base = int(coincidencia.group(1)), coincidencia.group(2)
+    if not base or not all(c.isalnum() or c == "-" for c in base) or base != base.lower():
+        return fallo(
+            f"nombre de lab inválido: {nombre!r} (minúsculas, dígitos y guiones; "
+            "el prefijo numérico lo pone el wrapper)"
+        )
+
+    numero = numero_pedido if numero_pedido is not None else siguiente_numero_libre()
+    nombre = f"{numero:02d}_{base}"
     destino = os.path.join(DIRECTORIO_LABS, nombre)
     if os.path.exists(destino):
         return fallo(f"labs/{nombre} ya existe")
@@ -150,6 +184,10 @@ def orden_new(nombre):
         fichero.write("")
 
     print(f"labs/{nombre}/ creado desde labs/.plantilla/")
+    print("Dos cosas que el esqueleto NO puede decidir por ti:")
+    print("  · el `tipo:` de cada invitado (`rt`/`srv`/`ws`/`sw`/`ctl`): el nombre en Proxmox")
+    print("    dice qué EQUIPO es, no de qué lab es (`rt-borde`, `srv-1`) -- ADR 0015")
+    print("  · su alias, si no quieres que sea el rol (`nombre: 2` -> `ws-2`)")
     print("Siguiente paso:")
     print(f"  1. rellena labs/{nombre}/{nombre}.yml (roles, bridges, direcciones y escalones)")
     print(f"  2. ./lab --lab {nombre} plan")

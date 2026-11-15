@@ -1,10 +1,10 @@
-<!-- PROPÓSITO:   el documento del lab `lab-dos-redes`. Dos regiones: la generada
+<!-- PROPÓSITO:   el documento del lab `03_lab-dos-redes`. Dos regiones: la generada
      (datos derivados de la declaración) y la prosa (lo que el YAML no puede decir).
      INVARIANTES: dentro de los marcadores no se escribe a mano; `./lab check docs`
      falla si difiere del render. Fuera, ningún check opina.
      LÍMITES:     la prosa no repite valores que ya están en la tabla: los cita.
      VER:         AGENTS.md §Documentación; README.md §Documentación -->
-# lab-dos-redes
+# 03_lab-dos-redes
 
 La topología que sube un escalón respecto al lab de tres dispositivos: **dos redes
 separadas —perímetro y núcleo—, cinco invitados en tres escalones de arranque, dos
@@ -19,7 +19,7 @@ y que el motor no sabe nada de ninguna de las dos —el reparto entre `perimetro
 `nucleo` vive entero en la declaración, no en el código—.
 
 <!-- generado:inicio -->
-_Datos derivados de `lab-dos-redes.yml`. Los reescribe `./lab check docs --actualizar`;
+_Datos derivados de `03_lab-dos-redes.yml`. Los reescribe `./lab check docs --actualizar`;
 si los editas a mano, `./lab check docs` falla._
 
 ## Invitados declarados
@@ -51,11 +51,11 @@ si los editas a mano, `./lab check docs` falla._
 
 | rol | tipo | nombre canónico | vmid | MAC |
 | --- | --- | --- | --- | --- |
-| borde | VM (qemu) | lab-dos-redes-borde | — | — |
-| nucleo | VM (qemu) | lab-dos-redes-nucleo | — | — |
-| puesto-1 | LXC | lab-dos-redes-puesto-1 | — | — |
-| puesto-2 | LXC | lab-dos-redes-puesto-2 | — | — |
-| servidor | LXC | lab-dos-redes-servidor | — | — |
+| borde | VM (qemu) | {equipo}-{alias} | — | — |
+| nucleo | VM (qemu) | {equipo}-{alias} | — | — |
+| puesto-1 | LXC | {equipo}-{alias} | — | — |
+| puesto-2 | LXC | {equipo}-{alias} | — | — |
+| servidor | LXC | {equipo}-{alias} | — | — |
 
 El **vmid** (el menor libre de *todo* el clúster) y la **MAC** (`BC:24:11` + los
 bytes del vmid) los asigna `apply` leyendo el estado de Proxmox: no se declaran aquí y
@@ -81,7 +81,7 @@ real**; más abajo queda anotado lo que se aprendió al hacerlo.
 
 2. **Sustituye las direcciones del lab.** Este lab declara direcciones en
    `203.0.113.0/24`, que es un rango reservado para documentación (RFC 5737) y no
-   existe en ninguna red real. Edita `lab-dos-redes.yml` y pon las tuyas. Ojo: hoy
+   existe en ninguna red real. Edita `03_lab-dos-redes.yml` y pon las tuyas. Ojo: hoy
    esas direcciones son el **plan de direccionamiento** del lab, no algo que el
    motor escriba en el invitado ni en el bridge (ver «Un límite que se ve al leer
    la topología»). Los dos nombres de bridge ya cumplen el formato que el núcleo
@@ -90,19 +90,19 @@ real**; más abajo queda anotado lo que se aprendió al hacerlo.
 
 3. **Mira el plan** (no toca nada):
    ```
-   ./lab --lab lab-dos-redes plan --api
+   ./lab --lab 03_lab-dos-redes plan --api
    ```
    Sin `--api`, `plan` usa un clúster vacío simulado y sirve igual para revisar el
    orden de las llamadas.
 
 4. **Pregunta qué hay y qué falta**, sólo lectura:
    ```
-   ./lab --lab lab-dos-redes preflight
+   ./lab --lab 03_lab-dos-redes preflight
    ```
 
 5. **Converge**:
    ```
-   ./lab --lab lab-dos-redes apply
+   ./lab --lab 03_lab-dos-redes apply
    ```
    `apply` ejecuta exactamente el plan que acabas de ver: crea el pool, crea los
    bridges que falten y recarga la red del nodo una sola vez, crea o ajusta cada
@@ -110,14 +110,14 @@ real**; más abajo queda anotado lo que se aprendió al hacerlo.
 
 6. **Verifica** contra la API, que es el único test que no se cree a sí mismo:
    ```
-   ./lab --lab lab-dos-redes verify
+   ./lab --lab 03_lab-dos-redes verify
    ```
 
 7. **Destruye** cuando ya no lo quieras (borra los invitados del lab, su pool si ha
    quedado vacío y, al final, **los bridges que creó él** —los que llevan su marca en
    el `comments` y que ya no usa nadie—, con **una** recarga de red):
    ```
-   ./lab --lab lab-dos-redes destroy
+   ./lab --lab 03_lab-dos-redes destroy
    ```
    El verbo dice bridge a bridge qué se lleva y qué conserva, y por qué. Un bridge
    que ya estaba en el nodo antes de que el lab llegara no lleva marca: se queda

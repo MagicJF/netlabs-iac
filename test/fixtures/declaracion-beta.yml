@@ -1,12 +1,15 @@
 ---
 # PROPÓSITO:   la segunda declaración de juguete de los tests: es la prueba de que
-#              dos labs distintos reciben identidades DISJUNTAS partiendo del mismo
-#              estado del mundo.
-# INVARIANTES: declara un rol con el MISMO nombre que el otro fixture a propósito:
-#              el nombre canónico lo desambigua el motor (`<lab>-<rol>`), y el vmid
-#              no se puede compartir. Eso es exactamente lo que hay que demostrar.
+#              dos labs distintos reciben vmids DISJUNTOS partiendo del mismo estado
+#              del mundo.
+# INVARIANTES: declara un rol con el MISMO nombre que el otro fixture A PROPÓSITO: el
+#              vmid no se puede compartir. Y desde el ADR 0015 el NOMBRE tampoco los
+#              desambigua -- el nombre dice qué EQUIPO es, no de qué lab es, así que
+#              los dos `nucleo` se llaman `rt-nucleo` y quien dice de quién es cada
+#              uno es el pool y la descripción (`lab=… rol=…`). Eso es exactamente lo
+#              que hay que demostrar.
 # LÍMITES:     direcciones de documentación (RFC 5737).
-# VER:         test/test_identidad.py
+# VER:         test/test_identidad.py; docs/decisiones/0015-el-nombre-dice-que-es-el-equipo.md
 lab:
   nombre: beta
   escalones: [1]
@@ -15,6 +18,7 @@ lab:
       direccion: 198.51.100.1/24
 containers:
   - rol: nucleo
+    tipo: rt          # el mismo tipo y el mismo rol que alfa -> el mismo nombre, 'rt-nucleo'
     escalon: 1
     cores: 1
     memoria: 256

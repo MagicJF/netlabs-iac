@@ -4,13 +4,13 @@
 #              un sitio para exigir que el validador lo cace y lo diga. Un validador
 #              que no se ha visto fallar no es un validador.
 # INVARIANTES: ninguna prueba toca la API ni escribe nada. Todas parten de una copia
-#              del lab de aceptación (`labs/lab-red-routeros`), así que si el lab de
+#              del lab de aceptación (`labs/04_lab-red-routeros`), así que si el lab de
 #              aceptación deja de ser coherente, esta batería lo dice en su primera
 #              línea en vez de esconderlo.
 # LÍMITES:     prueba la coherencia INTERNA de una declaración; NO prueba que la API
 #              acepte lo declarado (eso lo dice `plan`/`apply`) ni la disjunción de
 #              vmids entre labs (necesita credenciales).
-# VER:         labs/lab-red-routeros/lab-red-routeros.yml; AGENTS.md §Reglas duras;
+# VER:         labs/04_lab-red-routeros/04_lab-red-routeros.yml; AGENTS.md §Reglas duras;
 #              deployment_engine/filter_plugins/declaracion.py
 
 import copy
@@ -24,8 +24,8 @@ sys.path.insert(0, os.path.join(RAIZ, "deployment_engine", "filter_plugins"))
 
 import declaracion as modulo  # noqa: E402
 
-RUTA_LAB = os.path.join(RAIZ, "labs", "lab-red-routeros", "lab-red-routeros.yml")
-CARPETA = "lab-red-routeros"
+RUTA_LAB = os.path.join(RAIZ, "labs", "04_lab-red-routeros", "04_lab-red-routeros.yml")
+CARPETA = "04_lab-red-routeros"
 
 FALLOS = []
 

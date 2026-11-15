@@ -155,17 +155,19 @@ def construir_plan(declaracion, estado, identidad, parametros):
     lab = declaracion["lab"]
     pasos = []
 
-    # Fase 0 — el pool: la frontera de propiedad. Se llama como la carpeta del lab.
-    # Sin pool no hay forma de saber qué invitado es de este lab sin un fichero de
-    # estado, así que va lo primero.
-    if lab not in (estado.get("pools") or {}):
+    # Fase 0 — el pool: la frontera de propiedad. Su nombre lleva el prefijo del motor
+    # porque Proxmox exige que un poolid EMPIECE POR LETRA y la carpeta de un lab empieza
+    # por su número de antigüedad (ADR 0016). Sin pool no hay forma de saber qué invitado
+    # es de este lab sin un fichero de estado, así que va lo primero.
+    pool = modulo_identidad.identidad_pool(lab)
+    if pool not in (estado.get("pools") or {}):
         pasos.append(
             _paso(
                 ACCION_POOL,
                 "POST",
                 "/pools",
-                {"poolid": lab, "comment": parametros.get("comentario_pool", "")},
-                f"no existe el pool '{lab}': es la frontera de propiedad del lab",
+                {"poolid": pool, "comment": parametros.get("comentario_pool", "")},
+                f"no existe el pool '{pool}': es la frontera de propiedad del lab",
             )
         )
 
@@ -489,7 +491,7 @@ def _parametros_creacion(invitado, lab, declaracion, estado, parametros):
     comunes = {
         "vmid": invitado["vmid"],
         "description": invitado["descripcion"],
-        "pool": lab,
+        "pool": modulo_identidad.identidad_pool(lab),
         "cores": invitado["cores"],
         "memory": invitado["memoria"],
     }

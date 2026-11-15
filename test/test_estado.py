@@ -23,7 +23,7 @@
 #                 una dirección ocupada. Eso es la razón de existir de todo lo demás.
 # LÍMITES:     no prueba la lectura de verdad (eso es el ciclo contra el VPS): las dos
 #              formas están escritas A MANO aquí, tomadas de una respuesta REAL del agente
-#              de un CHR (labs/research/research.md) y de un contenedor del nodo.
+#              de un CHR (labs/05_research/05_research.md) y de un contenedor del nodo.
 # VER:         docs/decisiones/0011-el-agente-de-invitado.md;
 #              deployment_engine/tasks/direcciones.yml
 

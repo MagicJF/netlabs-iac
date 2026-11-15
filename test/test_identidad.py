@@ -29,7 +29,9 @@ import identidad as modulo_identidad  # noqa: E402
 # Los mismos valores que los defaults del motor: el test no inventa un entorno, usa
 # el del repositorio.
 PLANTILLA_DESCRIPCION = "lab={lab} rol={rol} gestionado por netlabs_v4_b"
-PLANTILLA_NOMBRE = "{lab}-{rol}"
+# El nombre dice QUÉ ES, no de qué lab es (ADR 0015): el tipo de equipo y el alias (o el
+# rol, si el lab no declara uno). Es la plantilla del motor, copiada a propósito.
+PLANTILLA_NOMBRE = "{equipo}-{alias}"
 PREFIJO_MAC = "BC:24:11"
 VMID_MINIMO = 100
 VMID_MAXIMO = 999999
@@ -74,11 +76,11 @@ def caso_1_dos_labs_disjuntos():
     comprobar(not alfa["errores"], "el asignador no da errores para alfa")
 
     con_alfa = fixture_json("cluster-vacio.json")
-    con_alfa["pools"]["alfa"] = {"comment": "alfa"}
+    con_alfa["pools"]["lab_alfa"] = {"comment": "alfa"}
     con_alfa["vmids_usados"] = sorted(alfa["mapa_rol_vmid"].values())
     for invitado in alfa["invitados"]:
         # `pool` es lo que ata el invitado a su lab; el estado real siempre lo trae.
-        con_alfa["invitados"][str(invitado["vmid"])] = {**invitado, "pool": "alfa"}
+        con_alfa["invitados"][str(invitado["vmid"])] = {**invitado, "pool": "lab_alfa"}
 
     beta = asignar("declaracion-beta.yml", con_alfa)
     comprobar(not beta["errores"], "el asignador no da errores para beta")
@@ -94,11 +96,20 @@ def caso_1_dos_labs_disjuntos():
     )
     nombres_alfa = {i["nombre"] for i in alfa["invitados"]}
     nombres_beta = {i["nombre"] for i in beta["invitados"]}
+    # DESDE EL ADR 0015 los nombres SÍ pueden coincidir: dicen qué es el equipo, no de qué
+    # lab es. Los dos labs tienen un `nucleo` de tipo `rt`, así que los dos se llaman
+    # `rt-nucleo` -- y no pasa nada, porque lo que dice de quién es cada uno es el pool y
+    # la descripción (`lab=… rol=…`), que sí son disjuntos.
     comprobar(
-        nombres_alfa & nombres_beta == set(),
-        "los nombres canónicos tampoco chocan (el rol 'nucleo' se repite a propósito)",
+        "rt-nucleo" in nombres_alfa and "rt-nucleo" in nombres_beta,
+        "el nombre canónico es <tipo>-<alias>, y se repite entre labs a propósito",
     )
-    comprobar("alfa-nucleo" in nombres_alfa and "beta-nucleo" in nombres_beta, "el nombre canónico es <lab>-<rol>")
+    descripciones_alfa = {i["descripcion"] for i in alfa["invitados"]}
+    descripciones_beta = {i["descripcion"] for i in beta["invitados"]}
+    comprobar(
+        descripciones_alfa & descripciones_beta == set(),
+        "lo que NO se repite es la descripción: `lab=…` dice de quién es cada invitado",
+    )
     comprobar(
         modulo_identidad.identidad_mac(100, PREFIJO_MAC) == "BC:24:11:00:00:64",
         "la MAC es función pura del vmid (100 -> BC:24:11:00:00:64)",
@@ -147,7 +158,7 @@ def caso_2_vmid_ocupado():
     # Adopción: sólo si el invitado está en el pool DEL LAB. Se le da a alfa un
     # invitado propio (vmid 200) y otro de beta con el MISMO rol declarado.
     estado2 = fixture_json("cluster-vacio.json")
-    estado2["pools"] = {"alfa": {}, "beta": {}}
+    estado2["pools"] = {"lab_alfa": {}, "lab_beta": {}}
     estado2["invitados"] = {
         "200": {
             "vmid": 200,
@@ -156,7 +167,7 @@ def caso_2_vmid_ocupado():
             "descripcion": "lab=alfa rol=nucleo gestionado por netlabs_v4_b",
             "cores": 2, "memoria": 512, "bridge": "vmb-alfa",
             "mac": modulo_identidad.identidad_mac(200, PREFIJO_MAC),
-            "arrancado": True, "pool": "alfa", "nodo": "pve-simulado",
+            "arrancado": True, "pool": "lab_alfa", "nodo": "pve-simulado",
         },
         "300": {
             "vmid": 300,
@@ -165,7 +176,7 @@ def caso_2_vmid_ocupado():
             "descripcion": "lab=beta rol=nucleo gestionado por netlabs_v4_b",
             "cores": 1, "memoria": 256, "bridge": "vmb_beta",
             "mac": modulo_identidad.identidad_mac(300, PREFIJO_MAC),
-            "arrancado": True, "pool": "beta", "nodo": "pve-simulado",
+            "arrancado": True, "pool": "lab_beta", "nodo": "pve-simulado",
         },
     }
     resultado2 = asignar("declaracion-alfa.yml", estado2)
@@ -212,7 +223,7 @@ def caso_4_declaracion_incoherente():
 def caso_5_rol_ya_desplegado_conserva_vmid():
     print("\ncaso 5 — un rol ya desplegado CONSERVA su vmid (si no, apply no sería idempotente)")
     estado = fixture_json("cluster-vacio.json")
-    estado["pools"]["alfa"] = {"comment": "alfa"}
+    estado["pools"]["lab_alfa"] = {"comment": "alfa"}
     estado["vmids_usados"] = [100]
     estado["invitados"] = {
         "100": {
@@ -225,7 +236,7 @@ def caso_5_rol_ya_desplegado_conserva_vmid():
             "bridge": "vmb_alfa",
             "mac": "BC:24:11:00:00:64",
             "arrancado": True,
-            "pool": "alfa",
+            "pool": "lab_alfa",
             "nodo": "pve-simulado",
         }
     }
@@ -249,7 +260,7 @@ def caso_6_verificacion_en_los_dos_sentidos():
 
     # Ahora al revés: todo existe... y ADEMÁS sobra un invitado en el pool del lab.
     estado2 = fixture_json("cluster-con-vecino.json")
-    estado2["pools"]["alfa"] = {"comment": "alfa"}
+    estado2["pools"]["lab_alfa"] = {"comment": "alfa"}
     estado2["invitados"]["777"] = {
         "vmid": 777,
         "nombre": "copia-a-mano",
@@ -260,7 +271,7 @@ def caso_6_verificacion_en_los_dos_sentidos():
         "bridge": "vmb_alfa",
         "mac": None,
         "arrancado": True,
-        "pool": "alfa",
+        "pool": "lab_alfa",
         "nodo": "pve-simulado",
     }
     estado2["vmids_usados"] = sorted(set(estado2["vmids_usados"] + [777]))
@@ -276,7 +287,7 @@ def caso_6_verificacion_en_los_dos_sentidos():
             "bridge": "vmb_alfa",
             "mac": modulo_identidad.identidad_mac(vmid, PREFIJO_MAC),
             "arrancado": True,
-            "pool": "alfa",
+            "pool": "lab_alfa",
             "nodo": "pve-simulado",
         }
     identidad2 = modulo_identidad.identidad_asignar(
@@ -303,6 +314,63 @@ def caso_7_informe_de_otro_lab():
     comprobar("no es verificable por API" in texto, "el informe declara que la dirección IP no es comprobable")
 
 
+def caso_8_la_frontera_es_el_pool_del_lab():
+    print("\ncaso 8 — la frontera de propiedad es el pool DEL LAB (y su nombre lo pone el motor)")
+    # Este caso va de punta a punta y es el que faltaba: `cluster_recursos` (la forma
+    # CRUDA de /cluster/resources, con el `pool` de cada invitado) -> estado -> identidad.
+    # El pool de un lab se llama `lab_<lab>` (prefijo del motor, porque Proxmox exige que
+    # un poolid empiece por letra y la carpeta de un lab empieza por su número). Cuando
+    # `estado`/`identidad` comparaban el pool con el nombre de la CARPETA, ningún invitado
+    # propio se reconocía: el plan los veía como de nadie y volvía a crear la topología
+    # entera con vmids nuevos en cada pasada.
+    estado = modulo_estado.estado_desde_api(
+        {
+            "lab": "alfa",
+            "nodo": "pve-simulado",
+            "pools_lista": [
+                {"poolid": modulo_identidad.identidad_pool("alfa"), "comment": "alfa"},
+                {"poolid": modulo_identidad.identidad_pool("otro-lab"), "comment": "otro"},
+            ],
+            "red_nodo": [],
+            "cluster_recursos": [
+                {"vmid": 200, "type": "qemu", "name": "rt-nucleo", "node": "pve-simulado",
+                 "status": "running", "pool": modulo_identidad.identidad_pool("alfa")},
+                {"vmid": 300, "type": "lxc", "name": "rt-nucleo", "node": "pve-simulado",
+                 "status": "running", "pool": modulo_identidad.identidad_pool("otro-lab")},
+                {"vmid": 400, "type": "lxc", "name": "suelto", "node": "pve-simulado",
+                 "status": "stopped"},
+            ],
+            "configs": {
+                "200": {"name": "rt-nucleo", "cores": 2, "memory": 512,
+                        "description": "lab=alfa rol=nucleo gestionado por netlabs_v4_b",
+                        "net0": "virtio=BC:24:11:00:00:C8,bridge=vmb_alfa"},
+                "300": {"hostname": "rt-nucleo", "cores": 2, "memory": 512,
+                        "description": "lab=otro-lab rol=nucleo gestionado por netlabs_v4_b",
+                        "net0": "name=eth0,bridge=vmb_otro,hwaddr=BC:24:11:00:01:2C"},
+            },
+        }
+    )
+    comprobar("200" in estado["invitados"], "el invitado del pool del lab entra como PROPIO")
+    comprobar(
+        estado["invitados"]["200"]["pool"] == modulo_identidad.identidad_pool("alfa"),
+        "y guarda el nombre del pool tal cual lo da la API (con el prefijo)",
+    )
+    # `invitados_otros` va por NOMBRE (es el informe el que lo agrupa así), no por vmid.
+    otros_vmids = {i["vmid"] for i in estado["invitados_otros"].values()}
+    comprobar(200 not in otros_vmids, "el propio no se cuela entre los ajenos")
+    comprobar(300 in otros_vmids, "el del pool de otro lab NO se adopta")
+    comprobar(400 in otros_vmids, "ni uno sin pool: no es de nadie")
+
+    resultado = asignar("declaracion-alfa.yml", estado)
+    nucleo = [i for i in resultado["invitados"] if i["rol"] == "nucleo"][0]
+    comprobar(nucleo["vmid"] == 200, "y la identidad ADOPTA el invitado propio: conserva su vmid")
+    comprobar(nucleo["origen"] == "existente", "lo marca como existente, no como nuevo")
+    comprobar(
+        300 not in resultado["mapa_rol_vmid"].values(),
+        "el homónimo del pool de al lado no se toca",
+    )
+
+
 def main():
     print("=" * 62)
     print("TESTS DEL ASIGNADOR DE IDENTIDAD (fixtures, sin Proxmox)")
@@ -314,6 +382,7 @@ def main():
     caso_5_rol_ya_desplegado_conserva_vmid()
     caso_6_verificacion_en_los_dos_sentidos()
     caso_7_informe_de_otro_lab()
+    caso_8_la_frontera_es_el_pool_del_lab()
     print()
     print("=" * 62)
     if FALLOS:

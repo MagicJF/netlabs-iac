@@ -6,7 +6,7 @@
 #              los labs pequeños. No declara vmid ni MAC (regla 4.8).
 # LÍMITES:     no tiene VM, así que no ejercita la rama QEMU del plan; para eso
 #              está el otro lab de ejemplo.
-# VER:         labs/lab-minimo/lab-minimo.md; README.md §Identidad
+# VER:         labs/02_lab-minimo/02_lab-minimo.md; README.md §Identidad
 #
 # POR QUÉ EXISTE: es la prueba de que el motor no conoce ningún lab. Los mismos
 # verbos, sin tocar una línea de `deployment_engine/`, producen otro plan; y los
@@ -16,9 +16,12 @@
 # QUÉ SUSTITUIR para un Proxmox real: las direcciones, que están en 198.51.100.0/24
 # (rango reservado para documentación, RFC 5737, inexistente en la realidad). El
 # nombre del bridge ya es uno que el núcleo acepta (sin guiones, ≤15 caracteres).
+#
+# EL NOMBRE de sus invitados no lleva el lab (ADR 0015): dice QUÉ ES. Aquí hay un
+# puesto de trabajo (`tipo: ws`) que, al ser el número 1, se llama `ws-1` en Proxmox.
 
 lab:
-  nombre: lab-minimo
+  nombre: 02_lab-minimo
 
   escalones: [1]
 
@@ -28,6 +31,8 @@ lab:
 
 containers:
   - rol: workstation-1
+    tipo: ws          # un puesto de trabajo -> el nombre empieza por 'ws-'
+    nombre: 1         # ...y como es el 1, en Proxmox se llama 'ws-1'
     escalon: 1
     cores: 1
     memoria: 256

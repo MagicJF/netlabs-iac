@@ -1,6 +1,6 @@
 # Rendimiento del motor: dónde se va el tiempo y qué se ha recortado
 
-Medición hecha sobre `lab-red-routeros` (2 CHR + 1 LXC de puesto de control + 3 LXC),
+Medición hecha sobre `04_lab-red-routeros` (2 CHR + 1 LXC de puesto de control + 3 LXC),
 en el nodo Proxmox `54.36.168.83`, el 15-nov-2026. **Todo lo que aparece como "medido"
 sale de una ejecución real**; lo que es estimación va marcado como tal.
 
@@ -200,13 +200,13 @@ Por orden de tamaño:
 
 ```sh
 # perfil de un verbo (no toca el motor)
-perfilar.sh /tmp/perfil.tsv --lab lab-red-routeros apply
+perfilar.sh /tmp/perfil.tsv --lab 04_lab-red-routeros apply
 python3 analizar_perfil.py /tmp/perfil.tsv
 
 # la verdad de la API, en paralelo
 python3 - <<'EOF'
 import json, collections
-a=[json.loads(l) for l in open('labs/lab-red-routeros/logs/api.jsonl') if l.strip()]
+a=[json.loads(l) for l in open('labs/04_lab-red-routeros/logs/api.jsonl') if l.strip()]
 por=collections.defaultdict(list)
 for f in a: por[f.get('api','?')].append(f.get('duration_ms',0))
 for k,v in por.items(): print(k, len(v), f"{sum(v)/1000:.1f}s", f"media {sum(v)/len(v):.0f}ms")

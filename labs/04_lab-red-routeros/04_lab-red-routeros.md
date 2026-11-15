@@ -1,4 +1,4 @@
-# lab-red-routeros
+# 04_lab-red-routeros
 
 El lab de aceptación de la capa de configuración: **dos routers RouterOS (CHR)
 encadenados y un puesto de control**, con servidores y puestos como contenedores.
@@ -7,7 +7,7 @@ motor **entra** en cada equipo, lo **converge** y sabe **quitar lo que sobra**, 
 que nadie más toque el hipervisor ni la red del lab.
 
 <!-- generado:inicio -->
-_Datos derivados de `lab-red-routeros.yml`. Los reescribe `./lab check docs --actualizar`;
+_Datos derivados de `04_lab-red-routeros.yml`. Los reescribe `./lab check docs --actualizar`;
 si los editas a mano, `./lab check docs` falla._
 
 ## Invitados declarados
@@ -41,12 +41,12 @@ si los editas a mano, `./lab check docs` falla._
 
 | rol | tipo | nombre canónico | vmid | MAC |
 | --- | --- | --- | --- | --- |
-| borde | VM (qemu) | lab-red-routeros-borde | — | — |
-| control | LXC | lab-red-routeros-control | — | — |
-| nucleo | VM (qemu) | lab-red-routeros-nucleo | — | — |
-| servidor | LXC | lab-red-routeros-servidor | — | — |
-| puesto-1 | LXC | lab-red-routeros-puesto-1 | — | — |
-| puesto-2 | LXC | lab-red-routeros-puesto-2 | — | — |
+| borde | VM (qemu) | {equipo}-{alias} | — | — |
+| control | LXC | {equipo}-{alias} | — | — |
+| nucleo | VM (qemu) | {equipo}-{alias} | — | — |
+| servidor | LXC | {equipo}-{alias} | — | — |
+| puesto-1 | LXC | {equipo}-{alias} | — | — |
+| puesto-2 | LXC | {equipo}-{alias} | — | — |
 
 El **vmid** (el menor libre de *todo* el clúster) y la **MAC** (`BC:24:11` + los
 bytes del vmid) los asigna `apply` leyendo el estado de Proxmox: no se declaran aquí y

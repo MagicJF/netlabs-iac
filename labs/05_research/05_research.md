@@ -14,7 +14,7 @@ concreta y la responde aquí abajo: ¿se le puede poner el agente de invitado (Q
 agent) de Proxmox a una VM CHR de RouterOS, y sirve de algo?
 
 <!-- generado:inicio -->
-_Datos derivados de `research.yml`. Los reescribe `./lab check docs --actualizar`;
+_Datos derivados de `05_research.yml`. Los reescribe `./lab check docs --actualizar`;
 si los editas a mano, `./lab check docs` falla._
 
 ## Invitados declarados
@@ -40,8 +40,8 @@ si los editas a mano, `./lab check docs` falla._
 
 | rol | tipo | nombre canónico | vmid | MAC |
 | --- | --- | --- | --- | --- |
-| chr-agente | VM (qemu) | research-chr-agente | — | — |
-| control | LXC | research-control | — | — |
+| chr-agente | VM (qemu) | {equipo}-{alias} | — | — |
+| control | LXC | {equipo}-{alias} | — | — |
 
 El **vmid** (el menor libre de *todo* el clúster) y la **MAC** (`BC:24:11` + los
 bytes del vmid) los asigna `apply` leyendo el estado de Proxmox: no se declaran aquí y

@@ -1,5 +1,5 @@
 ---
-# PROPÓSITO:   declarar la topología del lab `ejemplo-topologia`: 1 VM que hace de
+# PROPÓSITO:   declarar la topología del lab `01_ejemplo-topologia`: 1 VM que hace de
 #              conmutador y 2 contenedores que hacen de puestos de trabajo.
 # INVARIANTES: esta es la FUENTE DE VERDAD del lab. Aquí NO hay ningún vmid ni
 #              ninguna MAC: los deriva el motor (regla 4.8). El nombre tiene que
@@ -8,7 +8,7 @@
 # LÍMITES:     este lab no declara `config:` (el motor SÍ sabe configurar el interior
 #              --vocabulario de la fase 2, `config:` e `imagen:`--, y lo ejerce el lab
 #              de aceptación). El interior del conmutador no se toca.
-# VER:         labs/ejemplo-topologia/ejemplo-topologia.md; README.md §Identidad
+# VER:         labs/01_ejemplo-topologia/01_ejemplo-topologia.md; README.md §Identidad
 
 # ---------------------------------------------------------------------------
 # QUÉ HAY QUE SUSTITUIR PARA LLEVARLO A UN PROXMOX REAL
@@ -24,9 +24,13 @@
 #   3. El resto (credenciales, nodo, plantilla de contenedor) NO está aquí: va en
 #      `deployment_engine/secrets.yml` y `deployment_engine/vars/engine.yml`.
 # ---------------------------------------------------------------------------
+#
+# EL NOMBRE de cada invitado dice QUÉ ES, no de qué lab es (ADR 0015): `tipo:` es el
+# equipo (aquí `sw` para el que conmuta y `ws` para los puestos) y `nombre:` es su
+# número, así que en Proxmox se leen `sw-1`, `ws-1` y `ws-2`.
 
 lab:
-  nombre: ejemplo-topologia
+  nombre: 01_ejemplo-topologia
 
   # El orden de arranque es parte de la topología: primero el conmutador, después
   # los puestos. El plan y `apply` arrancan escalón a escalón, nunca todo a la vez.
@@ -43,6 +47,8 @@ vms:
   # Una VM que hace de conmutador: tiene su interfaz en el bridge del lab. Su
   # interior no se configura; aquí sólo se despliega y se arranca.
   - rol: switch
+    tipo: sw          # conmuta -> el nombre empieza por 'sw-'
+    nombre: 1         # el primer conmutador del lab -> 'sw-1'
     escalon: 1
     cores: 2
     memoria: 512
@@ -54,6 +60,8 @@ vms:
 containers:
   # Dos puestos de trabajo. Comparten escalón: no dependen el uno del otro.
   - rol: workstation-1
+    tipo: ws          # un puesto de trabajo -> 'ws-1'
+    nombre: 1
     escalon: 2
     cores: 1
     memoria: 256
@@ -62,6 +70,8 @@ containers:
     direccion: 192.0.2.11/24
 
   - rol: workstation-2
+    tipo: ws          # y el segundo -> 'ws-2'
+    nombre: 2
     escalon: 2
     cores: 1
     memoria: 256

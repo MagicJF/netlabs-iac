@@ -1,6 +1,6 @@
 ---
-# PROPÓSITO:   declarar la topología del lab `conectividad-exterior`: el mismo lab que
-#              `lab-red-routeros` -- dos CHR encadenados y un puesto de control, con
+# PROPÓSITO:   declarar la topología del lab `06_conectividad-exterior`: el mismo lab que
+#              `04_lab-red-routeros` -- dos CHR encadenados y un puesto de control, con
 #              servidores y puestos como contenedores -- pero con el router de arriba
 #              declarado como SALIDA a internet (`exterior`), para poder demostrar que
 #              los contenedores que cuelgan de las redes de los CHR tienen salida de
@@ -20,12 +20,15 @@
 #              en `filter_plugins/interior.py` y la validación las rechaza con su motivo:
 #              aquí no se declaran, para no fingir que se configuran. Tampoco hay
 #              aplicaciones dentro de los invitados.
-# VER:         labs/conectividad-exterior/conectividad-exterior.md;
+# VER:         labs/06_conectividad-exterior/06_conectividad-exterior.md;
 #              docs/decisiones/0012-la-salida-del-lab.md (por qué así);
 #              docs/crear-un-lab.md (las decisiones, en orden); interior.py (`exterior`)
+#
+# EL NOMBRE de cada invitado dice QUÉ ES, no de qué lab es (ADR 0015): aquí se leen
+# `rt-borde`, `rt-nucleo`, `ctl-1`, `srv-1`, `ws-1` y `ws-2`.
 
 lab:
-  nombre: conectividad-exterior
+  nombre: 06_conectividad-exterior
 
   # Los mismos tres escalones que el lab de aceptación, y por la misma razón: primero el
   # puesto de control con el primer CHR, después el segundo escalón de la red, y sólo
@@ -34,8 +37,8 @@ lab:
   escalones: [1, 2, 3]
 
   # Todo lo del lab vive aquí. Lo vigila `./lab check supernet`. No se solapa con el del
-  # lab de aceptación (10.40.0.0/16) ni con el de `research` (10.41.0.0/16): lo que hace
-  # imposible que dos labs se pisen.
+  # lab de aceptación (10.40.0.0/16) ni con el de `05_research` (10.41.0.0/16): lo que
+  # hace imposible que dos labs se pisen.
   supernet: 10.42.0.0/16
 
   # Los bridges son del NODO, no del lab (Proxmox no mete interfaces en pools): el motor
@@ -70,6 +73,7 @@ vms:
   # sepa nada de la red de casa. Declararla además serían dos rutas compitiendo por el
   # mismo destino (lo avisa el consejo `exterior-con-ruta`).
   - rol: borde
+    tipo: rt          # es un router CHR -> 'rt-borde' (el alias es su rol)
     escalon: 1
     cores: 2
     memoria: 512
@@ -109,6 +113,7 @@ vms:
   # veces. Su dirección es estática declarada y el primer CHR la tiene reservada por su
   # MAC derivada, así que el encadenamiento funciona sin que nadie escriba una MAC.
   - rol: nucleo
+    tipo: rt          # el otro router del lab -> 'rt-nucleo'
     escalon: 2
     cores: 1
     memoria: 512
@@ -141,6 +146,8 @@ containers:
   # marcha obliga a reiniciarlo, y aquí no se reinicia la máquina que trabaja). Su
   # dirección en el bridge del nodo la DERIVA el motor de entre las libres.
   - rol: control
+    tipo: ctl         # un puesto de control (el bastión del lab) -> el nombre empieza por 'ctl-'
+    nombre: 1         # -> 'ctl-1'
     escalon: 1
     cores: 1
     memoria: 512
@@ -171,6 +178,8 @@ containers:
   # lo que se configura por la red no se configura por dentro. Su dirección vive en la
   # pata (`direccion`), que es donde vive en una máquina de verdad.
   - rol: servidor
+    tipo: srv         # un servidor -> 'srv-'
+    nombre: 1         # -> 'srv-1'
     escalon: 2
     cores: 1
     memoria: 512
@@ -180,6 +189,8 @@ containers:
     puerta: 10.42.1.1
 
   - rol: puesto-1
+    tipo: ws          # un puesto de trabajo -> 'ws-1'
+    nombre: 1
     escalon: 3
     cores: 1
     memoria: 512
@@ -191,6 +202,8 @@ containers:
   # el segundo CHR, su ruta por defecto pasa por el primero, y la traducción la hace el
   # router de salida.
   - rol: puesto-2
+    tipo: ws          # y el segundo -> 'ws-2'
+    nombre: 2
     escalon: 3
     cores: 1
     memoria: 512

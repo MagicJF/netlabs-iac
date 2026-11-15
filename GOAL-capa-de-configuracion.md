@@ -86,15 +86,15 @@ Léelo en este orden, y **no toques nada hasta entender las cuatro ideas que lo 
    puras probables con fixtures, no en plantillas Jinja dentro de un playbook.
 5. `deployment_engine/tools/framework_check.py` — los ocho checks. Dos de ellos (`puerta`,
    `pureza-lab`) son la razón por la que este encargo tiene la forma que tiene (§3, §12).
-6. `labs/lab-dos-redes/lab-dos-redes.yml` y su `.md` — la declaración y el documento de dos regiones.
+6. `labs/03_lab-dos-redes/03_lab-dos-redes.yml` y su `.md` — la declaración y el documento de dos regiones.
 7. `docs/decisiones/0001..0003` — las tres decisiones que no se vuelven a discutir; la 0001 es la que
    este encargo **acota** (§5), no la que deroga.
 
 **Estado medido hoy (14-nov-2026), no lo adivines:**
 
-- `./lab check` → **los 8 checks en verde**; `./lab --lab lab-dos-redes plan` (sin credenciales)
+- `./lab check` → **los 8 checks en verde**; `./lab --lab 03_lab-dos-redes plan` (sin credenciales)
   imprime un plan de 14 pasos contra el clúster vacío simulado.
-- En el VPS hay un despliegue real vivo del lab `lab-dos-redes` (pool homónimo: qemu 102 `borde`,
+- En el VPS hay un despliegue real vivo del lab `03_lab-dos-redes` (pool homónimo: qemu 102 `borde`,
   qemu 103 `nucleo`, lxc 104 `puesto-1`, 106 `puesto-2`, 107 `servidor`, todos `running`), con las
   MAC derivadas del vmid tal y como manda la regla 11
   (`net0: virtio=BC:24:11:00:00:66,bridge=vmb_perimetro`). **Ese despliegue es tu red de seguridad de
@@ -169,7 +169,7 @@ orden correcto**. Aquí el orden lo lleva el plan (§7).
     (LXC 101, `10.10.10.2`).
   - `vmbr1` = `10.10.10.1/24`, «NAT de salida de la LAN de gestion».
   - `vmbr22` = `10.20.20.1/24`, «SEGUNDO SEGMENTO DE GESTION (OOB)».
-  - Veinticuatro bridges en total: `vmb_nucleo` y `vmb_perimetro` son del lab `lab-dos-redes` (los
+  - Veinticuatro bridges en total: `vmb_nucleo` y `vmb_perimetro` son del lab `03_lab-dos-redes` (los
     creó el motor, en uso); **diecisiete de los `vmbr*` llevan un comentario `cable: …` y son
     huérfanos de v3** (sus invitados ya no existen, los bridges sí). No los toques: son la prueba
     viva de por qué existe la marca de propiedad de los bridges.
@@ -728,11 +728,11 @@ pide, para y justifícalo por escrito en el README (regla 10). Nada de coleccion
 
 ## 14. Los labs de aceptación
 
-1. **Un lab nuevo con CHR** (nombre sugerido: `lab-red-routeros`), que ejerza la cadena entera del
+1. **Un lab nuevo con CHR** (nombre sugerido: `04_lab-red-routeros`), que ejerza la cadena entera del
    §10: puesto de control (con su **camino**, §5) → primer CHR → segundo escalón → puestos dinámicos. Dos bridges como
    mínimo (gestión y una LAN), dos escalones de red, y puestos que obtienen su dirección del CHR. Es
    el lab que se despliega **de verdad** en el VPS y se destruye al final (§15).
-2. **Regresión de los labs de la fase 1** (`lab-dos-redes`, `lab-minimo`, `ejemplo-topologia`): **su
+2. **Regresión de los labs de la fase 1** (`03_lab-dos-redes`, `02_lab-minimo`, `01_ejemplo-topologia`): **su
    plan no puede cambiar ni un paso**, porque no declaran `config:` ni `imagen:`. Se comprueba
    comparando la salida de `plan` con una copia de referencia tomada **antes** de empezar.
 
@@ -743,15 +743,15 @@ Todo esto se ejecuta y se pega con la salida real. «Funciona» no es una salida
 ```bash
 ./lab check                          # todos los checks en verde, incluidos los nuevos
 python3 test/test_interior.py        # el driver puro: declarado+leído → pasos (con fixtures)
-./lab --lab lab-dos-redes plan       # MISMO plan que antes de empezar (regresión, §14)
+./lab --lab 03_lab-dos-redes plan       # MISMO plan que antes de empezar (regresión, §14)
 
 # el ciclo real contra el Proxmox del VPS, con el camino en pie:
-./lab --lab lab-red-routeros preflight      # dice qué hay y si el camino responde
-./lab --lab lab-red-routeros plan --api     # plan exacto: lecturas y escrituras
-./lab --lab lab-red-routeros apply          # converge en UNA sola pasada
-./lab --lab lab-red-routeros apply          # changed=0 y los TRES diarios con sólo lecturas
-./lab --lab lab-red-routeros verify         # CORRECTO, con lo de dentro comprobado dentro
-./lab --lab lab-red-routeros destroy --yes
+./lab --lab 04_lab-red-routeros preflight      # dice qué hay y si el camino responde
+./lab --lab 04_lab-red-routeros plan --api     # plan exacto: lecturas y escrituras
+./lab --lab 04_lab-red-routeros apply          # converge en UNA sola pasada
+./lab --lab 04_lab-red-routeros apply          # changed=0 y los TRES diarios con sólo lecturas
+./lab --lab 04_lab-red-routeros verify         # CORRECTO, con lo de dentro comprobado dentro
+./lab --lab 04_lab-red-routeros destroy --yes
 
 # y los DOS fallos correctos, provocados a propósito (parte del test, no un extra):
 # 1) el camino caído (puesto de control parado): `apply` DEBE reconstruirlo —arrancarlo y rehacer su

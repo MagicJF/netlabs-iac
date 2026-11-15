@@ -1,11 +1,11 @@
-<!-- PROPÓSITO:   el documento del lab `ejemplo-topologia`. Dos regiones: la
+<!-- PROPÓSITO:   el documento del lab `01_ejemplo-topologia`. Dos regiones: la
      generada (datos derivados de la declaración) y la prosa (lo que el YAML no
      puede decir).
      INVARIANTES: dentro de los marcadores no se escribe a mano; `./lab check docs`
      falla si difiere del render. Fuera, ningún check opina.
      LÍMITES:     la prosa no repite valores que ya están en la tabla: los cita.
      VER:         AGENTS.md §Documentación; README.md §Documentación -->
-# ejemplo-topologia
+# 01_ejemplo-topologia
 
 La topología que pidió el encargo: **una VM que hace de conmutador y dos
 contenedores que hacen de puestos de trabajo**. Es el lab "grande" de los dos de
@@ -16,7 +16,7 @@ arranque, un bridge propio, una VM con rol `switch` y dos contenedores que compa
 escalón —sin vmid, sin MAC y sin ningún nombre de invitado escrito a mano—.
 
 <!-- generado:inicio -->
-_Datos derivados de `ejemplo-topologia.yml`. Los reescribe `./lab check docs --actualizar`;
+_Datos derivados de `01_ejemplo-topologia.yml`. Los reescribe `./lab check docs --actualizar`;
 si los editas a mano, `./lab check docs` falla._
 
 ## Invitados declarados
@@ -44,9 +44,9 @@ si los editas a mano, `./lab check docs` falla._
 
 | rol | tipo | nombre canónico | vmid | MAC |
 | --- | --- | --- | --- | --- |
-| switch | VM (qemu) | ejemplo-topologia-switch | — | — |
-| workstation-1 | LXC | ejemplo-topologia-workstation-1 | — | — |
-| workstation-2 | LXC | ejemplo-topologia-workstation-2 | — | — |
+| switch | VM (qemu) | {equipo}-{alias} | — | — |
+| workstation-1 | LXC | {equipo}-{alias} | — | — |
+| workstation-2 | LXC | {equipo}-{alias} | — | — |
 
 El **vmid** (el menor libre de *todo* el clúster) y la **MAC** (`BC:24:11` + los
 bytes del vmid) los asigna `apply` leyendo el estado de Proxmox: no se declaran aquí y
@@ -77,39 +77,39 @@ aparecieron (nombre del nodo y nombre del bridge).
 
 2. **Sustituye las direcciones del lab.** Este lab declara direcciones en
    `192.0.2.0/24`, que es un rango reservado para documentación (RFC 5737) y no
-   existe en ninguna red real. Edita `ejemplo-topologia.yml` y pon las tuyas. El
+   existe en ninguna red real. Edita `01_ejemplo-topologia.yml` y pon las tuyas. El
    nombre del bridge (`vmb_ejemplo`) ya cumple el formato que el núcleo exige
    (sin guiones, 2 a 15 caracteres): el motor rechaza los que no lo cumplen antes
    de tocar la API.
 
 3. **Mira el plan** (no toca nada):
    ```
-   ./lab --lab ejemplo-topologia plan --api
+   ./lab --lab 01_ejemplo-topologia plan --api
    ```
    Sin `--api`, `plan` usa un clúster vacío simulado y sirve igual para revisar el
    orden de las llamadas.
 
 4. **Pregunta qué hay y qué falta**, sólo lectura:
    ```
-   ./lab --lab ejemplo-topologia preflight
+   ./lab --lab 01_ejemplo-topologia preflight
    ```
 
 5. **Converge**:
    ```
-   ./lab --lab ejemplo-topologia apply
+   ./lab --lab 01_ejemplo-topologia apply
    ```
    `apply` ejecuta exactamente el plan que acabas de ver: crea el pool, crea el
    bridge si falta, crea o ajusta cada invitado y los arranca por escalones.
 
 6. **Verifica** contra la API, que es el único test que no se cree a sí mismo:
    ```
-   ./lab --lab ejemplo-topologia verify
+   ./lab --lab 01_ejemplo-topologia verify
    ```
 
 7. **Destruye** cuando ya no lo quieras (borra los invitados del lab y, al final,
    su pool si ha quedado vacío):
    ```
-   ./lab --lab ejemplo-topologia destroy
+   ./lab --lab 01_ejemplo-topologia destroy
    ```
 
 ## Por qué así
@@ -137,9 +137,9 @@ vocabulario de la fase 2, `config:` e `imagen:`—, y lo ejerce el lab de acepta
 credenciales de relleno, lo único que se ha podido comprobar es el plan y que la
 verificación falla limpiamente.)*
 
-- **Lo verificado aquí:** `./lab --lab ejemplo-topologia plan` produce el orden
+- **Lo verificado aquí:** `./lab --lab 01_ejemplo-topologia plan` produce el orden
   esperado (pool → bridge → invitados → arrancada por escalones) y
-  `./lab --lab ejemplo-topologia verify` alcanza la API, no encuentra nada de lo
+  `./lab --lab 01_ejemplo-topologia verify` alcanza la API, no encuentra nada de lo
   declarado y lo dice sin traceback, dejando el informe en `logs/`.
 - **Lo no verificado:** todo lo que exige un Proxmox alcanzable. La disjunción de
   vmids con otros labs no se puede comprobar sin credenciales; el pool sí se

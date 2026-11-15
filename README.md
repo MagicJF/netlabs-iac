@@ -111,21 +111,25 @@ Y nada más. `deployment_engine/vars/engine.yml` son los **defaults del motor**
 (timeouts, prefijo de MAC, retención del diario), no topología: ahí no hay ni un
 invitado, ni un bridge, ni una dirección. Tampoco hay fichero de estado ni
 inventario que mantener: lo que se despliega es **exactamente lo declarado**, y el
-resto (vmid, MAC, nombre canónico, pool) lo deriva el motor leyendo el clúster.
+resto (vmid, MAC, el nombre, pool) lo deriva el motor leyendo el clúster.
 
 **Cómo se declara un lab.** `./lab new <nombre>` scaffoldea la carpeta desde
-`labs/.plantilla/` y se rellena el YAML — las decisiones, una por una, con su trampa
+`labs/.plantilla/` y le pone **delante el siguiente número libre** (`07_lo-que-sea`),
+porque los labs se ordenan por antigüedad y `ls labs/` tiene que leerse en orden
+histórico (ADR 0016). Se rellena el YAML — las decisiones, una por una, con su trampa
 y el check que las vigila, están en [docs/crear-un-lab.md](docs/crear-un-lab.md):
 
 ```yaml
 lab:
-  nombre: <lab>            # EXACTAMENTE el nombre de la carpeta: es el pool
+  nombre: 07_lo-que-sea    # EXACTAMENTE el nombre de la carpeta: es el pool
   escalones: [1, 2]        # orden de arranque: primero el 1, después el 2
   bridges:                 # los crea el motor si faltan (los bridges son del nodo)
     - nombre: vmb_algo     # nombre de interfaz válido: sin guiones, ≤15 caracteres
       direccion: 192.0.2.1/24
 vms:                       # invitados QEMU
   - rol: <rol>             # el rol identifica a un invitado y sólo a uno
+    tipo: rt               # QUÉ equipo es: rt/srv/ws/sw/ctl -- obligatorio (ADR 0015)
+    nombre: 1              # opcional: su alias corto. Sin él, el alias es el rol
     escalon: 1
     cores: 2
     memoria: 512
@@ -134,6 +138,7 @@ vms:                       # invitados QEMU
     direccion: 192.0.2.2/24
 containers:                # invitados LXC
   - rol: <otro-rol>
+    tipo: ws
     escalon: 2
     cores: 1
     memoria: 256
@@ -142,9 +147,13 @@ containers:                # invitados LXC
     direccion: 192.0.2.11/24
 ```
 
-Lo que **no** se declara, y es a propósito: ni `vmid`, ni MAC, ni el nombre
-canónico, ni a qué pool va cada invitado. Eso lo **deriva** el motor (§Identidad).
-El YAML dice *qué* y *en qué orden*; nunca dice *con qué número*.
+Los dos invitados de arriba se llamarán `rt-1` y `ws-<otro-rol>` en Proxmox — el nombre
+dice qué **es** el equipo, no de qué lab es (ADR 0015).
+
+Lo que **no** se declara, y es a propósito: ni `vmid`, ni MAC, ni el nombre entero (se
+compone de `tipo` + alias), ni a qué pool va cada invitado. Eso lo **deriva** el motor
+(§Identidad). El YAML dice *qué*, *cómo se llama* y *en qué orden*; nunca dice *con qué
+número*.
 
 **El vocabulario del interior (fase 2):** un lab puede además declarar **qué hay que
 configurar dentro** de cada equipo, y el motor lo converge como una fase más de su plan.
@@ -164,7 +173,12 @@ configurar dentro** de cada equipo, y el motor lo converge como una fase más de
   sin ella, como siempre.
 - **`reservas: derivadas`** es la única forma de declarar reservas DHCP de un router: el
   motor reserva, por la MAC que **deriva del vmid**, cada dirección estática declarada por
-  otro invitado del mismo bridge —excluyendo al propio servidor—. Una MAC en un YAML es un bug.
+  otro invitado **de la misma red** —excluyendo al propio servidor—. El ámbito lo dice la
+  **red que sirve cada servidor** (`red.prefijo`), así que un router con dos LANs reserva en
+  cada una lo que vive en ella y no toca lo de la otra; y una concesión que no diga a qué
+  servidor pertenece se atribuye a la red en la que cae su dirección. (Sin `red` declarada,
+  el ámbito es el bridge del invitado: es el caso de un Linux que sirve la suya.) Una MAC en
+  un YAML es un bug.
 - **`lab.supernet`** acota todo lo del lab (lo vigila el check `supernet`), y
   **`lab.camino`** pide el puesto de control que construye el motor (§`docs/camino-del-puesto-de-control.md`).
 
@@ -341,16 +355,21 @@ vmids, ni el nombre de un bridge. Sí hay **reglas**.
 
 | El lab declara | El motor deriva |
 | --- | --- |
-| roles lógicos y su tipo (VM/LXC) | el **vmid**: el menor libre **de todo el clúster** |
-| recursos (cores, memoria, disco) | el **nombre canónico**: `<nombre-lab>-<rol>` |
-| bridges del lab y direcciones | la **MAC**: derivada del vmid (`BC:24:11:` + los 3 bytes bajos) |
-| orden de arranque por escalones | la **descripción**: `lab=<lab> rol=<rol> gestionado por netlabs_v4_b` |
-| | la **pertenencia al pool**: el invitado se crea dentro del pool del lab |
+| roles lógicos y su virtualización (VM/LXC) | el **vmid**: el menor libre **de todo el clúster** |
+| el **tipo de equipo** de cada invitado (`tipo:`: `rt`/`srv`/`ws`/`sw`/`ctl`) | el **nombre**: `<tipo>-<alias>` — qué EQUIPO es, no de qué lab es (ADR 0015) |
+| el `nombre:` corto de un invitado (opcional: su alias) | ...y si no lo declara, el alias es su rol: `rt-borde`, `srv-1`, `ws-2` |
+| recursos (cores, memoria, disco) | la **MAC**: derivada del vmid (`BC:24:11:` + los 3 bytes bajos) |
+| bridges del lab y direcciones | la **descripción**: `lab=<lab> rol=<rol> gestionado por netlabs_v4_b` |
+| orden de arranque por escalones | la **pertenencia al pool**: el invitado se crea dentro del pool del lab |
 | | el **`comments` del bridge**: `lab=<lab> gestionado por netlabs_v4_b`, sólo si el motor lo crea él |
 
-**El vmid y la MAC no se declaran nunca.** Las pruebas: añadir un lab nuevo no
-modifica ni un fichero de `deployment_engine/` (`check pureza-lab`), y dos labs
-distintos reciben identidades disjuntas (tests con fixtures).
+**El vmid y la MAC no se declaran nunca**, y el **tipo de equipo sí**: sin él no hay nombre que
+derivar. **Dos labs pueden repetir nombre** (`rt-nucleo` en tres labs a la vez) porque el nombre
+no es una prueba de pertenencia a propósito — quien la dice es el pool y la descripción. Lo que
+**no** se puede repetir es el nombre dentro de un lab: el validador lo rechaza con los dos roles
+que chocan. Las pruebas: añadir un lab nuevo no modifica ni un fichero de `deployment_engine/`
+(`check pureza-lab`), y dos labs distintos reciben **vmids y descripciones disjuntos** (tests con
+fixtures).
 
 **Sin fichero de estado.** La asignación se **re-deriva** en cada ejecución
 leyendo la API, con tres piezas: el **pool del lab** (llamado como su carpeta) es
@@ -572,13 +591,13 @@ que dijo, **literal**:
 
 ```
 FALLA links: hay punteros a rutas que ya no existen:
-  - labs/lab-minimo/lab-minimo.md: el enlace `../../deployment_engine/tasks/NO-EXISTE.yml` no resuelve a ninguna ruta
+  - labs/02_lab-minimo/02_lab-minimo.md: el enlace `../../deployment_engine/tasks/NO-EXISTE.yml` no resuelve a ninguna ruta
 ```
 
 **2. La tabla generada editada a mano** (un valor cambiado dentro de los marcadores):
 
 ```
-FALLA docs: la región generada de labs/lab-minimo/lab-minimo.md no coincide con su render.
+FALLA docs: la región generada de labs/02_lab-minimo/02_lab-minimo.md no coincide con su render.
             Arréglalo con: ./lab check docs --actualizar
 ```
 
@@ -616,7 +635,7 @@ FALLA puerta: alguien llama a la API fuera de deployment_engine/tasks/pve_api.ym
 
 ```
 FALLA declaracion: el estado deseado es incoherente:
-  - labs/lab-minimo/lab-minimo.yml: roles repetidos: ['workstation-1']. Un rol identifica a un invitado y sólo a uno: el nombre canónico y la descripción se derivan de él.
+  - labs/02_lab-minimo/02_lab-minimo.yml: roles repetidos: ['workstation-1']. Un rol identifica a un invitado y sólo a uno: el nombre canónico y la descripción se derivan de él.
 ```
 
 **7 y 8. `readme` y `refs`** se vieron fallar al construir el repositorio: el primero,

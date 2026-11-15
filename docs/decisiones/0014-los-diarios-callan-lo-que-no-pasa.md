@@ -24,7 +24,7 @@ cuánto canta cada una**.
 estaba). La consola **deja de cantar cada tarea que no cambia nada**, y sigue enseñando el
 `PLAY RECAP` -- los totales, el reporte nativo que nos gusta.
 
-Medido, no supuesto: el `apply` de `conectividad-exterior` (seis invitados) pasó de **1.563
+Medido, no supuesto: el `apply` de `06_conectividad-exterior` (seis invitados) pasó de **1.563
 líneas a 819**, y el `destroy`, a 896. La mitad del ruido, de golpe y sin tocar una tarea. Pero
 **la mitad del ruido no es el ruido**: lo que queda son las cabeceras `TASK [...]`, una por
 tarea, y ésas no las quita un ajuste de salida. El detalle de cada paso **no se pierde**: sigue

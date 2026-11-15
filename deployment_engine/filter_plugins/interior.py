@@ -887,6 +887,29 @@ def _red_normalizada(red):
     }
 
 
+def _reserva_es_de_este_servidor(reserva, nombre_servidor, prefijo_red, cuantos_servidores):
+    """¿La concesión `reserva` la sirve el servidor DHCP de este ámbito?
+
+    Un RouterOS con dos LANs tiene dos servidores, y cada concesión dice a cuál sirve
+    (`server`). Compararlas TODAS contra cada ámbito -- que es lo que se hacía -- hacía
+    que el de la segunda red pidiera quitar la reserva de la primera: que no es suya, y
+    que el otro ámbito está declarando en la misma pasada. El router no convergía nunca
+    (medido: es el primer caso con dos ámbitos DHCP en un mismo router).
+
+    Y cuando la concesión no dice a quién sirve (`all`, o sin `server`), se atribuye a la
+    red en la que CAE su dirección; y si el router declara UN solo servidor, a ése, sin
+    más preguntas: es la regla que no cambia nada en un router de una sola LAN.
+    """
+    suyo = str(reserva.get("servidor") or "")
+    if suyo == nombre_servidor:
+        return True
+    if suyo and suyo != "all":
+        return False
+    if cuantos_servidores <= 1:
+        return True
+    return bool(prefijo_red) and en_red_siendo(reserva.get("direccion"), prefijo_red)
+
+
 def _dhcp_canonico(declarado, leido, declaracion, identidad, invitado):
     """Diferencia del área `dhcp` de un RouterOS: red, servidor, pool y reservas.
 
@@ -896,7 +919,9 @@ def _dhcp_canonico(declarado, leido, declaracion, identidad, invitado):
 
     Cada servidor declarado tiene SU ámbito (`red.prefijo`), así que sus reservas se
     derivan una a una: un router con dos LANs no puede reservar en la primera lo que
-    vive en la segunda.
+    vive en la segunda. Y al leer, cada ámbito mira SÓLO las concesiones que sirve el
+    suyo: si no, el segundo ámbito pediría quitar las del primero (ver
+    `_reserva_es_de_este_servidor`).
     """
     operaciones = []
     for declarado_servidor in declarado or []:
@@ -935,9 +960,18 @@ def _dhcp_canonico(declarado, leido, declaracion, identidad, invitado):
         deseadas = {
             str(r["mac"]).upper(): str(r["direccion"]).split("/")[0] for r in reservas
         }
+        # Y las que HAY: sólo las que sirve ESTE servidor (ver
+        # `_reserva_es_de_este_servidor`). El nombre del servidor es derivado
+        # (`netlabs-<interfaz>`): se lee si ya existe --y entonces se compara con el nombre
+        # de verdad, por si alguien lo renombró-- y si no (es la pasada en la que se crea)
+        # se deriva, que es lo mismo.
+        nombre_servidor = str((encontrado or {}).get("nombre") or "") or (PREFIJO_POOL + interfaz)
         actuales = {
             str(r.get("mac")).upper(): str(r.get("direccion"))
             for r in ((leido or {}).get("reservas") or [])
+            if _reserva_es_de_este_servidor(
+                r, nombre_servidor, str(red.get("prefijo") or ""), len(declarado or [])
+            )
         }
         for mac, direccion in sorted(deseadas.items()):
             if actuales.get(mac) != direccion:

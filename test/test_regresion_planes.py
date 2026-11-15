@@ -16,6 +16,13 @@
 #              legítimamente el plan de un lab de la fase 1, se actualiza el fixture
 #              A MANO y se dice en el commit por qué.
 # VER:         AGENTS.md §Commits y subida a GitHub; docs/decisiones/0005-areas-declaradas.md
+#
+# 15-nov-2026: las referencias de `test/fixtures/planes-fase1/` se regeneraron A MANO, y por
+# un motivo que no es del test: los labs pasaron a llevar su número de antigüedad delante y
+# el nombre de cada invitado dejó de ser `<lab>-<rol>` para decir qué EQUIPO es (ADR 0015).
+# Las dos cosas cambian la forma del plan --el poolid, la descripción y el `name`/`hostname`
+# de cada invitado--, y ese cambio es la decisión, no una regresión. El resto del plan (qué
+# pasos, en qué orden, con qué parámetros) no cambió ni un paso: es lo que este test vigila.
 
 # Uso:  python3 test/test_regresion_planes.py     (código de salida != 0 si algo falla)
 
@@ -32,7 +39,7 @@ FIXTURES = os.path.join(RAIZ, "test", "fixtures", "planes-fase1")
 # Se listan a mano y el test comprueba que de verdad no declaran config (si algún
 # día uno la declara, el test lo dice: ya no es un lab de la fase 1 y su plan PUEDE
 # cambiar, pero eso tiene que ser una decisión, no un silencio).
-LABS_FASE_1 = ("lab-dos-redes", "lab-minimo", "ejemplo-topologia")
+LABS_FASE_1 = ("03_lab-dos-redes", "02_lab-minimo", "01_ejemplo-topologia")
 
 FALLOS = []
 

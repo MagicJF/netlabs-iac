@@ -98,10 +98,32 @@ def lab_de_comentario(comentario):
     return coincidencia.group(1) if coincidencia else None
 
 
-def identidad_plantilla(plantilla, lab, rol, vmid=None):
-    """Rellena una plantilla del motor (`{lab}`, `{rol}`, `{vmid}`)."""
+# ---------------------------------------------------------------------------
+# El nombre del POOL de un lab. El prefijo no es decorativo: Proxmox exige que un
+# poolid EMPIECE POR LETRA, y la carpeta de un lab empieza por su número de antigüedad
+# (ADR 0016). Es forma, no identidad: el pool sigue siendo del lab y de nadie más. Vive
+# aquí, que es el módulo de la identidad, y `plan`/`estado`/`destroy` la usan desde ahí
+# -- una sola regla, no tres copias del prefijo.
+# ---------------------------------------------------------------------------
+PREFIJO_POOL = "lab_"
+
+
+def identidad_pool(lab, prefijo=None):
+    """El nombre del pool de un lab: el prefijo del motor + el nombre de su carpeta."""
+    return f"{PREFIJO_POOL if prefijo is None else prefijo}{lab}"
+
+
+def identidad_plantilla(plantilla, lab, rol, vmid=None, equipo=None, alias=None):
+    """Rellena una plantilla del motor (`{equipo}`, `{alias}`, `{lab}`, `{rol}`, `{vmid}`).
+
+    `{equipo}` y `{alias}` son del NOMBRE (qué es el invitado); `{lab}` y `{rol}` son de la
+    PROPIEDAD (de quién es), y `{rol}` sale también en el nombre cuando el lab no declara un
+    `nombre:` corto.
+    """
     return (
         str(plantilla)
+        .replace("{equipo}", "" if equipo is None else str(equipo))
+        .replace("{alias}", "" if alias is None else str(alias))
         .replace("{lab}", str(lab))
         .replace("{rol}", str(rol))
         .replace("{vmid}", "" if vmid is None else str(vmid))
@@ -138,8 +160,13 @@ def identidad_asignar(
     # nuevo en vez de reutilizarlo -- y eso se ve en `verify` como "sobra", no se
     # queda callado.
     existentes_por_rol = {}
+    poolid = identidad_pool(lab)
     for invitado in (estado.get("invitados") or {}).values():
-        if invitado.get("pool") != lab:
+        # El pool se compara con su nombre DE VERDAD (`lab_<lab>`, `identidad_pool`), no
+        # con el de la carpeta: compararlo con la carpeta hacía que ningún invitado propio
+        # se reconociera -- se creaba la topología entera otra vez en cada pasada, con
+        # vmids nuevos, y la idempotencia se caía.
+        if invitado.get("pool") != poolid:
             continue
         rol = rol_de_descripcion(invitado.get("descripcion"))
         if rol:
@@ -181,7 +208,18 @@ def identidad_asignar(
             {
                 **invitado,
                 "vmid": vmid,
-                "nombre": identidad_plantilla(plantilla_nombre, lab, rol, vmid),
+                # El nombre dice QUÉ ES (`rt-borde`, `srv-1`), no de qué lab es (ADR 0015):
+                # el equipo lo declara el lab con `tipo:` y el alias es su `nombre:` corto,
+                # o su rol si no lo declara. Repetir nombre entre labs es legítimo: la
+                # propiedad va en el pool y en la descripción, que sí llevan el lab.
+                "nombre": identidad_plantilla(
+                    plantilla_nombre,
+                    lab,
+                    rol,
+                    vmid,
+                    equipo=invitado.get("equipo"),
+                    alias=invitado.get("alias") or rol,
+                ),
                 "mac": identidad_mac(vmid, prefijo_mac),
                 "descripcion": identidad_plantilla(plantilla_descripcion, lab, rol, vmid),
                 "origen": origen,
@@ -222,6 +260,7 @@ class FilterModule:
     def filters(self):
         return {
             "identidad_mac": identidad_mac,
+            "identidad_pool": identidad_pool,
             "identidad_rol_de_descripcion": rol_de_descripcion,
             "identidad_lab_de_comentario": lab_de_comentario,
             "identidad_asignar": identidad_asignar,

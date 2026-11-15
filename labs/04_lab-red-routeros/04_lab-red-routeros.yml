@@ -1,5 +1,5 @@
 ---
-# PROPÓSITO:   declarar la topología del lab `lab-red-routeros`: el lab de ACEPTACIÓN
+# PROPÓSITO:   declarar la topología del lab `04_lab-red-routeros`: el lab de ACEPTACIÓN
 #              de la capa de configuración. Dos routers RouterOS (CHR) encadenados y
 #              un puesto de control, con servidores y puestos como contenedores: es
 #              lo que ejercita la cadena entera del arranque en frío -- el puesto de
@@ -21,12 +21,15 @@
 #              como pendientes en `filter_plugins/interior.py` y la validación las
 #              rechaza con su motivo: aquí no se declaran, para no fingir que se
 #              configuran. Tampoco hay aplicaciones dentro de los invitados.
-# VER:         labs/lab-red-routeros/lab-red-routeros.md;
+# VER:         labs/04_lab-red-routeros/04_lab-red-routeros.md;
 #              docs/camino-del-puesto-de-control.md (el camino, paso a paso);
 #              docs/decisiones/0004 (el token y la consola), 0005 (las áreas)
+#
+# EL NOMBRE de cada invitado dice QUÉ ES, no de qué lab es (ADR 0015): aquí se leen
+# `rt-borde`, `rt-nucleo`, `ctl-1`, `srv-1`, `ws-1` y `ws-2`.
 
 lab:
-  nombre: lab-red-routeros
+  nombre: 04_lab-red-routeros
 
   # TRES escalones, y el orden es la mitad del diseño: primero el puesto de control
   # con el primer CHR (el que da y el que pide la primera dirección), después el
@@ -64,6 +67,7 @@ vms:
   # sin que nadie escriba una MAC. Es tolerante: pide sin parar hasta que le
   # contestan, y por eso puede compartir escalón con el puesto de control.
   - rol: borde
+    tipo: rt          # es un router CHR -> 'rt-borde' (el alias es su rol)
     escalon: 1
     cores: 2
     memoria: 512
@@ -105,6 +109,7 @@ vms:
   # encadenamiento funciona: el que da la dirección está convergido antes de que
   # este arranque.
   - rol: nucleo
+    tipo: rt          # el otro router del lab -> 'rt-nucleo'
     escalon: 2
     cores: 1
     memoria: 512
@@ -136,6 +141,8 @@ containers:
   # en marcha obliga a reiniciarlo, y aquí no se reinicia la máquina que trabaja).
   # Su dirección en el bridge del nodo la DERIVA el motor de entre las libres.
   - rol: control
+    tipo: ctl         # un puesto de control (el bastión del lab) -> el nombre empieza por 'ctl-'
+    nombre: 1         # -> 'ctl-1'
     escalon: 1
     cores: 1
     memoria: 512
@@ -169,6 +176,8 @@ containers:
   # dentro del rango declarado y que el router tiene una concesión para su MAC
   # derivada (las dos cosas, o no está verificado).
   - rol: servidor
+    tipo: srv         # un servidor -> 'srv-'
+    nombre: 1         # -> 'srv-1'
     escalon: 2
     cores: 1
     memoria: 512
@@ -182,6 +191,8 @@ containers:
   # su CHR está convergido y sirviendo: por eso el arranque en frío no depende de que
   # alguien lance las cosas en el orden correcto.
   - rol: puesto-1
+    tipo: ws          # un puesto de trabajo -> 'ws-1'
+    nombre: 1
     escalon: 3
     cores: 1
     memoria: 512
@@ -192,6 +203,8 @@ containers:
       linux: {}
 
   - rol: puesto-2
+    tipo: ws          # y el segundo -> 'ws-2'
+    nombre: 2
     escalon: 3
     cores: 1
     memoria: 512

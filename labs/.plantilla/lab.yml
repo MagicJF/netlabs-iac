@@ -1,15 +1,18 @@
 ---
-# PROPÓSITO:   el esqueleto que `./lab new <nombre>` copia a `labs/<nombre>/`.
+# PROPÓSITO:   el esqueleto que `./lab new <nombre>` copia a `labs/NN_<nombre>/`.
 #              Una declaración mínima, comentada, con los sitios a rellenar.
 # INVARIANTES: los marcadores `<NOMBRE>` los sustituye `./lab new` por el nombre
-#              del lab, y `<NOMBRE_BRIDGE>` por un nombre de interfaz DERIVADO de
-#              él (`vmb_` + el nombre con guiones bajos, recortado a 15 caracteres:
-#              el kernel no admite guiones ni pasa de IFNAMSIZ, así que el nombre
-#              del lab no sirve tal cual). Este directorio empieza por punto a
-#              propósito: los checks y `./lab list` lo ignoran, porque no es un lab
-#              — y por eso mismo nada avisaría de que el esqueleto nace inválido.
+#              del lab -- que ya trae DELANTE el número de antigüedad (`07_lo-que-sea`),
+#              porque el prefijo lo pone el wrapper y no se escribe a mano -- y
+#              `<NOMBRE_BRIDGE>` por un nombre de interfaz DERIVADO de él (`vmb_` + el
+#              nombre con guiones bajos, recortado a 15 caracteres: el kernel no admite
+#              guiones ni pasa de IFNAMSIZ, así que el nombre del lab no sirve tal cual).
+#              Este directorio empieza por punto a propósito: los checks y `./lab list`
+#              lo ignoran, porque no es un lab -- y por eso mismo nada avisaría de que
+#              el esqueleto nace inválido.
 # LÍMITES:     es un esqueleto, no un ejemplo: no lleva valores de ningún lab real.
 # VER:         docs/crear-un-lab.md (las decisiones, en orden, y el porqué de cada campo);
+#              docs/decisiones/0015-el-nombre-dice-que-es-el-equipo.md;
 #              README.md §Cómo se usa; AGENTS.md §Mapa
 lab:
   # Tiene que ser EXACTAMENTE el nombre de la carpeta: el pool de Proxmox se llama
@@ -33,11 +36,18 @@ vms: []
 # Contenedores (LXC).
 containers:
   - rol: <rol-de-ejemplo>
+    # El nombre en Proxmox dice QUÉ ES, no de qué lab es (ADR 0015), y se compone de
+    # estas dos claves: el tipo de equipo, y el alias (el `nombre:` corto, o el rol si
+    # no lo declaras). Aquí: `ws-<rol-de-ejemplo>`.
+    tipo: ws          # rt (router) | srv (servidor) | ws (puesto) | sw (conmutador) | ctl (control)
+    # nombre: 1       # opcional: con esto el invitado se llamaría `ws-1`, sin el rol
     escalon: 1
     cores: 1
     memoria: 256
     disco: 4
     bridge: <NOMBRE_BRIDGE>
     direccion: 192.0.2.11/24
-#     ↑ `rol`, recursos, bridge y dirección. NADA de `vmid` ni de `mac`:
-#       eso lo deriva el motor del estado real del clúster (regla 4.8).
+#     ↑ `rol`, `tipo`, recursos, bridge y dirección. NADA de `vmid` ni de `mac`:
+#       eso lo deriva el motor del estado real del clúster (regla 11). Un lab puede
+#       repetir nombre con otro lab (`ws-1` en dos sitios) sin confundirse: el pool
+#       y la descripción (`lab=… rol=…`) dicen de quién es cada invitado.

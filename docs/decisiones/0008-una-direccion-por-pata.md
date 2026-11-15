@@ -20,7 +20,7 @@
      `direcciones`, areas_que_piden_visita), deployment_engine/tools/plan.py
      (_red_del_invitado), docs/decisiones/0007-las-patas-se-declaran.md,
      docs/decisiones/0005-el-driver-del-interior.md,
-     labs/lab-red-routeros/lab-red-routeros.yml -->
+     labs/04_lab-red-routeros/04_lab-red-routeros.yml -->
 
 **Estado:** aceptada; medida contra el VPS (lab de aceptación, escalón 2, CHR `nucleo`).
 

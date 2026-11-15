@@ -26,7 +26,7 @@ Llamadas REST que se harían, en orden (5):
       description = lab=lab-minimo rol=workstation-1 gestionado por netlabs_v4_b
       hostname = lab-minimo-workstation-1
       memory = 256
-      net0 = name=eth0,bridge=vmb_lab_minimo,hwaddr=BC:24:11:00:00:64
+      net0 = name=eth0,bridge=vmb_lab_minimo,hwaddr=BC:24:11:00:00:64,ip=198.51.100.11/24
       ostemplate = local:vztmpl/debian-13-standard_13.6-1_amd64.tar.zst
       pool = lab-minimo
       vmid = 100

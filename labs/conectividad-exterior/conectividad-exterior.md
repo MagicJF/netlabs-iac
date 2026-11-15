@@ -24,7 +24,7 @@ si los editas a mano, `./lab check docs` falla._
 | borde | VM (qemu) | 1 | 2 | 512 | 1 | vmb_ext_gestion + vmb_ext_lan1 | 10.42.0.11/24 |
 | control | LXC | 1 | 1 | 512 | 4 | vmb_ext_gestion | 10.42.0.10/24 |
 | nucleo | VM (qemu) | 2 | 1 | 512 | 1 | vmb_ext_lan1 + vmb_ext_lan2 | 10.42.1.11/24 |
-| servidor | LXC | 2 | 1 | 512 | 4 | vmb_ext_lan1 | dhcp |
+| servidor | LXC | 2 | 1 | 512 | 4 | vmb_ext_lan1 | 10.42.1.10/24 |
 | puesto-1 | LXC | 3 | 1 | 512 | 4 | vmb_ext_lan1 | dhcp |
 | puesto-2 | LXC | 3 | 1 | 512 | 4 | vmb_ext_lan2 | dhcp |
 
@@ -74,6 +74,21 @@ siendo un lab de redes: un `traceroute` desde la segunda red enseña por dónde 
 cada router tradujera, cada tramo quedaría escondido. Traduce uno: el que sale, que es el
 único que tiene una pata fuera.
 
+**Los clientes se comportan como máquinas, no como configuraciones.** Es la parte que más se
+parece a la realidad, y se declara igual que en la realidad:
+
+- **`puesto-1` y `puesto-2` son estaciones**: al conectar, **piden** dirección. El CHR de su red
+  les devuelve dirección, pasarela y DNS en la misma respuesta y salen a internet sin que nadie
+  les escriba nada dentro. No llevan una sola área que los toque: escribirles a mano lo que la
+  red ya les da sería mentir el día que la red cambie.
+- **`servidor` lleva su dirección puesta a mano** (`10.42.1.10/24`) y **su puerta declarada**
+  (`10.42.1.1`): no pregunta nada por DHCP, y sale igual porque sabe por dónde. Así se ve que el
+  lab no depende de que el DHCP funcione para todo — igual que en un rack de verdad.
+
+Esto se cae si el motor nace los contenedores sin dirección, que es lo que pasaba: nacían con
+`net0` pelado, no preguntaban, y se quedaban sin salida (ver «Qué se rompió»). Ahora la
+dirección de una pata se declara por lo que el equipo es, y el motor la pone donde va (ADR 0013).
+
 **Lo que el lab no dice, y es lo que lo hace portátil.** El lab no declara ni la pasarela
 ni los DNS de casa, ni la interfaz de la pata de fuera. La pata la tiende el motor al nacer
 (el plan la añade sobre el bridge por el que sale el nodo, que es un valor de ENTORNO) y su
@@ -105,6 +120,13 @@ prueban por su marca (`lab=`); uno ajeno no se adopta, y con razón: no es nuest
 
 Lo que falló al desplegarlo de verdad, en orden, porque es lo que más vale del documento:
 
+- **Los contenedores nacían sin dirección, y por eso no salían.** `net0` se creaba pelado
+  (`name/bridge/hwaddr` y nada más): el contenedor nunca llegaba a *preguntar*, así que se
+  quedaba con `eth0` vacío y sin internet, por muy bien que estuviera el CHR esperando al otro
+  lado. Se descubrió midiendo lo que veían dentro (`/interfaces`: ninguna dirección en los
+  tres) y no por lo que decía el motor — el `verify` daba CORRECTO, porque comprueba
+  convergencia, no alcance. Arreglado donde nace: la dirección de una pata se declara por lo
+  que el equipo es (decisión 0013) y el motor la pone en la cadena de red.
 - **El cliente DHCP de fuera se lo llevaba por delante el propio motor.** Con
   `cliente_dhcp: {deshabilitar: true}` el motor quita el cliente de fábrica del router
   --y quitarlo se lleva TODOS los que encuentre, porque en RouterOS se quita por interfaz--,

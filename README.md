@@ -156,7 +156,12 @@ configurar dentro** de cada equipo, y el motor lo converge como una fase más de
 - **`imagen:`** en una VM QEMU: el disco de fábrica que se importa al crearla (un CHR).
 - **`direccion:`** admite tres formas: `<ip>/<prefijo>` (estática), **`dhcp`** (dinámica: el
   invitado no la declara; se lee del host y, si hay camino, de la concesión del router) o
-  **ausente** (un equipo sin dirección: un conmutador puro).
+  **ausente** (un equipo sin dirección: un conmutador puro). **Y va a donde va en una máquina
+  de verdad** (ADR 0013): en un contenedor, el motor la escribe en la cadena de red de la pata
+  (`ip=…`), así que `dhcp` nace **pidiendo** dirección al router de su red (que le da también
+  pasarela y DNS) y una estática nace **con** ella. Una estática lleva su **`puerta:`**
+  (declarada, no adivinada) para salir sin preguntar a nadie. Un invitado sin `direccion` nace
+  sin ella, como siempre.
 - **`reservas: derivadas`** es la única forma de declarar reservas DHCP de un router: el
   motor reserva, por la MAC que **deriva del vmid**, cada dirección estática declarada por
   otro invitado del mismo bridge —excluyendo al propio servidor—. Una MAC en un YAML es un bug.

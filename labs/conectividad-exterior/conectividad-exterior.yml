@@ -159,18 +159,25 @@ containers:
           reservas: derivadas
         reenvio: true
 
-  # Los tres clientes: toman su dirección del DHCP del CHR de su red, y con ella la
-  # pasarela y el DNS que ese router anuncia. Eso -- y nada dentro de ellos -- es lo que
-  # les da salida: el lab no los configura por dentro, los deja pedir.
+  # Los clientes, como máquinas de verdad: las dos ESTACIONES piden su dirección al
+  # conectar (`dhcp`) y el CHR de su red les da dirección, pasarela y DNS en la misma
+  # respuesta -- eso, y nada dentro de ellas, es lo que les da salida. El SERVIDOR no
+  # pregunta: lleva su dirección y su puerta puestas a mano, y sale igual porque sabe por
+  # dónde. (Su resolutor es el del nodo que lo hospeda: un contenedor lo hereda. Poder
+  # declarárselo es lo siguiente: `docs/decisiones/0013`, última sección.)
+  #
+  # Y ninguno declara `config:`: NO se entra en ellos. Un interior vacío (`linux: {}`) no
+  # dice nada y sólo hace que el motor intente entrar a configurar lo que ya le da la red;
+  # lo que se configura por la red no se configura por dentro. Su dirección vive en la
+  # pata (`direccion`), que es donde vive en una máquina de verdad.
   - rol: servidor
     escalon: 2
     cores: 1
     memoria: 512
     disco: 4
     bridge: vmb_ext_lan1
-    direccion: dhcp
-    config:
-      linux: {}
+    direccion: 10.42.1.10/24
+    puerta: 10.42.1.1
 
   - rol: puesto-1
     escalon: 3
@@ -179,8 +186,6 @@ containers:
     disco: 4
     bridge: vmb_ext_lan1
     direccion: dhcp
-    config:
-      linux: {}
 
   # Éste cuelga del SEGUNDO router: su salida demuestra la cadena entera -- su DHCP es
   # el segundo CHR, su ruta por defecto pasa por el primero, y la traducción la hace el
@@ -192,6 +197,4 @@ containers:
     disco: 4
     bridge: vmb_ext_lan2
     direccion: dhcp
-    config:
-      linux: {}
 #     ↑ sin `vmid` ni `mac`: los deriva el motor leyendo el estado del clúster.

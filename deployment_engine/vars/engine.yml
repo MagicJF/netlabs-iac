@@ -241,4 +241,9 @@ engine_tarea_intervalo_max: 15   # techo: nunca se espera más que esto entre so
 # --- Logs -----------------------------------------------------------------
 # Cuántos informes `verify-*.json` se conservan por lab. Los más viejos se
 # borran al escribir uno nuevo: el log rota, no crece sin fin.
-engine_retencion_informes: 10
+#
+# Uno. Lo que un humano LEE es `resumen.md` (y el veredicto suelto de
+# `ultimo-verify.txt`); el informe es la evidencia congelada de la última
+# comprobación, y nadie relee las de antes: la historia entera, paso a paso,
+# está en el diario. Diez informes por lab eran diez ficheros que no se abren.
+engine_retencion_informes: 1

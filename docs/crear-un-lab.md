@@ -83,9 +83,20 @@ Uno por rol, en `vms:` (QEMU) o `containers:` (LXC). Cada uno:
   construcción). Si te equivocas, el consejo `escalones` te lo dice con el número que toca.
 - **`bridges`/`bridge`**: sus patas. Una VM declara todas y el orden importa (`ether1` es la
   primera); un contenedor normalmente una.
-- **`direccion`**: en la primera pata, `"dhcp"` o una dirección con máscara. La dirección
-  estática va **fuera del rango del DHCP** (si no, un cliente dinámico puede pedirla antes: eso
-  es el consejo `dhcp`).
+- **`direccion`**: en la primera pata, `"dhcp"` o una dirección con máscara. **Es la
+  diferencia entre una estación y un servidor, y se declara como se hace en la vida** (ADR
+  0013):
+  - `"dhcp"` — una **estación**: al conectar pide dirección, y el router de su red le da
+    dirección, pasarela y DNS de una vez. No declares nada más: ése es el escenario.
+  - `192.0.2.10/24` — una **máquina con dirección fija**: no pregunta nada. Necesita su
+    **`puerta`** (`192.0.2.1`) para salir, y esa puerta la declaras tú, como la pondrías en el
+    equipo. La dirección estática va **fuera del rango del DHCP** (si no, un cliente dinámico
+    puede pedirla antes: eso es el consejo `dhcp`).
+  - sin declararla — si el invitado tiene interior, nace pidiendo dirección (`dhcp`), que es lo
+    que hace cualquier equipo al enchufarle el cable. Un invitado **sin** interior no la lleva:
+    es un esqueleto de topología, no una máquina que el motor vaya a configurar.
+- **`puerta`**: la suya, y sólo tiene sentido con una dirección fija. El motor **no la adivina**:
+  la declaras tú (regla 7). Es la dirección del router de esa red dentro del lab.
 - **Recursos**: `cores`, `memoria`, `disco`. El mínimo honesto que necesita la pieza. Los CHR
   van con lo justo; un contenedor Alpine, con menos todavía.
 - **`imagen`** (VMs): de fábrica, la del fabricante. La imagen sólo se puede adjuntar **al crear**

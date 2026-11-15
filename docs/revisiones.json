@@ -26,8 +26,8 @@
       "deployment_engine/tasks/pve_api_y_esperar.yml": "23072f383630d6bc98600bbecc5336121f7f6577fd597c322eb5a45dd058150c",
       "deployment_engine/tools/documentos.py": "e2570908b54f9b60bcede738376125b2f43b1f25afad9a6bc17b25133137479c",
       "deployment_engine/tools/framework_check.py": "5d65582d5b1c868aea0229bdd79aedf1a70ba8b9f65396e3e05c90936b35b977",
-      "deployment_engine/tools/plan.py": "a351ba85237b614b2064d5ca762af018e553598285ef390a92221a8d67e32710",
-      "deployment_engine/vars/engine.yml": "0aeff8e4d16b6c0372001966476c6824c16c1b1421fc5949d1995abba4512a87"
+      "deployment_engine/tools/plan.py": "4ce21cecf655f12d836769ea8398aea4174e4fb9ddfc48c59b06c3399ff0e076",
+      "deployment_engine/vars/engine.yml": "c2e4bc015b95285a36940e6e0ca75f398af4d830d22dacb8edfe1541b6df8b0b"
     }
   },
   "docs/camino-del-puesto-de-control.md": {
@@ -116,6 +116,17 @@
       "deployment_engine/filter_plugins/declaracion.py": "0338fcebafd7eb57532d971e329778d5fc76d6044e7150b1f3887baf22af4bf3",
       "deployment_engine/filter_plugins/interior.py": "0d1f594c6e21edc5018a85d0c8a7132cc76a9b8e5540b7fd598463e5d88c09b9",
       "deployment_engine/tools/plan.py": "a351ba85237b614b2064d5ca762af018e553598285ef390a92221a8d67e32710"
+    }
+  },
+  "docs/decisiones/0013-una-estacion-pregunta-un-servidor-dice.md": {
+    "citados": {
+      "deployment_engine/filter_plugins/declaracion.py": "42f48145a603709ee50748eee231a5975598212887e5b8aa70767bfdb00485c1",
+      "deployment_engine/tools/plan.py": "4ce21cecf655f12d836769ea8398aea4174e4fb9ddfc48c59b06c3399ff0e076"
+    }
+  },
+  "docs/decisiones/0014-los-diarios-callan-lo-que-no-pasa.md": {
+    "citados": {
+      "deployment_engine/tools/resumen.py": "3a8571589b6061430935c694e7843a82b5a9c5fa58748964fb2aed4bdf5c44b4"
     }
   },
   "labs/ejemplo-topologia/ejemplo-topologia.md": {

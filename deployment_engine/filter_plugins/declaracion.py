@@ -1223,8 +1223,13 @@ def declaracion_normalizar(declaracion, carpeta=None):
                     "bridge": (invitado.get("bridge") or patas_declaradas(invitado)[0]),
                     # `direccion` puede NO estar declarada (equipo sin dirección: un
                     # conmutador puro). Se normaliza a None para que nadie tenga que
-                    # distinguir "no está la clave" de "está vacía".
+                    # distinguir "no está la clave" de "está vacía". Y puede ser `dhcp`:
+                    # una ESTACIÓN, que al conectar pide dirección -- como una máquina
+                    # de verdad. `puerta` es SU puerta, y sólo se declara cuando la
+                    # dirección es fija (un SERVIDOR real la lleva puesta a mano): el
+                    # motor no la adivina ni la reparte.
                     "direccion": invitado.get("direccion") or None,
+                    "puerta": invitado.get("puerta") or None,
                     # El interior se copia TAL CUAL: el vocabulario ya está validado, y
                     # normalizarlo aquí sería una segunda traducción que podría
                     # discrepar de la del driver.

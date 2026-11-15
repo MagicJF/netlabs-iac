@@ -94,14 +94,6 @@
       ansible.builtin.set_fact:
         plan_pasos: "{{ declaracion | estado_plan(estado, identidad, parametros_motor) }}"
 
-    - name: "APPLY · escribir el plan que se va a ejecutar (evidencia)"
-      ansible.builtin.copy:
-        content: "{{ plan_pasos | estado_plan_texto(declaracion, estado, identidad) }}\n"
-        dest: "{{ pve_carpeta_logs }}/apply-ultimo-plan.txt"
-        mode: '0640'
-      # Escribir en logs/ no es cambiar el mundo (ver plan.yml).
-      changed_when: false
-
     - name: "APPLY · resumen de lo que se va a hacer"
       ansible.builtin.debug:
         msg: >-

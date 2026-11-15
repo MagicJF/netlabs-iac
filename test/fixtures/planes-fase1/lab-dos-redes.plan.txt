@@ -59,7 +59,7 @@ Llamadas REST que se harían, en orden (14):
       description = lab=lab-dos-redes rol=puesto-1 gestionado por netlabs_v4_b
       hostname = lab-dos-redes-puesto-1
       memory = 512
-      net0 = name=eth0,bridge=vmb_nucleo,hwaddr=BC:24:11:00:00:66
+      net0 = name=eth0,bridge=vmb_nucleo,hwaddr=BC:24:11:00:00:66,ip=203.0.113.131/24
       ostemplate = local:vztmpl/debian-13-standard_13.6-1_amd64.tar.zst
       pool = lab-dos-redes
       vmid = 102
@@ -70,7 +70,7 @@ Llamadas REST que se harían, en orden (14):
       description = lab=lab-dos-redes rol=puesto-2 gestionado por netlabs_v4_b
       hostname = lab-dos-redes-puesto-2
       memory = 512
-      net0 = name=eth0,bridge=vmb_nucleo,hwaddr=BC:24:11:00:00:67
+      net0 = name=eth0,bridge=vmb_nucleo,hwaddr=BC:24:11:00:00:67,ip=203.0.113.132/24
       ostemplate = local:vztmpl/debian-13-standard_13.6-1_amd64.tar.zst
       pool = lab-dos-redes
       vmid = 103
@@ -81,7 +81,7 @@ Llamadas REST que se harían, en orden (14):
       description = lab=lab-dos-redes rol=servidor gestionado por netlabs_v4_b
       hostname = lab-dos-redes-servidor
       memory = 512
-      net0 = name=eth0,bridge=vmb_perimetro,hwaddr=BC:24:11:00:00:68
+      net0 = name=eth0,bridge=vmb_perimetro,hwaddr=BC:24:11:00:00:68,ip=203.0.113.21/24
       ostemplate = local:vztmpl/debian-13-standard_13.6-1_amd64.tar.zst
       pool = lab-dos-redes
       vmid = 104

@@ -231,6 +231,25 @@ def ejecutar_verbo(lab, verbo, opciones):
             print()
             with open(ruta_resumen, encoding="utf-8") as fichero:
                 print(fichero.read().rstrip("\n"))
+
+    # El resumen de la pasada se rehace SIEMPRE, aunque el verbo haya fallado: un diario a
+    # medias es justo cuando hace falta saber qué pasó y sobre qué equipo. Lo escribe
+    # deployment_engine/tools/resumen.py, que sólo LEE (no habla con nadie, no toca el
+    # mundo), y se llama como herramienta, no como verbo: no está en VERBOS ni en la ayuda.
+    try:
+        import importlib.util
+        ruta_herramienta = os.path.join(RAIZ, "deployment_engine", "tools", "resumen.py")
+        especificacion = importlib.util.spec_from_file_location("resumen_del_lab", ruta_herramienta)
+        modulo = importlib.util.module_from_spec(especificacion)
+        especificacion.loader.exec_module(modulo)
+        texto, _ = modulo.resumen_de_lab(logs, verbo)
+        ruta_informe = os.path.join(logs, "resumen.md")
+        with open(ruta_informe, "w", encoding="utf-8") as fichero:
+            fichero.write(texto + "\n")
+        print(f"\nel resumen de la pasada: {os.path.relpath(ruta_informe, RAIZ)}")
+    except Exception as error:
+        # Un resumen que revienta no puede tumbar un despliegue que fue bien.
+        print(f"\n(no he podido escribir el resumen: {error})")
     return codigo
 
 

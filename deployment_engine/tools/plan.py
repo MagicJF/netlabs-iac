@@ -439,9 +439,32 @@ def _net0(invitado):
 
     Un contenedor la declara con `name/bridge/hwaddr`; una VM con `<modelo>=<mac>`.
     Está en un solo sitio porque crear y actualizar tienen que decir lo mismo.
+
+    **Y la dirección va aquí, como en una máquina de verdad**: una ESTACIÓN no lleva
+    ninguna puesta -- al enchufarle el cable la PIDE (`dhcp`), y el router de su red le da
+    dirección, puerta y DNS. Un SERVIDOR la lleva FIJA, con su puerta puesta a mano
+    (`direccion` + `puerta`), y por eso no pregunta nada: sigue saliendo porque sabe por
+    dónde. Lo que el lab no declara, no se inventa: sin `direccion` el invitado nace sin
+    ella, que es lo que hacía siempre.
     """
     if invitado["tipo"] == "lxc":
-        return f"name=eth0,bridge={invitado['bridge']},hwaddr={invitado['mac']}"
+        # La dirección va en la cadena de red SÓLO si el lab la declara: `direccion: dhcp`
+        # para una estación (que al conectar la pide, y el router de su red le da dirección,
+        # puerta y DNS), o una dirección con su `puerta` para una máquina fija (que no
+        # pregunta nada y sale igual, porque sabe por dónde). Lo que no se declara, no se
+        # inventa: un invitado sin `direccion` nace sin ella, como hasta ahora -- y eso
+        # incluye a los de la fase 1, cuyo plan no cambia.
+        direccion = str(invitado.get("direccion") or "")
+        puerta = str(invitado.get("puerta") or "")
+        red = f"name=eth0,bridge={invitado['bridge']},hwaddr={invitado['mac']}"
+        if not direccion:
+            return red
+        if direccion.lower() == "dhcp":
+            return red + ",ip=dhcp"
+        red += f",ip={direccion}"
+        if puerta:
+            red += f",gw={puerta}"
+        return red
     return f"virtio={invitado['mac']},bridge={invitado['bridge']}"
 
 

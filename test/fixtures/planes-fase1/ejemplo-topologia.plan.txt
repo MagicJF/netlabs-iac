@@ -39,7 +39,7 @@ Llamadas REST que se harían, en orden (9):
       description = lab=ejemplo-topologia rol=workstation-1 gestionado por netlabs_v4_b
       hostname = ejemplo-topologia-workstation-1
       memory = 256
-      net0 = name=eth0,bridge=vmb_ejemplo,hwaddr=BC:24:11:00:00:65
+      net0 = name=eth0,bridge=vmb_ejemplo,hwaddr=BC:24:11:00:00:65,ip=192.0.2.11/24
       ostemplate = local:vztmpl/debian-13-standard_13.6-1_amd64.tar.zst
       pool = ejemplo-topologia
       vmid = 101
@@ -50,7 +50,7 @@ Llamadas REST que se harían, en orden (9):
       description = lab=ejemplo-topologia rol=workstation-2 gestionado por netlabs_v4_b
       hostname = ejemplo-topologia-workstation-2
       memory = 256
-      net0 = name=eth0,bridge=vmb_ejemplo,hwaddr=BC:24:11:00:00:66
+      net0 = name=eth0,bridge=vmb_ejemplo,hwaddr=BC:24:11:00:00:66,ip=192.0.2.12/24
       ostemplate = local:vztmpl/debian-13-standard_13.6-1_amd64.tar.zst
       pool = ejemplo-topologia
       vmid = 102

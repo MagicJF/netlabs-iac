@@ -99,6 +99,14 @@
 # quedarse esperando una contraseña que nadie va a escribir.
 - name: "INVENTARIO · las opciones de conexión a '{{ interior_rol }}'"
   ansible.builtin.set_fact:
+    # El salto se hace con un `ProxyCommand` EXPLÍCITO, y no con `ProxyJump`, por una razón
+    # MEDIDA, no leída: el ssh que `ProxyJump` lanza por dentro NO hereda estas opciones, así
+    # que comprobaba la huella del puesto de control contra `known_hosts` de la máquina de
+    # casa -- y esa huella cambia cada vez que el invitado renace (el puerto del camino se
+    # tiende de nuevo). El fallo llegaba disfrazado: `Connection closed by UNKNOWN port
+    # 65535`, que no dice nada; con `-v` se ve el de verdad, `Host key verification failed`.
+    # Con `ProxyCommand` las opciones del salto se escriben AQUÍ, junto a las demás, que es
+    # donde se leen y donde se cambian.
     interior_ssh_opciones: >-
       {{ ['-i', interior_conexion.clave,
           '-o', 'StrictHostKeyChecking=no',
@@ -106,7 +114,10 @@
           '-o', 'ConnectTimeout=' ~ (engine_timeout_ssh | int),
           '-o', 'BatchMode=yes',
           '-p', interior_conexion.puerto | string]
-         + (['-o', 'ProxyJump=' ~ interior_conexion.bastion ~ ':' ~ interior_conexion.puerto_bastion]
+         + (['-o', 'ProxyCommand=ssh -i ' ~ interior_conexion.clave
+             ~ ' -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'
+             ~ ' -o BatchMode=yes -p ' ~ interior_conexion.puerto_bastion
+             ~ ' -W %h:%p ' ~ interior_conexion.bastion]
             if interior_conexion.bastion | length > 0 else []) }}
     interior_destino: "{{ interior_conexion.usuario ~ '@' ~ interior_conexion.host }}"
     # Las mismas opciones, en la forma que pide el inventario EN MEMORIA (`add_host`):

@@ -25,7 +25,7 @@ tercera copia: no se crea.*
 | `deployment_engine/` | todo lo demás compartido por todos los despliegues | a mano |
 | `labs/<lab>/<lab>.yml` | el estado deseado de ESA topología (fuente de verdad) | a mano |
 | `labs/<lab>/<lab>.md` | la topología explicada: región generada + región de prosa | **dos escritores** |
-| `labs/<lab>/logs/` | `api.jsonl`, `interior.jsonl`, `camino.jsonl`, `ansible.log`, `verify-*.json` (gitignored) | el motor, nunca a mano |
+| `labs/<lab>/logs/` | `api.jsonl`, `interior.jsonl`, `camino.jsonl` (los diarios), el **`resumen.md`** que se lee, `ultimo-verify.txt` (el veredicto), `plan.txt` y el último `verify-<sello>.json` (gitignored) | el motor, nunca a mano |
 | `docs/decisiones/NNNN-*.md` | ADR: decisión + porqué, no se regenera | a mano |
 | `docs/revisiones.json` | sellado por hash de los docs (caducidad) | `./lab check docs --sellar` |
 | `test/` | pruebas del asignador; `test/fixtures/` = clústeres simulados | a mano |

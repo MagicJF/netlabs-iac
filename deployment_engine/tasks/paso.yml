@@ -32,6 +32,7 @@
     camino_tipo: >-
       {{ (identidad.invitados | selectattr('rol', 'equalto', item.rol) | first).tipo }}
     camino_puerto: "{{ item.parametros.puerto }}"
+    camino_rest: "{{ item.parametros.rest | default([]) }}"
     camino_salida_host: "{{ item.parametros.salida_host }}"
     camino_salida_puerto: "{{ item.parametros.salida_puerto }}"
     camino_usuario: "{{ parametros_motor.camino_usuario }}"

@@ -4,20 +4,29 @@
 #              túnel está EN PIE y no reemita `construir_camino` (que reescribe la línea del
 #              `authorized_keys` de casa y reenvía la orden por la consola) cuando ya lo está.
 #              Es lo que hace que la SEGUNDA pasada de `apply` no cambie nada (regla 6).
-# INVARIANTES: es una LECTURA LOCAL: un `wait_for` al mismo puerto que prueba
-#              `comprobar_camino` (127.0.0.1:<engine_camino_puerto_base + vmid del control>).
-#              No toca la API de Proxmox ni el invitado. El puerto sale del vmid: NADA
-#              derivado se guarda (regla 11). Sin puesto de control en el lab, no sondea y
-#              deja `responde` en falso.
-# LÍMITES:     no prueba que el invitado FUNCIONE, sólo que el puerto contesta: es lo justo
-#              para decidir si hay que reconstruir. La prueba de punta a punta --que la cadena
-#              casa -> 443 -> puesto -> vuelta esté ENTERA-- es `comprobar_camino`, y va
-#              dentro del plan, no aquí.
-# VER:         filter_plugins/interior.py (camino_responde, pasos_del_camino);
-#              tasks/camino.yml; docs/camino-del-puesto-de-control.md
+# INVARIANTES: son LECTURAS LOCALES: `wait_for` al mismo puerto que prueba
+#              `comprobar_camino` (127.0.0.1:<engine_camino_puerto_base + vmid del control>)
+#              Y a los puertos por los que el túnel tiene que reenviar el REST (80) de cada
+#              router que YA EXISTE (127.0.0.1:<engine_camino_rest_puerto_base + su vmid>).
+#              Esos segundos importan: un túnel en pie que NO reenvía los REST --uno
+#              construido antes de que el motor los reenviara-- haría que las llamadas del
+#              driver fallaran sin que nadie supiera por qué. Sondeando el puerto, el camino
+#              se declara caído y el plan lo RECONSTRUYE. No se sondea ningún router que no
+#              exista todavía: en la primera pasada no hay ninguno, y no se fuerza nada.
+#              No toca la API de Proxmox ni el invitado. Todo sale del vmid: NADA derivado se
+#              guarda (regla 11). Sin puesto de control en el lab, no sondea y deja
+#              `responde` en falso.
+# LÍMITES:     no prueba que el invitado FUNCIONE, sólo que el puerto contesta (que el
+#              reenvío está puesto): es lo justo para decidir si hay que reconstruir. La
+#              prueba de punta a punta --que la cadena casa -> 443 -> puesto -> vuelta esté
+#              ENTERA-- es `comprobar_camino`, y va dentro del plan, no aquí.
+# VER:         filter_plugins/interior.py (camino_responde, pasos_del_camino,
+#              patas_rest_del_puesto_control); tasks/camino.yml;
+#              docs/camino-del-puesto-de-control.md; docs/decisiones/0010-*.md
 #
-# Variables que espera:  identidad, declaracion, engine_camino_puerto_base
-# Y deja:                estado  (con `camino.responde`)
+# Variables que espera:  identidad, declaracion, engine_camino_puerto_base,
+#                        engine_camino_rest_puerto_base
+# Y deja:                estado  (con `camino.responde` y `camino.rest`)
 
 - name: "CAMINO·MUNDO · el puerto del camino de este lab (20000 + vmid del puesto de control)"
   ansible.builtin.set_fact:
@@ -31,6 +40,18 @@
          | selectattr('rol', 'equalto', (declaracion | interior_puesto_control))
          | list | first | default({}) }}
 
+# Los puertos por los que este túnel YA debería estar reenviando el REST: los de los routers
+# que existen en el mundo. Sale de la MISMA función pura que usa el plan (una sola respuesta
+# para la misma pregunta), así que lo que aquí se sondea y lo que el camino reenvía allí no
+# se pueden separar.
+- name: "CAMINO·MUNDO · los REST que este túnel debería reenviar ya (los routers que existen)"
+  ansible.builtin.set_fact:
+    camino_mundo_rest: >-
+      {{ (declaracion
+          | interior_patas_rest(identidad,
+              {'camino_rest_puerto_base': engine_camino_rest_puerto_base}))
+         | map(attribute='puerto') | list }}
+
 # `failed_when: false` a propósito: un puerto que no contesta NO es un error, es la RESPUESTA
 # («el camino no está en pie»). El plan decide con eso.
 - name: "CAMINO·MUNDO · sondear si el túnel del camino ya contesta (lectura local)"
@@ -43,8 +64,39 @@
   failed_when: false
   when: camino_mundo_puerto | length > 0
 
+# Lo mismo con el REST de cada router que ya existe: si el túnel está en pie pero NO los
+# reenvía (uno construido antes de que el motor los reenviara), el camino NO está servido, y
+# el plan tiene que rehacerlo. Si el router existiera pero estuviera parado, el puerto
+# contesta igual --el reenvío está puesto-- y esto no dispara nada: es un «no» del invitado,
+# no del camino.
+- name: "CAMINO·MUNDO · sondear si el túnel ya reenvía el REST de los routers que existen"
+  ansible.builtin.wait_for:
+    host: "127.0.0.1"
+    port: "{{ puerto | int }}"
+    timeout: 1
+    state: started
+  loop: "{{ camino_mundo_rest }}"
+  loop_control:
+    loop_var: puerto
+  register: camino_mundo_sondas_rest
+  failed_when: false
+  when: camino_mundo_rest | length > 0
+
 - name: "CAMINO·MUNDO · dejar en el estado si el camino responde o no"
   ansible.builtin.set_fact:
     estado: >-
-      {{ estado | combine({'camino': {'responde':
-         (camino_mundo_sonda.state | default('') == 'started')}}) }}
+      {{ estado | combine({'camino': {'responde': camino_mundo_responde,
+                                      'rest': camino_mundo_rest}}) }}
+  vars:
+    # Todas las sondas de REST tienen que haber contestado. `state` sólo aparece en la
+    # respuesta buena: cuando `wait_for` se cansa no lo pone, y eso es un «no».
+    camino_mundo_rest_ok: >-
+      {{ ((camino_mundo_sondas_rest.results | default([]))
+          | selectattr('state', 'defined')
+          | selectattr('state', 'equalto', 'started') | list | length)
+         == (camino_mundo_rest | length) }}
+    # Se convierte a booleano de verdad AQUÍ: el estado viaja por texto, y un «False»
+    # escrito con letras es una cadena que en Python es cierta (`bool('False')` es True).
+    camino_mundo_responde: >-
+      {{ ((camino_mundo_sonda.state | default('') == 'started')
+          and (camino_mundo_rest_ok | bool)) | bool }}

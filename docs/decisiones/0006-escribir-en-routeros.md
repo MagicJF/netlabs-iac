@@ -25,9 +25,11 @@ VPS). La pregunta abierta que queda se dice al final.
 tiene que configurar por REST: identidad, servicios, cliente DHCP de fábrica, direcciones,
 rutas y el servidor DHCP de la LAN. RouterOS **no tiene SSH por API** y su REST no se puede
 llamar desde el nodo de control (no hay ruta al otro lado del router): la puerta
-`deployment_engine/tasks/ros_api.yml` **delega** el HTTP en el puesto de control, que sí
-tiene pata en todas las redes del lab, y diariza cada llamada en `logs/api.jsonl` con
-`api: routeros`. Lo que sigue se aprendió llamando de verdad a ese CHR.
+`deployment_engine/tasks/ros_api.yml` llama **en la máquina del motor** y el **puesto de
+control le hace de camino**, reenviando el puerto 80 de cada router por el túnel del camino
+(ADR 0010; la primera versión le **delegaba** la llamada, y costaba 4,4 s por petición). Cada
+llamada queda diarizada en `logs/api.jsonl` con `api: routeros`. Lo que sigue se aprendió
+llamando de verdad a ese CHR.
 
 ## 1. Cómo se escribe (y cómo no)
 
@@ -117,7 +119,9 @@ del equipo, para no quedarse fuera con las credenciales viejas.
 
 ## 4. Lo que NO se hizo por SSH
 
-Nada. Todo el camino se hizo por REST desde el puesto de control, con la puerta diarizando.
+Nada. Todo el camino se hizo por el REST del equipo, con la puerta diarizando cada llamada
+(entonces la puerta le **delegaba** la llamada al puesto de control; hoy la hace el motor, con
+el puesto de camino: ADR 0010).
 Los dos diagnósticos que no se pudieron hacer por REST (ver la pantalla del CHR y recuperar
 un equipo que se quedó sin dirección) se hicieron por la vía de depuración del `AGENTS.md`
 —consola del hipervisor y reinicio por API— y se dice en el reporte, sin maquillar. El

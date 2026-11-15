@@ -20,21 +20,21 @@
     "citados": {
       "deployment_engine/filter_plugins/estado.py": "a48f8d2557e2bc6d0eafd81441f8060ee50de5b7604cd65a5de8a7e54a451a16",
       "deployment_engine/filter_plugins/identidad.py": "773d13a7c740c6cabe1c4ac5611837af070f646f286327bbc5d21d6895fef6db",
-      "deployment_engine/filter_plugins/interior.py": "35dd7168172677c2c4494e52c6e1f306945fb08d01cf1ade2b8d4bddca6efee3",
-      "deployment_engine/playbooks/plan.yml": "635fb591df14cae55d494642b3527652f692a2fa8a93e8e6dfca9f704454cfbd",
+      "deployment_engine/filter_plugins/interior.py": "1987c26ddded5e15dd25d5027b56fa04a8722f6fa5e8d61a9d4f1395e5801ce8",
+      "deployment_engine/playbooks/plan.yml": "107e7eaec53eb46a5b8e4ece25fd85f63ff97111d301023b7b1dced05f8a840f",
       "deployment_engine/tasks/pve_api.yml": "4628a91b351f10d2f28bf99a40973ae6fa8255e1ed79827d8a8174ff323df6d7",
       "deployment_engine/tasks/pve_api_y_esperar.yml": "23072f383630d6bc98600bbecc5336121f7f6577fd597c322eb5a45dd058150c",
       "deployment_engine/tools/documentos.py": "e2570908b54f9b60bcede738376125b2f43b1f25afad9a6bc17b25133137479c",
       "deployment_engine/tools/framework_check.py": "3a98804c73bc932a9ab6cc57aa222322062de7cb71918fdd78aab7d2d1dbfcc4",
-      "deployment_engine/tools/plan.py": "32f1959789e47f4d3d94f1d6776fbe3d839b6f0325addf34fafe3081ebc89360",
-      "deployment_engine/vars/engine.yml": "df4532a20c5863e430eb1465b2399bef04a70269e60a32907af527686385a253"
+      "deployment_engine/tools/plan.py": "d9f622c3e06c55e5c169ba85ffdba9454ec9af07a234fd3a15db07c3310f20ab",
+      "deployment_engine/vars/engine.yml": "30bed40c9819f9c123a613a409b0816981fc7620ff78c620fa756d9bcb306d4d"
     }
   },
   "docs/camino-del-puesto-de-control.md": {
     "citados": {
-      "deployment_engine/tasks/camino.yml": "13214e99de0a1caebbaec102aaf0ce3d10590a3ee2f396f9adf82d7a587850ae",
+      "deployment_engine/tasks/camino.yml": "4b435fa39951bca4f4c7e1eb806a3054bd35f99d3f2077c28b7f55bc55f9e92b",
       "deployment_engine/tasks/camino_consola.yml": "b57884ee2ec84f1f4183b732a6abf43b49b99a8b714aa544619cef16fee32e91",
-      "deployment_engine/tasks/camino_mundo.yml": "372948c92a288246149e1203b5032d0602dc4a410ee1b2fb78dd1ce4ee879255",
+      "deployment_engine/tasks/camino_mundo.yml": "754aded381f391844ea5b7154217d6b3cb79580f4b529ab16108b4932e175a08",
       "deployment_engine/tools/consola.py": "0b4a81b1bc9f9e08090382fba4125b3325f3f42511572beb882c2831218afc65"
     }
   },
@@ -56,37 +56,46 @@
   },
   "docs/decisiones/0004-el-camino-y-el-token.md": {
     "citados": {
-      "deployment_engine/tasks/camino.yml": "13214e99de0a1caebbaec102aaf0ce3d10590a3ee2f396f9adf82d7a587850ae",
+      "deployment_engine/tasks/camino.yml": "4b435fa39951bca4f4c7e1eb806a3054bd35f99d3f2077c28b7f55bc55f9e92b",
       "deployment_engine/tools/consola.py": "0b4a81b1bc9f9e08090382fba4125b3325f3f42511572beb882c2831218afc65",
-      "deployment_engine/vars/engine.yml": "df4532a20c5863e430eb1465b2399bef04a70269e60a32907af527686385a253"
+      "deployment_engine/vars/engine.yml": "30bed40c9819f9c123a613a409b0816981fc7620ff78c620fa756d9bcb306d4d"
     }
   },
   "docs/decisiones/0005-el-driver-del-interior.md": {
     "citados": {
-      "deployment_engine/filter_plugins/interior.py": "35dd7168172677c2c4494e52c6e1f306945fb08d01cf1ade2b8d4bddca6efee3"
+      "deployment_engine/filter_plugins/interior.py": "1987c26ddded5e15dd25d5027b56fa04a8722f6fa5e8d61a9d4f1395e5801ce8"
     }
   },
   "docs/decisiones/0006-escribir-en-routeros.md": {
     "citados": {
-      "deployment_engine/filter_plugins/interior.py": "35dd7168172677c2c4494e52c6e1f306945fb08d01cf1ade2b8d4bddca6efee3",
-      "deployment_engine/tasks/ros_api.yml": "2fdc8821735a868025adc787203fe2e81cd20f6b1b440000b8a3caf996f9cbd3"
+      "deployment_engine/filter_plugins/interior.py": "1987c26ddded5e15dd25d5027b56fa04a8722f6fa5e8d61a9d4f1395e5801ce8",
+      "deployment_engine/tasks/ros_api.yml": "e6feb51074fb7178407251918147b903d535d544b9fae204797bc5252d966360"
     }
   },
   "docs/decisiones/0008-una-direccion-por-pata.md": {
     "citados": {
-      "deployment_engine/filter_plugins/interior.py": "35dd7168172677c2c4494e52c6e1f306945fb08d01cf1ade2b8d4bddca6efee3",
-      "deployment_engine/tools/plan.py": "32f1959789e47f4d3d94f1d6776fbe3d839b6f0325addf34fafe3081ebc89360"
+      "deployment_engine/filter_plugins/interior.py": "1987c26ddded5e15dd25d5027b56fa04a8722f6fa5e8d61a9d4f1395e5801ce8",
+      "deployment_engine/tools/plan.py": "d9f622c3e06c55e5c169ba85ffdba9454ec9af07a234fd3a15db07c3310f20ab"
     }
   },
   "docs/decisiones/0009-verify-mira-dentro.md": {
     "citados": {
       "deployment_engine/filter_plugins/estado.py": "a48f8d2557e2bc6d0eafd81441f8060ee50de5b7604cd65a5de8a7e54a451a16",
-      "deployment_engine/filter_plugins/interior.py": "35dd7168172677c2c4494e52c6e1f306945fb08d01cf1ade2b8d4bddca6efee3",
-      "deployment_engine/playbooks/verify.yml": "130aaf17f7ade1b10b79cfa7705c27c5ce1a5a68f20338189510108987adadbd",
+      "deployment_engine/filter_plugins/interior.py": "1987c26ddded5e15dd25d5027b56fa04a8722f6fa5e8d61a9d4f1395e5801ce8",
+      "deployment_engine/playbooks/verify.yml": "e41dd8f5ab67657ae20266c3767e325538772b20a12266ba20fbd6453c10b121",
       "deployment_engine/tasks/configurar_linux.yml": "6b184fd397eaf29263444c0e81965d16930733a3cac19e9236f588ea502d9b5d",
-      "deployment_engine/tasks/configurar_routeros.yml": "558c93f2ea79c9be0840f500d1eae30c7ca71b52774645663baa1fd4a452d603",
+      "deployment_engine/tasks/configurar_routeros.yml": "9030813446c48f543cbf92409ccd00a258d7907c27373f97da71a9a3f76e6abf",
       "deployment_engine/tasks/interior_verificar.yml": "85321430dd6167de698a9c882a8416370cee70f7bba477632dadf5f3c913dc8f",
-      "deployment_engine/tasks/ros_api.yml": "2fdc8821735a868025adc787203fe2e81cd20f6b1b440000b8a3caf996f9cbd3"
+      "deployment_engine/tasks/ros_api.yml": "e6feb51074fb7178407251918147b903d535d544b9fae204797bc5252d966360"
+    }
+  },
+  "docs/decisiones/0010-el-rest-por-el-camino.md": {
+    "citados": {
+      "deployment_engine/filter_plugins/interior.py": "1987c26ddded5e15dd25d5027b56fa04a8722f6fa5e8d61a9d4f1395e5801ce8",
+      "deployment_engine/tasks/camino.yml": "4b435fa39951bca4f4c7e1eb806a3054bd35f99d3f2077c28b7f55bc55f9e92b",
+      "deployment_engine/tasks/camino_mundo.yml": "754aded381f391844ea5b7154217d6b3cb79580f4b529ab16108b4932e175a08",
+      "deployment_engine/tasks/configurar_routeros.yml": "9030813446c48f543cbf92409ccd00a258d7907c27373f97da71a9a3f76e6abf",
+      "deployment_engine/tasks/ros_api.yml": "e6feb51074fb7178407251918147b903d535d544b9fae204797bc5252d966360"
     }
   },
   "labs/ejemplo-topologia/ejemplo-topologia.md": {

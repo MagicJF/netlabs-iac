@@ -1079,6 +1079,145 @@ comprobar(
 )
 
 # ---------------------------------------------------------------------------
+# EL REST POR EL CAMINO: el puesto de control abre, ADEMÁS, el puerto 80 de cada equipo
+# con el que el motor habla por REST, para que la llamada la haga el motor y no el puesto
+# (nada de `delegate_to`: docs/decisiones/0010-*.md).
+# ---------------------------------------------------------------------------
+
+# El puerto sale del vmid, como el del camino, y las dos bandas no se pisan.
+comprobar(
+    motor.puerto_rest_camino(102, {}) == 21102
+    and motor.puerto_rest_camino(102, {"camino_rest_puerto_base": 30000}) == 30102
+    and motor.puerto_rest_camino(102, {}) != motor.puerto_camino(102, {}),
+    "el puerto del REST de un invitado se deriva de su vmid, en una banda propia",
+)
+
+DECLARACION_REST = {
+    "lab": "x",
+    "invitados": [
+        {"rol": "borde", "tipo": "vm", "direccion": "10.40.0.11/24", "config": {"routeros": {}}},
+        {"rol": "control", "tipo": "lxc", "direccion": "dhcp", "config": {"linux": {"camino": {}}}},
+        {"rol": "nucleo", "tipo": "vm", "direccion": "10.40.1.11/24", "config": {"routeros": {}}},
+        {"rol": "puesto", "tipo": "lxc", "direccion": "dhcp", "config": {"linux": {}}},
+        {"rol": "suelto", "tipo": "vm", "direccion": "10.40.2.11/24"},
+    ],
+}
+IDENTIDAD_REST = {
+    "invitados": [
+        {"rol": "borde", "vmid": 102},
+        {"rol": "control", "vmid": 103},
+        {"rol": "nucleo", "vmid": 104},
+        {"rol": "puesto", "vmid": 105},
+        {"rol": "suelto", "vmid": 106},
+    ]
+}
+
+# Sólo los que declaran `config.routeros`: el vocabulario es cerrado, y a un Linux o a un
+# invitado sin interior no se le abre el REST de nadie. El orden es estable (por rol) para
+# que un `apply` no reescriba el guion por nada.
+comprobar(
+    motor.patas_rest_del_puesto_control(DECLARACION_REST, IDENTIDAD_REST, {})
+    == [
+        {"rol": "borde", "direccion": "10.40.0.11", "puerto": 21102, "puerto_servicio": 80},
+        {"rol": "nucleo", "direccion": "10.40.1.11", "puerto": 21104, "puerto_servicio": 80},
+    ],
+    "sólo los equipos con `config.routeros` reciben pata de REST, y salen ordenados por rol",
+)
+
+# La dirección se cita SIN el prefijo (lo que viaja en `-R` es una dirección, no una red),
+# y un equipo sin dirección declarada no entra: no hay a dónde reenviar, y fingirlo sería
+# mentir en el guion.
+comprobar(
+    motor.patas_rest_del_puesto_control(
+        {
+            "lab": "x",
+            "invitados": [
+                {"rol": "sin_dir", "tipo": "vm", "config": {"routeros": {}}},
+                {"rol": "en_dhcp", "tipo": "vm", "direccion": "dhcp", "config": {"routeros": {}}},
+            ],
+        },
+        {"invitados": [{"rol": "sin_dir", "vmid": 110}, {"rol": "en_dhcp", "vmid": 111}]},
+        {},
+    )
+    == [],
+    "un RouterOS sin dirección declarada (o en dhcp) no recibe pata: no hay a dónde reenviar",
+)
+
+comprobar(
+    motor.patas_rest_del_puesto_control(DECLARACION_REST, None, {}) == []
+    and motor.patas_rest_del_puesto_control(DECLARACION_REST, {"invitados": []}, {}) == [],
+    "sin mapa de identidad no hay patas de REST que abrir (no se inventa un puerto)",
+)
+
+# El guion: un `-R` por equipo, cada uno siguiendo la línea como los demás argumentos del
+# `ssh`. Es lo que hace que el túnel sirva al motor en SU máquina.
+GUION_CON_REST = motor.guion_camino(
+    "CLAVE", "casa.example", 443, "hermes", 20103,
+    [{"rol": "borde", "direccion": "10.40.0.11", "puerto": 21102, "puerto_servicio": 80}],
+)
+GUION_SIN_REST = motor.guion_camino("CLAVE", "casa.example", 443, "hermes", 20103)
+
+comprobar(
+    "-R 21102:10.40.0.11:80" in GUION_CON_REST
+    and "-R 20103:localhost:22" in GUION_CON_REST
+    and "\n  -p 443 hermes@casa.example\n" in GUION_CON_REST,
+    "el guion del camino reenvía también el REST de cada equipo, por el MISMO túnel",
+)
+
+comprobar(
+    "-R 21102:10.40.0.11:80" not in GUION_SIN_REST
+    and "-R 20103:localhost:22" in GUION_SIN_REST,
+    "un lab sin RouterOS no añade reenvíos de más: el túnel sólo lleva la consola",
+)
+
+# Cada línea del `ssh` que sigue tiene que acabar en `\` + salto de verdad (una sola
+# barra): con dos, la shell corta la orden y el túnel no se levanta. Se mira el byte.
+LINEAS_SSH = [
+    linea
+    for linea in GUION_CON_REST.splitlines()
+    if linea.startswith("  -") or linea.startswith("  -R") or "exec ssh" in linea
+]
+comprobar(
+    all(linea.endswith("\\") or linea.endswith("casa.example") for linea in LINEAS_SSH)
+    and all(not linea.endswith("\\\\") for linea in LINEAS_SSH),
+    "cada línea del `ssh` del guion continúa con UNA barra (si no, el túnel no se levanta)",
+)
+
+# El estado viaja por texto: un «False» con letras es una CADENA, y `bool('False')` es
+# True en Python. Si esto se creyera, un túnel caído pasaría por túnel en pie.
+comprobar(
+    motor.camino_responde({"camino": {"responde": False}}) is False
+    and motor.camino_responde({"camino": {"responde": "False"}}) is False
+    and motor.camino_responde({"camino": {"responde": True}}) is True
+    and motor.camino_responde({"camino": {"responde": "True"}}) is True
+    and motor.camino_responde({}) is False
+    and motor.camino_responde({"camino": {}}) is False,
+    "un «False» que llega como texto NO se lee como «el camino responde»",
+)
+
+# La línea de `authorized_keys`: `permitlisten` se REPITE. Una lista dentro de una sola
+# opción hace que sshd NO encuentre la clave y conteste «Permission denied (publickey)»,
+# que no dice nada de lo que pasa de verdad. Es un fallo que no se ve leyendo el código.
+AUTORIZADOS = motor.permitlisten_de([20103, 21102, 21104])
+comprobar(
+    AUTORIZADOS == 'permitlisten="20103",permitlisten="21102",permitlisten="21104"'
+    and 'permitlisten="20103,21102' not in AUTORIZADOS,
+    "la línea autorizada REPITE `permitlisten` en vez de meter la lista dentro de la opción",
+)
+
+# Y la OTRA mitad del mismo fallo: el filtro ya arma las opciones enteras, así que la línea
+# de `camino.yml` NO puede volver a envolverlas (`permitlisten="{{ ... }}"` las dejaría
+# como `permitlisten="permitlisten="20103"..."`, y esa sí que es mala de leer).
+_CAMINO_YML = (motor.__file__ or "").rsplit("/filter_plugins/", 1)[0] + "/tasks/camino.yml"
+with open(_CAMINO_YML) as _f:
+    _LINEA_CAMINO = _f.read()
+comprobar(
+    "permitlisten=\"{{ camino_puertos_autorizados }}\"" not in _LINEA_CAMINO
+    and "{{ camino_puertos_autorizados }}" in _LINEA_CAMINO,
+    "la línea de `authorized_keys` usa las opciones tal cual las arma el filtro (sin envolverlas dos veces)",
+)
+
+# ---------------------------------------------------------------------------
 
 if FALLOS:
     print(f"\nRESULTADO: {len(FALLOS)} fallo(s).")

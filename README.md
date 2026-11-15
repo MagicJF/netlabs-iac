@@ -48,7 +48,7 @@ netlabs_v4_b/
 │   │                         verify, destroy
 │   ├── tasks/                las CUATRO puertas y sus diarios: pve_api.yml (API
 │   │                         de Proxmox → api.jsonl), ros_api.yml (REST de
-│   │                         RouterOS, por el puesto de control → api.jsonl),
+│   │                         RouterOS, por el túnel del puesto → api.jsonl),
 │   │                         interior_ssh.yml (interior Linux → interior.jsonl),
 │   │                         camino_consola.yml (consola → camino.jsonl); más
 │   │                         los drivers (configurar_routeros.yml,
@@ -260,7 +260,8 @@ ningún Proxmox. Con `--api` lee el estado real por la API.
 
 Al mundo se le habla por **cuatro puertas**, y por ninguna otra: a **Proxmox** por
 `tasks/pve_api.yml` (`/api2/json`, con `ansible.builtin.uri`), a **RouterOS** por
-`tasks/ros_api.yml` (su `/rest/…`, alcanzado por el puesto de control), al
+`tasks/ros_api.yml` (su `/rest/…`, al que el motor llega por el túnel del puesto de
+control: la llamada la hace el motor en su máquina, sin `delegate_to`), al
 **interior Linux** por `tasks/interior_ssh.yml` (SSH), y a la **consola de la API**
 sólo desde `tasks/camino_consola.yml`. Ningún play llama "por fuera", y el wrapper
 `./lab` **no llama a nada**: sólo valida y lanza `ansible-playbook`.
@@ -680,4 +681,5 @@ Una línea cada una, y nada más:
   [0006](docs/decisiones/0006-escribir-en-routeros.md),
   [0007](docs/decisiones/0007-las-patas-se-declaran.md),
   [0008](docs/decisiones/0008-una-direccion-por-pata.md),
-  [0009](docs/decisiones/0009-verify-mira-dentro.md)
+  [0009](docs/decisiones/0009-verify-mira-dentro.md),
+  [0010](docs/decisiones/0010-el-rest-por-el-camino.md)

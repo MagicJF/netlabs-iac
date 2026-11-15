@@ -279,7 +279,7 @@ def construir_plan(declaracion, estado, identidad, parametros):
         #     no se entra en ningún otro invitado. Va antes de tocar el interior de
         #     nadie, incluido el suyo.
         for invitado in del_escalon:
-            pasos.extend(modulo_interior.pasos_del_camino(invitado, declaracion, estado, parametros))
+            pasos.extend(modulo_interior.pasos_del_camino(invitado, declaracion, estado, parametros, identidad))
 
         # (b) El interior del escalón, con su BARRERA delante. Sin `config:` no se
         #     entra: el motor lo despliega y se calla, exactamente como en la fase 1.

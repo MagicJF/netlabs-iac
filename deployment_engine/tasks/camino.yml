@@ -24,6 +24,10 @@
 #   camino_vmid           su vmid
 #   camino_puerto         el puerto local del nodo de control que el invitado deja
 #                         reenviado (se deriva del vmid: nada que guardar)
+#   camino_rest           por cada equipo con el que el motor habla por REST, la pata
+#                         que este túnel tiene que dejar abierta para llegar a su REST
+#                         (puerto 80): {rol, direccion, puerto, puerto_servicio}. Vacío
+#                         si el lab no configura ningún RouterOS.
 #   camino_salida_host    a dónde sale (el nodo de control): ENTORNO, de secrets.yml
 #   camino_salida_puerto  por qué puerto sale (443)
 #   camino_usuario        con qué usuario entra en el nodo de control
@@ -94,6 +98,22 @@
   when:
     - camino_clave_publica | length == 0
     - not (camino_solo_clave | default(false) | bool)
+# Los puertos que este túnel deja reenviados: el suyo (por el que se le lee la consola y
+# por el que entra Ansible) y el REST (80) de cada equipo con el que el motor hablará por
+# REST. Se calcula UNA vez y se usa en los DOS sitios que tienen que decir lo mismo --la
+# línea autorizada y el guion--, porque una lista escrita dos veces se separa sola.
+# OJO con la forma: `permitlisten` se REPITE (`permitlisten="a",permitlisten="b"`); una
+# lista dentro de una sola opción hace que sshd no encuentre la clave y conteste un
+# «Permission denied» que no explica nada (lo arma `interior_permitlisten`, medido).
+- name: "CAMINO · los puertos que este túnel deja reenviados (la consola y los REST del lab)"
+  ansible.builtin.set_fact:
+    camino_puertos_autorizados: >-
+      {{ ([camino_puerto]
+          + (camino_rest | default([]) | map(attribute='puerto') | list))
+         | interior_permitlisten }}
+  changed_when: false
+  when: not (camino_solo_clave | default(false) | bool)
+
 # PRIMERO se quitan las líneas viejas de ESTE lab. No es limpieza cosmética: el comentario
 # lleva el lab y el puerto, y si el invitado se rehace cambia de vmid y por tanto de puerto;
 # una línea vieja con la misma clave taparía la nueva (OpenSSH usa la primera que casa) y el
@@ -109,12 +129,12 @@
 # Y DESPUÉS la de este puerto, con `restrict` + `port-forwarding` + `permitlisten`: esa clave
 # no da shell, no ejecuta comandos, no abre túneles que no sean este reenvío concreto. El
 # `regexp` hace que volver a pasar por aquí deje la MISMA línea en su sitio, no una más.
-- name: "CAMINO · autorizar SÓLO el reenvío del puerto {{ camino_puerto }} en el nodo de control"
+- name: "CAMINO · autorizar SÓLO los reenvíos de este túnel en el nodo de control"
   ansible.builtin.lineinfile:
     path: "{{ camino_autorizadas }}"
     regexp: '^.*netlabs_v4_b-camino-{{ pve_lab }}-{{ camino_puerto }}.*$'
     line: >-
-      restrict,port-forwarding,permitlisten="{{ camino_puerto }}" {{ camino_clave_publica }}
+      restrict,port-forwarding,{{ camino_puertos_autorizados }} {{ camino_clave_publica }}
       netlabs_v4_b-camino-{{ pve_lab }}-{{ camino_puerto }}
     create: true
     mode: '0600'
@@ -129,7 +149,7 @@
     camino_linea: >-
       {{ (lookup('file', camino_clave | expanduser)
           | interior_guion_camino(camino_salida_host, camino_salida_puerto,
-                                  camino_usuario, camino_puerto)
+                                  camino_usuario, camino_puerto, camino_rest | default([]))
           | interior_linea_consola) | b64encode }}
     # `interior_marca_camino` es un FILTRO: se llama con `|` aunque no necesite
     # entrada (una marca fija). Escribirlo como variable da «undefined», que es

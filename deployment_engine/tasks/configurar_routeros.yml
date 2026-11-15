@@ -6,10 +6,12 @@
 #                 escribir lo que falta -> RELEER y comprobar.
 #
 #              Lo que cambia respecto de Linux es la PUERTA: a un RouterOS no se entra
-#              por SSH (regla 13), se le habla por su REST (`tasks/ros_api.yml`), y esa
-#              puerta se habla DESDE EL PUESTO DE CONTROL, que es el único que tiene una
-#              pata en cada bridge del lab. Por eso este driver, antes de nada, pone el
-#              puesto de control en el inventario de esta ejecución.
+#              por SSH (regla 13), se le habla por su REST (`tasks/ros_api.yml`). Y esa
+#              llamada la hace el MOTOR, en esta misma máquina: el puesto de control le
+#              deja abierto el camino --reenvía el puerto 80 del router por el MISMO
+#              túnel del camino-- y a este driver sólo le queda decir POR QUÉ PUERTO. El
+#              puesto NO entra en el inventario de esta ejecución: aquí no se delega
+#              nada (era el único `delegate_to` del motor).
 #
 # INVARIANTES: se escribe SÓLO por la puerta del REST, y se relee lo mismo que se leyó:
 #              un paso que escribe y no comprueba es una promesa, no una convergencia.
@@ -36,40 +38,20 @@
     interior_areas_declaradas: "{{ interior_declarado_invitado | interior_areas }}"
   changed_when: false
 
-# El puesto de control, al inventario EN MEMORIA de esta ejecución. Es lo que permite
-# `delegate_to` en la puerta: la llamada sale DE ÉL, no del nodo de control. Se entra a
-# él como al invitado que es (por el puerto del camino, que sale de su vmid: nada que
-# guardar), y con la clave del camino del lab.
-- name: "DRIVER ROUTEROS · poner el puesto de control en el inventario de esta ejecución"
-  ansible.builtin.add_host:
-    name: "{{ ros_puesto }}"
-    ansible_host: 127.0.0.1
-    ansible_port: "{{ ros_puesto_puerto }}"
-    # Se entra al puesto como se entra a CUALQUIER invitado Linux del lab (su usuario y
-    # la clave del camino del lab): el puerto del camino desemboca en su sshd, no en el
-    # de la máquina donde corre el motor. Confundir esto da «Permission denied» y se
-    # pierde media hora.
-    ansible_user: "{{ engine_usuario_invitado }}"
-    ansible_ssh_private_key_file: "{{ parametros_motor.camino_clave | expanduser }}"
-    # Los invitados nacen y mueren: no hay huella estable que fijar, y `BatchMode` es lo
-    # que hace que esto sea un motor y no un humano esperando una contraseña. Las
-    # opciones se piden, no se escriben: quien es dueño del protocolo SSH es
-    # `inventario_invitados.yml` (regla 12), y si se escribieran aquí habría dos sitios
-    # donde se decide cómo se entra a un invitado.
-    ansible_ssh_common_args: "{{ interior_ssh_comunes }}"
-  # Meter un host en el inventario EN MEMORIA no cambia el mundo: sin esto, la segunda
-  # pasada de `apply` saldría con un `changed` que no lo es (regla 6).
-  changed_when: false
-  vars:
-    ros_puesto: "puesto-{{ pve_lab }}"
-    # NADA que guardar: el puerto sale del vmid del puesto de control (regla 11).
-    ros_puesto_puerto: >-
-      {{ (parametros_motor.camino_puerto_base | int) + (identidad.invitados
-         | selectattr('rol', 'equalto', (declaracion | interior_puesto_control)) | list | first).vmid | int }}
+# AQUÍ no se pone el puesto de control en el inventario. Antes sí, porque la llamada se le
+# delegaba; ahora la hace el motor y el puesto sólo hace de camino (el túnel ya reenvía el
+# REST de este router), así que lo único que hace falta es POR QUÉ PUERTO se llama: eso se
+# calcula en el paso siguiente, del vmid del invitado (nada que guardar, regla 11).
 
-- name: "DRIVER ROUTEROS · con qué se llama, y quién llama"
+- name: "DRIVER ROUTEROS · con qué se llama, y por dónde"
   ansible.builtin.set_fact:
-    ros_intermediario: "{{ ros_puesto }}"
+    # El puerto local del nodo de control por el que el camino tiene abierto el REST de
+    # ESTE router. Es hermano del puerto del camino: sale del vmid del invitado, y el
+    # motor llama a `127.0.0.1:<este puerto>`. Sin camino construido no hay puerto, y la
+    # puerta lo dice con el remedio (regla 16).
+    ros_puerto: >-
+      {{ (parametros_motor.camino_rest_puerto_base | int) + (identidad.invitados
+         | selectattr('rol', 'equalto', interior_rol) | list | first).vmid | int }}
     # La dirección DECLARADA del invitado, y la única por la que se habla: el intercambio de
     # la dirección de gestión no da pasos desde fuera --lo hace el router entero y de una
     # vez, con un guion (ver `_intercambio_de_la_gestion`)--, así que la convergencia nunca
@@ -85,8 +67,6 @@
     ros_clave_fabrica: "{{ engine_routeros_clave_fabrica | default('') }}"
     ros_clave_publica: "{{ camino_clave_publica | default('') }}"
     ros_leidos: {}
-  vars:
-    ros_puesto: "puesto-{{ pve_lab }}"
 
 # --- 1. CON QUÉ CREDENCIAL SE CONVERGE ------------------------------------------------
 # Primero la del motor. Si el equipo la rechaza (401) es lo NORMAL la primera vez --un
@@ -127,8 +107,9 @@
       {% if (ros_ultimo_status | int) == -1 %}
       No se llegó a preguntarle. El motor no sigue a ciegas (regla 16). Lo que hay que
       mirar, en orden: que el paso anterior del plan lo haya arrancado y le haya puesto
-      su dirección, que su bridge sea el que declara el lab, y que el puesto de control
-      esté en pie (el camino: `./lab --lab {{ pve_lab }} apply`).
+      su dirección, que su bridge sea el que declara el lab, y que el camino esté en pie
+      y reenvíe el REST de este router (el camino se construye con
+      `./lab --lab {{ pve_lab }} apply`).
       {% else %}
       El equipo CONTESTA, pero no acepta ni la credencial del motor
       ({{ engine_routeros_usuario }} en secrets.yml) ni la de fábrica. Eso sólo pasa si
@@ -196,9 +177,10 @@
       su REST: {{ interior_leido.motivo }}
 
       El motor no escribe a ciegas (regla 16). Un RouterOS de este motor se configura
-      por su REST, y su REST se habla desde el puesto de control: si no contesta, lo
-      primero es comprobar que el router está arrancado con su dirección y que el
-      camino está en pie (`./lab --lab {{ pve_lab }} apply` reconstruye el camino).
+      por su REST, y a ese REST se llega por el camino que el puesto de control deja
+      abierto: si no contesta, lo primero es comprobar que el router está arrancado con
+      su dirección y que el camino está en pie y reenvía su puerto
+      (`./lab --lab {{ pve_lab }} apply` reconstruye el camino).
   when: not interior_leido.alcanzable and not (interior_solo_leer | default(false))
 
 # --- 3. DECIDIR (función pura) --------------------------------------------------------

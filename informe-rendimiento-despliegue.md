@@ -52,7 +52,7 @@ cuerpo ya saltado, que es el caso normal:
 
 | familia | seg | % | qué es |
 | --- | ---: | ---: | --- |
-| **PUERTA ROUTEROS** | **540,0** | **46 %** | 363 tareas = 99 llamadas REST a los CHR, **delegadas al puesto de control** |
+| **PUERTA ROUTEROS** | **540,0** | **46 %** | 363 tareas = 99 llamadas REST a los CHR, **delegadas al puesto de control** (retrato de ANTES; hoy, con el ADR 0010: **49,7 s**) |
 | esperas de tarea (UPID) | 282,6 | 24 % | 13 esperas, la mayor de **50 s** (crear una VM) |
 | PUERTA (Proxmox) | 118,6 | 10 % | creación, arranque, red |
 | CONSOLA | 65,5 | 6 % | 13 usos; uno de **46,1 s** (arranque del puesto de control) |
@@ -90,7 +90,7 @@ Dos conclusiones que importan:
 2. El suelo real es ~1,1 s (0,92 de SSH + 0,15 de Python). Todo lo que pase de ahí es
    Ansible copiando el módulo al invitado y recogiendo el resultado.
 
-## Lo que se ha recortado (2 cambios, medidos por separado)
+## Lo que se ha recortado (3 cambios, medidos por separado)
 
 ### 1. `pipelining = True` en `ansible.cfg` — 5,1 s → 3,9 s por llamada delegada
 
@@ -116,20 +116,40 @@ siguen yendo seguidos —una tarea corta se detecta igual de rápido que antes�
 - Con 13 esperas por ciclo. Medido en la familia ESPERA del `apply`: **283 s → 221 s**;
   y los `skipped` del verbo, de **6.683 a 2.379**.
 
+### 3. El REST por el camino (ADR 0010): el motor llama, el puesto sólo reenvía
+
+La puerta de RouterOS le **delegaba** la llamada al puesto de control (`add_host` +
+`delegate_to`), y eso costaba **4,39 s por petición** aunque el router estuviera a 3 ms de
+TCP. El coste no era la red: era subir un intérprete de Python por SSH en **cada** llamada.
+Ahora el motor llama **desde su propia máquina** (`127.0.0.1:<21000+vmid>`) y el puesto sólo
+**reenvía** el puerto 80 de cada CHR por el mismo túnel `ssh -R` que ya usaba para la consola.
+
+**Medido** (las mismas 99 llamadas del mismo `apply`, contadas en el diario): 4,39 s → **0,50 s**
+de media (mediana 465 ms), **−0,78 s por llamada**; la familia entera, **434,5 s → 49,7 s**.
+Es el mismo tráfico y los mismos 99 pasos: lo que cambia es **dónde** se ejecuta la petición.
+Y de paso desaparece el **único** `delegate_to` del motor: las llamadas ocurren en un solo
+sitio, que era el objetivo de fondo.
+
 ## Resultado medido: antes y después
 
 Ciclo completo real (`destroy → apply → verify`) contra el nodo, con el mismo lab:
 
-| verbo | antes | después | delta |
-| --- | ---: | ---: | ---: |
-| `destroy` | 224,1 s | **142,8 s** | **−81,3 s (−36 %)** |
-| `apply` | 1.166,2 s | **1.028,7 s** | **−137,5 s (−12 %)** |
-| `verify` | — | 141,9 s | — |
-| **ciclo** | ~1.532 s (25,5 min) | **1.313 s (21,9 min)** | **−219 s (−14 %)** |
+| verbo | antes | tras pipelining + esperas | tras ADR 0010 | delta del ADR 0010 |
+| --- | ---: | ---: | ---: | ---: |
+| `destroy` | 224,1 s | 142,8 s | 91 s ⁽¹⁾ | — |
+| `apply` | 1.166,2 s | 1.028,7 s | **650 s** | **−378,7 s (−37 %)** |
+| `verify` | — | 141,9 s | **53 s** | **−88,9 s (−63 %)** |
+| `apply` 2ª (idempotencia) | — | — | 113 s, `changed=0` | — |
+| **ciclo** | ~1.532 s (25,5 min) | 1.313 s (21,9 min) | **794 s (13,2 min)** | **−519 s (−40 %)** |
 
-> El `verify` de antes no se cronometró (su tiempo apenas depende de lo tocado); para la
-> fila del ciclo se le supone el de ahora. El `destroy` y el `apply` sí son medidos, cada
-> uno con su perfil y su diario.
+> ⁽¹⁾ El `destroy` no pasa por RouterOS: su 142,8 s → 91 s es **varianza** (los invitados ya
+> estaban arrancados y el apagado salió más corto), no lo apunta este cambio. El `apply` y el
+> `verify` sí: van medidos, cada uno con su diario. El `verify` del ciclo da **CORRECTO** con
+> 6 invitados conformes y sus 40 llamadas son **todas GET** —la segunda pasada no escribe—,
+> y el `apply` 2º da `changed=0`. El ciclo sigue siendo idempotente.
+
+> El `verify` de antes no se cronometró (su tiempo apenas dependía de lo tocado entonces);
+> para la fila del ciclo original se le supuso el de ahora.
 
 El veredicto del `verify` fue **CORRECTO** (6 invitados) con `changed=0`, así que el
 ciclo sigue siendo idempotente.
@@ -142,11 +162,12 @@ De dónde viene el ahorro del `apply` (medido por familias):
 | ESPERA (bucles) | 282,6 s | 221,1 s | **−61,5 s** |
 | PUERTA (Proxmox) | 118,6 s | 105,6 s | −13,0 s |
 
-Las llamadas REST a RouterOS del `apply`: 5.167 ms → **4.389 ms** de media (99 llamadas,
-511,6 s → 434,5 s).
+Las llamadas REST a RouterOS del `apply`: 5.167 ms → 4.389 ms → **502 ms** de media (99
+llamadas, 511,6 s → 434,5 s → **49,7 s**). Con eso, PUERTA ROUTEROS deja de ser el 46 % del
+`apply`: baja a **menos del 8 %**.
 
 Lo que **no** se ha movido: `CONSOLA` (65,5 s) e `INTERIOR` (56 s). Son esperas de
-arranque reales; para bajarlas hay que atacar el punto 1 del margen que queda.
+arranque reales; pasan a ser lo siguiente que se puede recortar.
 
 
 ## Lo que NO se ha tocado, y por qué
@@ -164,13 +185,11 @@ arranque reales; para bajarlas hay que atacar el punto 1 del margen que queda.
 
 Por orden de tamaño:
 
-1. **Las llamadas a RouterOS por `delegate_to` (el mayor, ~350 s ≈ 30 % del
-   despliegue).** Aun con pipelining, cada llamada cuesta 3,9 s y el suelo medido es
-   ~1,1 s. La causa es que la llamada se ejecuta *dentro* del puesto de control, y a
-   ese invitado se llega por SSH. Si el **camino reenviara el puerto REST del CHR**
-   (como ya reenvía el 22 del puesto de control), el motor haría `uri` **desde su
-   propio nodo**, sin SSH por medio: ~0,15-0,30 s por llamada. Es un cambio en el
-   camino (una pata más) y necesita su ADR; no se ha tocado.
+1. ~~**Las llamadas a RouterOS por `delegate_to`.**~~ **HECHO (ADR 0010)** —era justo lo que
+   este informe pedía—: el camino reenvía el puerto REST de cada CHR (una pata por router, en
+   el mismo túnel) y el motor llama `uri` desde su propio nodo, sin SSH por medio. Medido:
+   **4,39 s → 0,50 s** por llamada. Queda algo por encima de los ~0,15-0,30 s que se
+   estimaban aquí (el reenvío SSH suma ~0,3 s), pero el `apply` baja 378,7 s.
 2. **El arranque del puesto de control por consola (46 s en una sola tarea).** Es una
    espera de arranque real, pero el reintento está a 12 s fijos; con una rampa como la
    del punto 2 se afinaría.

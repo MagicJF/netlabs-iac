@@ -93,6 +93,11 @@ ACCION_CAMINO = "construir_camino"
 ACCION_COMPROBAR_CAMINO = "comprobar_camino"
 ACCION_INTERIOR = "converger_interior"
 
+# El puerto por el que se deja ver un RouterOS: su REST vive en el servicio `www` de
+# fábrica. Es el MISMO que sondea la barrera de un escalón (`espera_de_servicio`), así
+# que es una constante y no un número repetido en dos sitios que se puedan separar.
+PUERTO_REST_ROUTEROS = 80
+
 
 class ErrorMotor(Exception):
     """Mismo nombre que el error de Ansible: este módulo se prueba sin Ansible."""
@@ -331,7 +336,6 @@ def patas_del_puesto_control(invitado, declaracion, estado, parametros):
         }
     )
     return patas
-    return patas
 
 
 def puerto_camino(vmid, parametros):
@@ -339,16 +343,84 @@ def puerto_camino(vmid, parametros):
     return int(parametros.get("camino_puerto_base") or 20000) + int(vmid)
 
 
-def guion_camino(clave_privada, host, puerto, usuario, puerto_local):
+def puerto_rest_camino(vmid, parametros):
+    """El puerto del nodo de control por el que se llega al REST de un invitado.
+
+    El puesto de control reenvía, por el MISMO túnel del camino, el puerto 80 de cada
+    equipo con el que el motor habla por REST (los que declaran `config.routeros`). Así
+    el `uri` se ejecuta en la máquina del motor --una sola puerta, un solo sitio-- y el
+    puesto sólo hace de camino, en vez de delegarle la llamada. Se DERIVA del vmid, como
+    el puerto del camino: nada que guardar (regla 11). La banda (21000+) no pisa la del
+    camino (20000+) para vmids de tres cifras, que es lo que usa un clúster normal.
+    """
+    return int(parametros.get("camino_rest_puerto_base") or 21000) + int(vmid)
+
+
+def permitlisten_de(puertos):
+    """`[20103, 21102]` -> `permitlisten="20103",permitlisten="21102"`.
+
+    NO se escribe una lista dentro de una sola opción. `permitlisten="a,b"` parece lo
+    natural --y el `man` de sshd invita a leerlo así--, pero lo que sshd admite es REPETIR
+    la opción, separada por comas. Con la forma mala sshd **no encuentra la clave** y
+    contesta «Permission denied (publickey)»: un error que no dice nada de lo que pasa de
+    verdad y que cuesta media tarde. Medido: docs/decisiones/0010-*.md.
+    """
+    return ",".join(f'permitlisten="{puerto}"' for puerto in puertos)
+
+
+def _declarado_por_rol(declaracion, rol):
+    """El invitado DECLARADO con ese rol. La declaración normalizada es una lista plana."""
+    for invitado in (declaracion or {}).get("invitados") or []:
+        if invitado.get("rol") == rol:
+            return invitado
+    return {}
+
+
+def patas_rest_del_puesto_control(declaracion, identidad, parametros):
+    """Los equipos por los que el puesto de control tiene que abrir camino de REST.
+
+    Se pregunta a la DECLARACIÓN quién trae `config.routeros` --son los únicos con los
+    que este motor habla por REST: el vocabulario es cerrado-- y al mapa de identidad
+    por su vmid, que es de donde sale el puerto. Un equipo sin dirección declarada no
+    entra: no hay a dónde reenviar, y un `dhcp` con interior de RouterOS ya lo rechaza
+    la validación de la declaración. Sale ordenada por rol para que el guion del camino
+    sea el mismo en cada pasada (si no, un `apply` lo reescribiría por nada).
+    """
+    patas = []
+    for invitado in (identidad or {}).get("invitados") or []:
+        declarado = _declarado_por_rol(declaracion, invitado.get("rol"))
+        if "routeros" not in (declarado.get("config") or {}):
+            continue
+        # La dirección declarada, sin el prefijo: lo que viaja en `-R` es una dirección, no
+        # una red. `dhcp` NO es una dirección --no se sabe a dónde reenviar--, así que un
+        # equipo así no entra (la validación de la declaración ya lo rechaza cuando declara
+        # interior; aquí se dice lo mismo por si llegara por otra vía).
+        direccion = _sin_prefijo(declarado.get("direccion"))
+        if not direccion or direccion == "dhcp":
+            continue
+        patas.append(
+            {
+                "rol": invitado.get("rol"),
+                "direccion": direccion,
+                "puerto": puerto_rest_camino(invitado.get("vmid"), parametros),
+                "puerto_servicio": PUERTO_REST_ROUTEROS,
+            }
+        )
+    return sorted(patas, key=lambda pata: str(pata["rol"]))
+
+
+def guion_camino(clave_privada, host, puerto, usuario, puerto_local, patas_rest=None):
     """El texto que se manda por la consola: UNA sola vez, y queda puesto.
 
     Qué hace, y por qué esto y no otra cosa:
 
       1. deja la clave del camino dentro del invitado, con sus permisos;
-      2. escribe un GUION que abre la salida hacia casa con `ssh -R` (el puesto de
+      2. escribe un GUION que abre la salida hacia casa con `ssh -R`: el puesto de
          control se conecta al sshd del nodo de control y deja reenviado un puerto
-         local SUYO hacia su propio sshd: por ahí entra Ansible y de ahí cuelga el
-         resto del lab);
+         local SUYO hacia su propio sshd (por ahí se le lee la consola y de ahí cuelga
+         el lab) y, por cada equipo con el que el motor habla por REST, OTRO puerto
+         local hacia el puerto 80 de ese equipo: así el `uri` del motor se ejecuta en
+         la máquina del motor, y el puesto sólo hace de camino;
       3. lo pone como UNIDAD de systemd con `Restart=always` y la habilita.
 
     El punto 3 es lo que hace que la consola se use UNA vez por vida del invitado y
@@ -358,6 +430,13 @@ def guion_camino(clave_privada, host, puerto, usuario, puerto_local):
     Va en base64 porque la consola no es un canal de datos fiable: una línea, sin
     heredocs ni comillas que escapar, sin nada que el eco pueda romper.
     """
+    # `\` + salto de línea: lo que la shell lee como «la línea sigue». Se escribe con
+    # chr() para que ningún nivel de escapes lo pueda romper por el camino.
+    seguimos = chr(92) + "\n"
+    reenvios = "".join(
+        f"  -R {pata['puerto']}:{pata['direccion']}:{pata['puerto_servicio']} {seguimos}"
+        for pata in (patas_rest or [])
+    )
     return f"""#!/bin/sh
 # PROPÓSITO: abrir la salida hacia casa del puesto de control y sostenerla.
 # Lo escribe el motor UNA vez, por la consola, al nacer el invitado
@@ -375,7 +454,8 @@ exec ssh -i /root/.ssh/netlabs_camino \\
   -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \\
   -o ExitOnForwardFailure=yes \\
   -o ServerAliveInterval=15 -o ServerAliveCountMax=3 \\
-  -N -R {puerto_local}:localhost:22 -p {puerto} {usuario}@{host}
+  -N -R {puerto_local}:localhost:22 \\
+{reenvios}  -p {puerto} {usuario}@{host}
 FIN_GUION
 chmod 755 {RUTA_GUION_CAMINO}
 cat > /etc/systemd/system/{UNIDAD_CAMINO} <<'FIN_UNIDAD'
@@ -435,10 +515,23 @@ def camino_responde(estado):
     no se puede fingir. Ausente = no responde: en un clúster simulado (un `plan` sin
     credenciales) no hay camino, y el plan lo dice.
     """
-    return bool((estado or {}).get("camino", {}).get("responde"))
+    return _afirmativo((estado or {}).get("camino", {}).get("responde"))
 
 
-def pasos_del_camino(invitado, declaracion, estado, parametros):
+def _afirmativo(valor):
+    """¿Un valor que viene por texto dice que SÍ?
+
+    El estado viaja por texto entre tareas de Ansible, y ahí un «False» con letras es una
+    CADENA: `bool('False')` es `True` en Python. Creerle a `bool()` convertiría un túnel
+    caído en un túnel en pie -- justo el error que este estado existe para evitar--, así
+    que se mira el texto y se dice lo que dice.
+    """
+    if isinstance(valor, str):
+        return valor.strip().lower() in ("true", "yes", "si", "sí", "1")
+    return bool(valor)
+
+
+def pasos_del_camino(invitado, declaracion, estado, parametros, identidad=None):
     """Los pasos del CAMINO de este invitado (el puesto de control), en orden.
 
     El camino es lo que hace ENTRAR a Ansible en la red del lab, así que va antes de
@@ -467,6 +560,21 @@ def pasos_del_camino(invitado, declaracion, estado, parametros):
     declarado = (invitado.get("config") or {}).get("linux") or {}
     salida = (declarado.get(CLAVE_CAMINO) or {}).get("salida") or {}
     puerto_local = puerto_camino(invitado["vmid"], parametros)
+    # Las patas de REST: una por equipo con el que el motor hablará por REST. Van dentro
+    # del paso porque el puerto de cada una sale de su vmid, y el vmid sólo se conoce en
+    # el plan (que los asigna todos de una vez), no al ejecutar el paso.
+    patas_rest = patas_rest_del_puesto_control(declaracion, identidad, parametros)
+    # Los puertos que el túnel dejará autorizados y reenviados: el suyo y el REST de cada
+    # equipo. Es la MISMA lista que escribe `tasks/camino.yml` en `authorized_keys`.
+    puertos_autorizados = permitlisten_de(
+        [puerto_local] + [pata["puerto"] for pata in patas_rest]
+    )
+    if patas_rest:
+        detalle_rest = "y, por el MISMO túnel, reenvía el puerto 80 de cada equipo de REST: " + (
+            ", ".join(f"{pata['rol']}->127.0.0.1:{pata['puerto']}" for pata in patas_rest)
+        )
+    else:
+        detalle_rest = "este lab no configura ningún RouterOS: por el túnel sólo va la consola"
     host_salida = str(salida.get("host") or parametros.get("camino_host") or "")
     puerto_salida = int(salida.get("puerto") or parametros.get("camino_puerto") or 443)
 
@@ -489,14 +597,16 @@ def pasos_del_camino(invitado, declaracion, estado, parametros):
                     "patas": [
                         {"bridge": pata["bridge"], "direccion": pata["direccion"]} for pata in patas
                     ],
+                    "rest": patas_rest,
                 },
                 "detalle": [
                     "la clave pública del motor se deja en el invitado al CREARLO (ssh-public-keys):",
                     "  por ahí entra Ansible, y sin eso no habría forma de llegar a configurarlo",
                     f"en casa se añade UNA línea a authorized_keys con restrict,port-forwarding,"
-                    f"permitlisten=\"{puerto_local}\" (la clave del camino no da shell, sólo el reenvío)",
+                    f"{puertos_autorizados} (la clave del camino no da shell, sólo los reenvíos de este túnel)",
                     f"por la consola del invitado se manda UNA línea (base64) que levanta "
                     f"ssh -R {puerto_local}:127.0.0.1:22 hacia {host_salida}:{puerto_salida}",
+                    detalle_rest,
                     "la consola no devuelve código de salida: el guion termina imprimiendo una MARCA "
                     "y el motor la busca en el eco",
                 ],
@@ -2383,6 +2493,9 @@ class FilterModule:
             "interior_direccion_libre": direccion_libre,
             "interior_patas": patas_del_puesto_control,
             "interior_puerto_camino": puerto_camino,
+            "interior_puerto_rest": puerto_rest_camino,
+            "interior_permitlisten": permitlisten_de,
+            "interior_patas_rest": patas_rest_del_puesto_control,
             "interior_guion_camino": guion_camino,
             "interior_linea_consola": linea_consola,
             "interior_marca_camino": marca_camino,

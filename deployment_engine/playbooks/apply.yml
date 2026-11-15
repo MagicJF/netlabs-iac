@@ -68,6 +68,7 @@
           camino_puerto: "{{ pve_camino_salida_puerto | default(443) }}"
           camino_usuario: "{{ pve_camino_usuario | default('') }}"
           camino_puerto_base: "{{ engine_camino_puerto_base }}"
+          camino_rest_puerto_base: "{{ engine_camino_rest_puerto_base }}"
           # El prefijo de las MAC: la identidad de un invitado con varias patas
           # sale de aquí (una MAC por pata, derivada del vmid; ver
           # `identidad_mac_de_pata`).

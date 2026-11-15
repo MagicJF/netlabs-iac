@@ -41,7 +41,9 @@ Al arrancarlo, el motor le inyecta por **consola** un guion que abre
 `ssh -R <puerto>:127.0.0.1:22` contra el nodo de control; a partir de ahí, el nodo de
 control tiene un puerto propio que aterriza **dentro** de la red del lab, y desde ese
 puesto se llega a cada invitado. El puerto **se deriva** del vmid del puesto
-(`20000 + vmid`), así que no hay que guardar ninguna asignación (regla 11).
+(`20000 + vmid`), así que no hay que guardar ninguna asignación (regla 11). El MISMO túnel
+lleva también el **REST de cada RouterOS** (a `21000 + vmid`), para que las llamadas las haga
+el motor en su propia máquina y el puesto sólo haga de camino (ADR 0010).
 
 Tres cosas que se aprendieron midiendo, y que están en el código:
 

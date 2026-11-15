@@ -165,6 +165,16 @@ está en los `escalones` de la declaración, y el plan lo respeta (regla 18).
 - **El orden de las áreas lo manda el motor, no el lab.** `AREAS` (`interior.py`) pone
   `direcciones` antes de `cliente_dhcp` justo por eso, y `test/test_routeros.py` compara la
   lista de operaciones entera para que nadie lo deshaga sin enterarse.
+- **El túnel del puesto de control lleva también el REST, y el CHR deja de costar 4,4 s
+  (15-nov-2026, ADR 0010).** El motor ya no le **delega** la llamada al puesto: el mismo
+  túnel `ssh -R` que lee su consola reenvía ahora el puerto 80 de cada CHR, y las 99 llamadas
+  REST del `apply` pasan de **4,39 s a 0,50 s** de media (434,5 s → 49,7 s de suma; el
+  `apply` entero, 1.028,7 s → **650 s**). No era la red —el CHR está a 3 ms—, era subir
+  Python por SSH en cada petición. La trampa que se comió una pasada entera del ciclo:
+  `permitlisten` **se repite**, no se lista dentro de la opción —con
+  `permitlisten="20103,21102"` sshd **no encuentra la clave** y contesta `Permission denied
+  (publickey)`, un error que señala a la clave y no al `authorized_keys`—; lo vigila
+  `test/test_interior.py`.
 - **Lo que queda, dicho en voz alta.** `verify` todavía NO comprueba el interior (no entra
   a leer las áreas para cotejarlas): verifica el mundo de la API. La comprobación de un
   invitado dinámico por el host y sus concesiones (§6.3) y la del interior por áreas (§11)

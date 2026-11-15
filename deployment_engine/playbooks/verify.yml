@@ -56,6 +56,7 @@
           camino_puerto: "{{ pve_camino_salida_puerto | default(443) }}"
           camino_usuario: "{{ pve_camino_usuario | default('') }}"
           camino_puerto_base: "{{ engine_camino_puerto_base }}"
+          camino_rest_puerto_base: "{{ engine_camino_rest_puerto_base }}"
           mac_prefijo: "{{ engine_prefijo_mac }}"
           camino_clave: "{{ engine_camino_clave_base }}_{{ pve_lab }}_ed25519"
           rol_control: "{{ engine_rol_control }}"

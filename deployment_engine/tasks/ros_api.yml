@@ -4,24 +4,32 @@
 #              hacer la petición y diarizarla son UNA sola cosa, igual que en la puerta
 #              de Proxmox (regla 12: cuatro puertas, tres diarios).
 #
-#              Se habla DESDE EL PUESTO DE CONTROL, no desde el nodo de control: el
-#              puesto tiene una pata en cada bridge del lab y por eso alcanza a
-#              cualquier invitado, mientras que desde casa no se llega a ninguna red
-#              interna del hipervisor (medido, §5 del encargo). Por eso la llamada se
-#              DELEGA en él. La dirección a la que se llama es la del invitado, y el
-#              diario se escribe aquí, en el nodo de control: la prueba viaja con el
-#              resultado, no se queda en el invitado.
+#              La llamada SE HACE AQUÍ, en la máquina donde corre Ansible: NO se delega
+#              en el puesto de control (era el único `delegate_to` del motor). Al REST
+#              de un invitado no se llega desde casa, así que el PUESTO DE CONTROL le
+#              deja abierto un camino --reenvía el puerto 80 del invitado por el MISMO
+#              túnel del camino (tasks/camino.yml)-- y esta puerta llama a
+#              `127.0.0.1:<puerto derivado del vmid>`. Así las llamadas se ejecutan en
+#              UN solo sitio (el motor), el puesto sólo hace de camino, y se mide: la
+#              misma llamada delegada costaba 4,4 s y así cuesta ~0,3 s
+#              (informe-rendimiento-despliegue.md).
 #
 # INVARIANTES: una línea JSON por petición en `logs/api.jsonl`, SIEMPRE, salga bien o
 #              mal, con `api: routeros` y el rol del invitado. La contraseña NO se
 #              escribe nunca en el diario: los campos que son credenciales se tapan por
 #              su nombre (`sin_secretos`), sin depender de que el llamante se acuerde.
 #              El diario es un log: `changed_when: false` al escribirlo.
+#              `ros_direccion` sigue siendo la del INVITADO --lo que se diariza y lo que
+#              se lee en los errores--; por donde se viaja es por `ros_puerto`.
 # LÍMITES:     esta tarea sólo sabe hacer UNA llamada: no decide qué llamar ni en qué
 #              orden (eso es el driver) ni interpreta la respuesta (eso son los filtros
 #              puros de `interior.py`). El HTTP en claro es deliberado y temporal: el CHR
 #              de fábrica no trae certificado (ver docs/decisiones/0006-*.md).
-# VER:         docs/decisiones/0006-*.md; tasks/configurar_routeros.yml; ./lab check puerta
+#              El túnel sólo reenvía el REST de los equipos que la DECLARACIÓN declara
+#              con `config.routeros`: a un invitado sin interior de RouterOS no se le
+#              llama, y sin camino no hay puerto.
+# VER:         docs/decisiones/0006-*.md; docs/decisiones/0010-*.md;
+#              tasks/configurar_routeros.yml; ./lab check puerta
 #
 # Variables que espera:
 #   ros_metodo       GET | POST | PUT | DELETE
@@ -31,28 +39,35 @@
 #   ros_acumular     (opcional) guardar el resultado en `ros_leidos`, por ruta: es lo
 #                    que permite leer VARIAS rutas en un bucle sin quedarse sólo con
 #                    la última (el driver lee un área por llamada)
-#   ros_direccion    la dirección del invitado en el bridge del lab
+#   ros_direccion    la dirección del invitado en el bridge del lab (para el diario y
+#                    para los mensajes: es lo que el lector reconoce)
+#   ros_puerto       el puerto local del nodo de control por el que el camino reenvía el
+#                    REST de ESE invitado (derivado de su vmid: `interior_puerto_rest`)
 #   ros_usuario ros_clave   la credencial con la que se llama
 #   ros_invitado     el rol del invitado (para el diario)
-#   ros_intermediario  quién habla (el puesto de control, ya en el inventario en memoria)
 #   ros_etiqueta     (opcional) para qué era esta llamada
 #   ros_tolerar_error  (opcional) no fallar en error: el llamante decide
 # Y deja en `ros_ultimo_*` el status, el cuerpo, los datos y el error legible.
 
-# Sin puesto de control no hay puerta: se dice ANTES de intentar nada y con el remedio,
-# en vez de fallar con un error de conexión que no explica nada (regla 16).
-- name: "PUERTA ROUTEROS · ¿hay puesto de control por el que hablar?"
+# Sin camino abierto no hay puerta: se dice ANTES de intentar nada y con el remedio, en
+# vez de fallar con un error de conexión que no explica nada (regla 16).
+- name: "PUERTA ROUTEROS · ¿hay camino abierto hacia el REST de este invitado?"
   ansible.builtin.fail:
     msg: |-
       No se puede hablar con el REST de '{{ ros_invitado | default('?') }}': no hay
-      puesto de control por el que llegar.
+      camino abierto hacia su REST.
 
-      El REST de un invitado se habla DESDE el puesto de control del lab (tiene una pata
-      en cada bridge), y el puesto no está en el inventario de esta ejecución. Eso
-      significa que el camino del lab no se ha construido en este verbo: lanza
-      `./lab --lab {{ pve_lab }} apply`, que construye el camino primero (y ningún
+      El motor no llega solo a la red del lab: el PUESTO DE CONTROL reenvía el puerto 80
+      del invitado por el mismo túnel del camino, y este paso no trae el puerto por el
+      que hacerlo. Eso significa que el camino de este lab no se ha construido en este
+      verbo --o que se construyó antes de que este invitado entrara en el camino--:
+      lanza `./lab --lab {{ pve_lab }} apply`, que construye el camino primero (y ningún
       escalón empieza antes de que el camino responda).
-  when: (ros_intermediario | default('') | length) == 0
+
+      Si el lab venía de una versión anterior del motor, el túnel está en pie pero NO
+      reenvía los REST: hay que REHACERLO. `apply` lo rehace solo: su comprobación del
+      camino ya mira también los puertos de REST de los invitados que existen.
+  when: (ros_puerto | default('') | string | length) == 0
 
 # La RED DE SEGURIDAD del modo «sólo leer» (lo usa `verify`): en sólo-lectura esta puerta
 # SÓLO atiende GET, y escribir por ella PARA. Es lo que hace IMPOSIBLE que una comprobación
@@ -79,7 +94,11 @@
 # `failed_when: false`: primero se DIARIZA, después se decide.
 - name: "REST {{ ros_metodo }} {{ ros_ruta }} de '{{ ros_invitado | default('?') }}'"
   ansible.builtin.uri:
-    url: "http://{{ ros_direccion }}/rest{{ ros_ruta }}"
+    # Por `127.0.0.1` y por el puerto que el camino deja abierto hacia ESE invitado: la
+    # llamada sale de esta máquina, y el puesto de control sólo hace de camino. La dirección
+    # del invitado sigue siendo `ros_direccion` --es la que se diariza y la que se lee en
+    # los errores--, pero por ahí NO se viaja.
+    url: "http://127.0.0.1:{{ ros_puerto }}/rest{{ ros_ruta }}"
     method: "{{ ros_metodo }}"
     url_username: "{{ ros_usuario }}"
     url_password: "{{ ros_clave }}"
@@ -97,7 +116,6 @@
     # Los 4xx NO hacen fallar la tarea: un 401 (credencial de fábrica) o un 400 (un
     # objeto que no existe) son respuestas que el motor necesita LEER y diarizar.
     status_code: [200, 201, 400, 401, 403, 404, 405, 500]
-  delegate_to: "{{ ros_intermediario }}"
   register: ros_respuesta
   no_log: true
   failed_when: false
@@ -125,9 +143,11 @@
   vars:
     errores_conocidos:
       -1: >-
-        no se pudo conectar con http://{{ ros_direccion }} -- puede que el invitado no
-        esté arrancado, que su dirección no sea la declarada, o que el puesto de control
-        no tenga pata en ese bridge. Lo que dijo el transporte: {{ ros_ultimo_crudo }}
+        no se pudo conectar con el camino hacia {{ ros_direccion }} (127.0.0.1:{{
+        ros_puerto }}) -- puede que el camino no esté en pie, que el invitado no esté
+        arrancado, que su dirección no sea la declarada, o que el túnel no reenvíe ESE
+        puerto (un túnel construido antes de este cambio: se rehace con
+        `./lab --lab {{ pve_lab }} apply`). Lo que dijo el transporte: {{ ros_ultimo_crudo }}
       400: >-
         RouterOS no aceptó la llamada (400): {{ ros_ultimo_json.message | default('') }}
         {{ ros_ultimo_json.detail | default('') }}
@@ -190,8 +210,8 @@
 - name: "PUERTA ROUTEROS · parar si el router respondió con error"
   ansible.builtin.fail:
     msg: |-
-      La llamada al REST de '{{ ros_invitado | default('?') }}' ({{ ros_direccion }}) ha
-      fallado: {{ ros_metodo }} {{ ros_ruta }}
+      La llamada al REST de '{{ ros_invitado | default('?') }}' ({{ ros_direccion }}, por
+      el puerto {{ ros_puerto }} del camino) ha fallado: {{ ros_metodo }} {{ ros_ruta }}
           {{ ros_ultimo_error | default('error desconocido') }}
       El diario de esta ejecución está en {{ pve_carpeta_logs }}/api.jsonl
   when:

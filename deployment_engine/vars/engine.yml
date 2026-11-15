@@ -169,6 +169,12 @@ engine_clave_camino: "camino"
 # DERIVA del vmid del puesto: no se guarda ni se declara. El rango (este valor +
 # el vmid) deja sitio de sobra sin pisar el 22 ni puertos privilegiados.
 engine_camino_puerto_base: 20000
+# El puerto local del nodo de control por el que se alcanza el REST (el `www` de
+# fábrica, puerto 80) de cada equipo con el que el motor habla por REST: el puesto de
+# control reenvía también ese puerto por el MISMO túnel, y así el `uri` del motor se
+# ejecuta en la máquina del motor en vez de delegado al puesto (medido: 4,4 s -> ~0,3 s
+# por llamada). DERIVADO del vmid, como el del camino; la banda no pisa la de arriba.
+engine_camino_rest_puerto_base: 21000
 # Ruta, dentro del nodo de control, del par de claves del camino. Fuera del
 # repositorio (nunca se versiona una clave privada) y fuera de `~/.ssh/config`.
 # La clave del camino es UNA POR LAB, y no por capricho: en el `authorized_keys` del nodo

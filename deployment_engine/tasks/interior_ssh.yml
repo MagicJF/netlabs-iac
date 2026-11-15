@@ -3,8 +3,9 @@
 #              una conexión SSH a un invitado, y es a la vez el que escribe la línea del
 #              diario: hacer el paso y diarizarlo son UNA sola cosa, igual que en la
 #              puerta de la API (regla 12). (El driver de RouterOS también alcanza a un
-#              invitado, pero no por aquí: delega en el puesto de control, `add_host` +
-#              `delegate_to` en `configurar_routeros.yml`/`ros_api.yml`.)
+#              invitado, pero no por aquí: va por su REST, que es OTRA puerta -- y esa
+#              llamada la hace el MOTOR, con el puesto de control de camino (`ros_api.yml`,
+#              docs/decisiones/0010-*.md).)
 #
 #              No decide NADA: recibe una lista de comandos ya decididos por el driver
 #              (`configurar_linux.yml`, que leyó antes) y los ejecuta en orden, uno por

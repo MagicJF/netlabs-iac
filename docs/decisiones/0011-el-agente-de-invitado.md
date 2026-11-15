@@ -11,7 +11,7 @@
      cubre lecturas --`network-get-interfaces`, `get-osinfo`, `get-host-name`, `get-time`,
      `info`, `ping`--; `exec` pide `VM.GuestAgent.Unrestricted` y los ficheros, `FileRead`
      /`FileWrite`. Esos cuatro SIGUEN VEDADOS: son la vía de acceso al interior que la regla 12 no
-     permite. Toda lectura del agente pasa por la PUERTA (`tasks/pve_api.yml`) y deja su
+     permite. Toda lectura del agente pasa por la VÍA DE ACCESO (`tasks/pve_api.yml`) y deja su
      línea en `logs/api.jsonl`: si no se puede leer por la vía de acceso, no se lee. El agente se
      enciende al NACER, nunca se cambia en caliente: el canal aparece al arrancar y añadirlo
      a una VM viva obligaría a reiniciarla (misma razón que la consola serie y el bus del

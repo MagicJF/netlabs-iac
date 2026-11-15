@@ -79,7 +79,7 @@ lab:
   tunnel: {tipo: bastion}
 
 vms:
-  # LA PUERTA: el único router de la sede, y su salida a internet.
+  # LA PASARELA: el único router de la sede, y su salida a internet.
   #
   # Tres interfaces, y la cuarta no se declara: `uplink` la pide al motor, que la tiende al
   # nacer sobre el bridge del nodo que tiene salida (valor de ENTORNO, `pve_bridge_gestion`

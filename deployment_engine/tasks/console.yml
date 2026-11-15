@@ -1,5 +1,5 @@
 ---
-# PROPÓSITO:   LA PUERTA DE CONSOLA. Es el único fichero del motor que habla el
+# PROPÓSITO:   LA VÍA DE CONSOLA. Es el único fichero del motor que habla el
 #              protocolo de la consola de Proxmox (termproxy + vncwebsocket), y lo
 #              usa para UNA sola cosa: mandar UNA línea a un invitado que todavía no
 #              tiene ninguna red por la que recibirla (el arranque del túnel, §5).

@@ -106,7 +106,7 @@ está en los `stages` de la declaración, y el plan lo respeta (regla 18).
   Este lab no las declara: aquí no se finge una configuración que no se aplica.
 - **El motor entra de verdad en el invitado, y se ve en el diario.** El 14-nov-2026, con
   el bastión recreado, las cuatro lecturas del driver salen `rc=0` en
-  `logs/interior.jsonl` (`túnel=active`, `direccion=10.40.0.10/24`, `reenvio=1`). Antes
+  `logs/interior.jsonl` (`tunnel=active`, `address=10.40.0.10/24`, `ip_forward=1`). Antes
   de recrearlo salían `rc=255`: la clave que el invitado tenía dentro era la genérica
   vieja. La lección es la clave **por lab** y **para los dos sentidos** (entrar y salir),
   porque un invitado creado con otra clave da `Permission denied` y el motor no lo puede

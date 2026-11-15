@@ -189,7 +189,7 @@ interior importa, el túnel no es opcional.
 
 Dos sitios, y ninguno se improvisa:
 
-- **El bastión** (`config.linux.dhcp_servidor`), con `static_leases: derived` para que el
+- **El bastión** (`config.linux.dhcp_server`), con `static_leases: derived` para que el
   motor le ponga a un invitado la dirección que se deriva de su vmid. Es lo más cómodo para las
   interfaces de gestión.
 - **Un RouterOS** (`config.routeros.dhcp`), para las redes que enruta.

@@ -5,7 +5,7 @@
 #              dirección LIBRE para la interfaz de gestión del bastión (§5) sin
 #              guardar ninguna lista (regla 11: nada derivado se guarda en el repo; se
 #              vuelve a derivar cada vez).
-# INVARIANTES: todo se lee por la PUERTA (`tasks/pve_api.yml`), así que cada lectura
+# INVARIANTES: todo se lee por la VÍA DE ACCESO (`tasks/pve_api.yml`), así que cada lectura
 #              deja su línea en el diario. No se escribe nada. Un invitado ilegible NO
 #              se ignora en silencio: se diaria el error y el motor sigue, porque una
 #              dirección de gestión que se creía libre es un fallo; el informe lo dice.

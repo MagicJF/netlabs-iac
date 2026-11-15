@@ -56,7 +56,7 @@ print(f"{'seg':>8}  {'%':>5}  tarea")
 for d, nombre in sorted(duraciones, reverse=True)[:TOPN]:
     print(f"{d:8.1f}  {100 * d / total:5.1f}  {nombre[:110]}")
 
-# Agrupado por PREFIJO: cuánto pesa cada familia de tareas (ESPERA, CAMINO, PUERTA...).
+# Agrupado por PREFIJO: cuánto pesa cada familia de tareas (ESPERA, TÚNEL, ACCESO...).
 familias: dict[str, float] = defaultdict(float)
 for d, nombre in duraciones:
     familias[nombre.split(" ·")[0].split(" [")[0][:40]] += d
@@ -67,7 +67,7 @@ for fam, d in sorted(familias.items(), key=lambda kv: -kv[1])[:15]:
 
 # Las tareas de ESPERA, juntas: es el margen que el motor se da a sí mismo.
 esperas = [(d, n) for d, n in duraciones
-           if re.search(r"ESPERA|SONDA|CAMINO|CONSOLA|dormir|esperar|wait", n, re.I)]
+           if re.search(r"ESPERA|SONDA|TÚNEL|CONSOLA|dormir|esperar|wait", n, re.I)]
 print(f"\n--- SÓLO ESPERAS (lo que el motor se toma de margen) ---")
 print(f"{sum(d for d, _ in esperas):8.1f} s en {len(esperas)} tarea(s) de espera "
       f"({100 * sum(d for d, _ in esperas) / total:.1f}% del total)")

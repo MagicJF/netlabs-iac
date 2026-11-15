@@ -79,7 +79,7 @@ comprobar(
 
 # ---------------------------------------------------------------------------
 
-print("\nLA SUPERNET: DENTRO, NO FUERA\n")
+print("\nEL ESPACIO DE DIRECCIONES: DENTRO, NO FUERA\n")
 
 comprobar(modulo._ip_en_address_space("10.40.1.5/24", "10.40.0.0/16"), "10.40.1.5/24 cae en 10.40.0.0/16")
 comprobar(modulo._ip_en_address_space("10.40.0.11", "10.40.0.0/16"), "sin máscara también")

@@ -1,5 +1,5 @@
 ---
-# PROPÓSITO:   LEER EL CAMINO EN EL MUNDO. Comprobar, ANTES de planificar, si el puerto
+# PROPÓSITO:   LEER EL TÚNEL EN EL MUNDO. Comprobar, ANTES de planificar, si el puerto
 #              reenviado del bastión YA contesta -- para que el plan sepa si el
 #              túnel está EN PIE y no reemita `construir_túnel` (que reescribe la línea del
 #              `authorized_keys` de casa y reenvía la orden por la consola) cuando ya lo está.

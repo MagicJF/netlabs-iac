@@ -1,12 +1,12 @@
 ---
-# PROPÓSITO:   LA PUERTA A ROUTEROS. Es el único sitio del repositorio que habla con el
+# PROPÓSITO:   LA VÍA DE ACCESO A ROUTEROS. Es el único sitio del repositorio que habla con el
 #              REST de un invitado, y es a la vez el que escribe la línea del diario:
 #              hacer la petición y diarizarla son UNA sola cosa, igual que en la vía de acceso
 #              de Proxmox (regla 12: cuatro vías de acceso, tres diarios).
 #
 #              La llamada SE HACE AQUÍ, en la máquina donde corre Ansible: NO se delega
 #              en el bastión (era el único `delegate_to` del motor). Al REST
-#              de un invitado no se llega desde casa, así que el PUESTO DE CONTROL le
+#              de un invitado no se llega desde casa, así que el BASTIÓN le
 #              deja abierto un túnel --reenvía el puerto 80 del invitado por el MISMO
 #              túnel del túnel (tasks/tunnel.yml)-- y esta vía de acceso llama a
 #              `127.0.0.1:<puerto derivado del vmid>`. Así las llamadas se ejecutan en
@@ -57,7 +57,7 @@
       No se puede hablar con el REST de '{{ ros_guest | default('?') }}': no hay
       túnel abierto hacia su REST.
 
-      El motor no llega solo a la red del lab: el PUESTO DE CONTROL reenvía el puerto 80
+      El motor no llega solo a la red del lab: el BASTIÓN reenvía el puerto 80
       del invitado por el mismo túnel del túnel, y este paso no trae el puerto por el
       que hacerlo. Eso significa que el túnel de este lab no se ha construido en este
       verbo --o que se construyó antes de que este invitado entrara en el túnel--:

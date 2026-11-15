@@ -5,7 +5,7 @@
 #                 leer dentro -> decidir la diferencia (en los DOS sentidos) ->
 #                 escribir lo que falta -> RELEER y comprobar.
 #
-#              Lo que cambia respecto de Linux es la PUERTA: a un RouterOS no se entra
+#              Lo que cambia respecto de Linux es la VÍA DE ACCESO: a un RouterOS no se entra
 #              por SSH (regla 13), se le habla por su REST (`tasks/ros_api.yml`). Y esa
 #              llamada la hace el MOTOR, en esta misma máquina: el bastión le
 #              deja abierto el túnel --reenvía el puerto 80 del router por el MISMO

@@ -365,7 +365,7 @@ def _red_del_guest(guest, declaracion, estado, parametros):
         )
         if guest["tipo"] == "lxc":
             # En un contenedor la dirección se declara en la propia interfaz. La interfaz
-            # del bridge de gestión del NODO lleva PUERTA (es por donde sale hacia
+            # del bridge de gestión del NODO lleva PASARELA (es por donde sale hacia
             # casa); las del lab no, porque la gestión no puede depender de los routers
             # que el motor está desplegando.
             red[f"net{indice}"] = (
@@ -382,7 +382,7 @@ def _redes_del_guest(guest, declaracion, estado, parametros):
     """El bloque de red del invitado: `net0`, `net1`... una por PATA DECLARADA.
 
     Tres casos, y ninguno se adivina:
-      * el invitado del CAMINO (el bastión) nace con una interfaz por cada bridge del
+      * el invitado del TÚNEL (el bastión) nace con una interfaz por cada bridge del
         lab y una en el bridge de gestión del NODO, la última: eso lo decide
         `_red_del_invitado` y va aparte;
       * un invitado que declara VARIAS interfaces (`bridges:`) nace con una por bridge, en el

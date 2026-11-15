@@ -64,7 +64,7 @@
           # es la prueba de propiedad que `destroy` busca antes de borrar un bridge
           # (Proxmox no mete interfaces de red en pools, así que no hay pool que valga).
           comentario_bridge: "{{ engine_plantilla_comentario_bridge }}"
-          # El CAMINO (§5): por dónde sale el bastión hacia casa. Es ENTORNO
+          # El TÚNEL (§5): por dónde sale el bastión hacia casa. Es ENTORNO
           # --la casa es una y los labs son muchos--, así que vive en secrets.yml y no
           # en la declaración de ningún lab. Vacío = este lab no tiene túnel.
           bridge_gestion: "{{ pve_bridge_gestion | default('') }}"

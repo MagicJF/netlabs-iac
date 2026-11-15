@@ -6,10 +6,10 @@
 #
 #              Cómo se entra, y por qué así:
 #
-#                * Al PUESTO DE CONTROL se entra por el CAMINO: en el nodo de control
+#                * Al BASTIÓN se entra por el TÚNEL: en el nodo de control
 #                  hay un puerto local (20000 + su vmid) que aterriza en su sshd. Es
 #                  el caso `es_bastion`: host 127.0.0.1, ese puerto, sin salto.
-#                * A CUALQUIER OTRO invitado se entra POR EL PUESTO DE CONTROL, que es
+#                * A CUALQUIER OTRO invitado se entra POR EL BASTIÓN, que es
 #                  el bastión del lab: `ProxyJump` al puerto del túnel y, desde ahí,
 #                  su dirección en el bridge del lab. El invitado no necesita ser
 #                  alcanzable desde casa: nunca se habla con él directamente.
@@ -80,7 +80,7 @@
       bastion: "{{ '' if interior_rol == rol_control else (engine_usuario_guest ~ '@127.0.0.1') }}"
       puerto_bastion: "{{ '' if interior_rol == rol_control else puerto_del_tunnel }}"
       # OJO: el usuario del INVITADO (root), no el de la máquina de casa. El salto
-      # (ProxyJump) aterriza en el bastión POR EL CAMINO, y ahí se entra como
+      # (ProxyJump) aterriza en el bastión POR EL TÚNEL, y ahí se entra como
       # al invitado: el usuario de casa sólo vive en la línea del `authorized_keys` de
       # este nodo (`tunnel.yml`), no en la conexión.
       usuario: "{{ engine_usuario_guest }}"
@@ -90,7 +90,7 @@
     puerto_del_tunnel: >-
       {{ (parametros_motor.tunnel_puerto_base | int) + (identidad.guests
          | selectattr('rol', 'equalto', rol_control) | list | first).vmid | int }}
-    # Quién es el bastión: el invitado que declara CAMINO. Se pregunta a la
+    # Quién es el bastión: el invitado que declara TÚNEL. Se pregunta a la
     # función pura (`interior_puesto_control`), no a un valor del lab.
     rol_control: "{{ declaracion | interior_bastion }}"
 

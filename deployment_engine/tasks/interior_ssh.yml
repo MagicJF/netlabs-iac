@@ -1,5 +1,5 @@
 ---
-# PROPÓSITO:   LA PUERTA AL INTERIOR DE UN LINUX. Es el único sitio del motor que abre
+# PROPÓSITO:   LA VÍA DE ACCESO AL INTERIOR DE UN LINUX. Es el único sitio del motor que abre
 #              una conexión SSH a un invitado, y es a la vez el que escribe la línea del
 #              diario: hacer el paso y diarizarlo son UNA sola cosa, igual que en la
 #              vía de acceso de la API (regla 12). (El driver de RouterOS también alcanza a un

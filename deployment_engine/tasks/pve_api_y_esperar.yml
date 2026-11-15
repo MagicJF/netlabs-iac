@@ -1,5 +1,5 @@
 ---
-# PROPÓSITO:   LA PUERTA + LA ESPERA. Ejecuta UNA llamada a la API y, si esa
+# PROPÓSITO:   LA VÍA DE ACCESO + LA ESPERA. Ejecuta UNA llamada a la API y, si esa
 #              llamada lanzó una tarea asíncrona (Proxmox responde un UPID),
 #              espera a que termine antes de dar el paso por hecho.
 # INVARIANTES: la llamada y los sondeos pasan TODOS por `pve_api.yml`: una línea de

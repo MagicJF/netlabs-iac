@@ -1,5 +1,5 @@
 ---
-# PROPÓSITO:   LA PUERTA REST A PROXMOX. Es la vía de acceso del motor a la API de Proxmox
+# PROPÓSITO:   LA VÍA DE ACCESO REST A PROXMOX. Es la vía de acceso del motor a la API de Proxmox
 #              --y la que escribe la línea del diario--: hacer la petición y
 #              diarizarla son UNA sola cosa. El cliente de consola (`tools/console.py`)
 #              viaja por la MISMA vía de acceso (mismo host, puerto y token) para pedir su

@@ -189,7 +189,7 @@ def orden_new(nombre):
     print("    dice qué EQUIPO es, no de qué lab es (`rt-borde`, `srv-1`) -- ADR 0015")
     print("  · su alias, si no quieres que sea el rol (`nombre: 2` -> `ws-2`)")
     print("Siguiente paso:")
-    print(f"  1. rellena labs/{nombre}/{nombre}.yml (roles, bridges, direcciones y escalones)")
+    print(f"  1. rellena labs/{nombre}/{nombre}.yml (roles, bridges, direcciones y etapas)")
     print(f"  2. ./lab --lab {nombre} plan")
     print(f"  3. ./lab check docs --actualizar   (regenera la parte de datos del documento)")
     return 0

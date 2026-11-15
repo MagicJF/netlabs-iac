@@ -2,14 +2,14 @@
 # PROPÓSITO:   saber qué direcciones están YA EN USO en la red del nodo, preguntándole
 #              a cada invitado las que tiene puestas: a un contenedor, su propia API; a
 #              una VM, su AGENTE DE INVITADO. Es la pregunta que permite elegir una
-#              dirección LIBRE para la pata de gestión del puesto de control (§5) sin
+#              dirección LIBRE para la interfaz de gestión del bastión (§5) sin
 #              guardar ninguna lista (regla 11: nada derivado se guarda en el repo; se
 #              vuelve a derivar cada vez).
 # INVARIANTES: todo se lee por la PUERTA (`tasks/pve_api.yml`), así que cada lectura
 #              deja su línea en el diario. No se escribe nada. Un invitado ilegible NO
 #              se ignora en silencio: se diaria el error y el motor sigue, porque una
 #              dirección de gestión que se creía libre es un fallo; el informe lo dice.
-#              Las direcciones de los bridges del nodo (las puertas de cada subred)
+#              Las direcciones de los bridges del nodo (las vías de acceso de cada subred)
 #              vienen ya dentro del estado, de `GET /nodes/<nodo>/network`.
 # LÍMITES:     la lectura de una VM es más pobre que la de un contenedor y depende de
 #              dos cosas que pueden no darse: que la VM naciera con agente (el canal
@@ -18,7 +18,7 @@
 #              el motor se queda como estaba: contando por ARRIBA (`.254`, `.253`…) para
 #              no pisar lo que no ve. Lo que no se puede saber, se dice; no se finge.
 # VER:         docs/decisiones/0011-el-agente-de-invitado.md;
-#              docs/camino-del-puesto-de-control.md; AGENTS.md §Reglas duras (11, 12)
+#              docs/tunnel-del-bastion.md; AGENTS.md §Reglas duras (11, 12)
 
 # Los CONTENEDORES: declaran sus interfaces a la API y se leen sin más. Se mira TODO el
 # clúster (no sólo este lab), porque cualquier invitado del nodo puede tener una

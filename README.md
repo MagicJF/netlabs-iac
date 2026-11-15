@@ -8,7 +8,7 @@ dejando cada paso en su diario.
 
 El valor de este repositorio no son las topologías que despliega: es **el motor y
 su forma de trabajar** —declaración, verbos, identidad asignada por el propio
-motor, **cuatro puertas y tres diarios**, verificación por conjuntos en los dos
+motor, **cuatro vías de acceso y tres diarios**, verificación por conjuntos en los dos
 mundos (el de la API y el del interior), y documentación con punteros
 bidireccionales—. Las topologías viven cada una en su carpeta (`labs/`) y **el
 motor no conoce ninguna**.
@@ -19,7 +19,7 @@ motor no conoce ninguna**.
 
 | Capa | Dónde | Qué es |
 | --- | --- | --- |
-| **El motor** | `deployment_engine/` | todo lo compartido por todos los despliegues: las **puertas** (API de Proxmox, REST de RouterOS, interior Linux, consola) y sus diarios, el asignador de identidad, la validación, el plan, los **drivers del interior**, los checks y las plantillas |
+| **El motor** | `deployment_engine/` | todo lo compartido por todos los despliegues: las **vías de acceso** (API de Proxmox, REST de RouterOS, interior Linux, consola) y sus diarios, el asignador de identidad, la validación, el plan, los **drivers del interior**, los checks y las plantillas |
 | **Las topologías** | `labs/<nombre>/` | *una carpeta por lab*: su declaración (`<nombre>.yml`), su documento (`<nombre>.md`) y sus logs (`logs/`, gitignored) |
 
 La pregunta que decide dónde va algo: **¿esto seguiría igual si desapareciera el
@@ -46,24 +46,24 @@ netlabs_v4_b/
 │   ├── vars/engine.yml       defaults del motor (timeouts, MAC, retención…)
 │   ├── playbooks/            un fichero por verbo: plan, preflight, apply,
 │   │                         verify, destroy
-│   ├── tasks/                las CUATRO puertas y sus diarios: pve_api.yml (API
+│   ├── tasks/                las CUATRO vías de acceso y sus diarios: pve_api.yml (API
 │   │                         de Proxmox → api.jsonl), ros_api.yml (REST de
 │   │                         RouterOS, por el túnel del puesto → api.jsonl),
 │   │                         interior_ssh.yml (interior Linux → interior.jsonl),
-│   │                         camino_consola.yml (consola → camino.jsonl); más
+│   │                         console.yml (consola → console.jsonl); más
 │   │                         los drivers (configurar_routeros.yml,
-│   │                         configurar_linux.yml), el camino (camino.yml,
-│   │                         camino_mundo.yml), el inventario en memoria
-│   │                         (inventario_invitados.yml), la sonda (sonda.yml),
+│   │                         configurar_linux.yml), el túnel (tunnel.yml,
+│   │                         tunnel_probe.yml), el inventario en memoria
+│   │                         (guest_inventory.yml), la sonda (sonda.yml),
 │   │                         la espera (esperar_tarea.yml) y validar.yml
 │   ├── filter_plugins/       lo que Ansible calcula en Jinja: declaracion.py,
 │   │                         identidad.py, estado.py, interior.py (el driver
 │   │                         PURO del interior)
 │   ├── tools/                capa Python stdlib: plan.py, documentos.py,
-│   │                         consola.py, framework_check.py
+│   │                         console.py, framework_check.py
 │   └── templates/            SÓLO la región generada del doc de un lab
 ├── docs/decisiones/          ADRs: pocos, y sólo los que no quieres re-litigar
-├── docs/camino-del-puesto-de-control.md   cómo funciona el camino (prosa)
+├── docs/tunnel-del-bastion.md   cómo funciona el túnel (prosa)
 ├── labs/.plantilla/          lo que copia `./lab new`
 └── labs/<nombre>/            UNA CARPETA POR TOPOLOGÍA
 ```
@@ -122,29 +122,29 @@ y el check que las vigila, están en [docs/crear-un-lab.md](docs/crear-un-lab.md
 ```yaml
 lab:
   nombre: 07_lo-que-sea    # EXACTAMENTE el nombre de la carpeta: es el pool
-  escalones: [1, 2]        # orden de arranque: primero el 1, después el 2
+  stages: [1, 2]        # orden de arranque: primero el 1, después el 2
   bridges:                 # los crea el motor si faltan (los bridges son del nodo)
     - nombre: vmb_algo     # nombre de interfaz válido: sin guiones, ≤15 caracteres
-      direccion: 192.0.2.1/24
+      address: 192.0.2.1/24
 vms:                       # invitados QEMU
   - rol: <rol>             # el rol identifica a un invitado y sólo a uno
     tipo: rt               # QUÉ equipo es: rt/srv/ws/sw/ctl -- obligatorio (ADR 0015)
     nombre: 1              # opcional: su alias corto. Sin él, el alias es el rol
     escalon: 1
     cores: 2
-    memoria: 512
-    disco: 8
+    memory: 512
+    disk: 8
     bridge: vmb_algo
-    direccion: 192.0.2.2/24
+    address: 192.0.2.2/24
 containers:                # invitados LXC
   - rol: <otro-rol>
     tipo: ws
     escalon: 2
     cores: 1
-    memoria: 256
-    disco: 4
+    memory: 256
+    disk: 4
     bridge: vmb_algo
-    direccion: 192.0.2.11/24
+    address: 192.0.2.11/24
 ```
 
 Los dos invitados de arriba se llamarán `rt-1` y `ws-<otro-rol>` en Proxmox — el nombre
@@ -160,18 +160,18 @@ configurar dentro** de cada equipo, y el motor lo converge como una fase más de
 
 - **`config:`**, con **exactamente una clave de tipo** (`linux` o `routeros`), que elige el
   driver. Dentro van las **áreas** (los campos que el motor sabe tocar y de los que
-  responde): `identidad`, `servicios`, `direcciones`, `rutas`, `dhcp`, `exterior`,
-  `reenvio`, `dhcp_servidor`, `camino`…
-- **`imagen:`** en una VM QEMU: el disco de fábrica que se importa al crearla (un CHR).
-- **`direccion:`** admite tres formas: `<ip>/<prefijo>` (estática), **`dhcp`** (dinámica: el
-  invitado no la declara; se lee del host y, si hay camino, de la concesión del router) o
+  responde): `identity`, `ip_services`, `addresses`, `rutas`, `dhcp`, `uplink`,
+  `ip_forward`, `dhcp_server`, `tunnel`…
+- **`image:`** en una VM QEMU: el disco de fábrica que se importa al crearla (un CHR).
+- **`address:`** admite tres formas: `<ip>/<prefijo>` (estática), **`dhcp`** (dinámica: el
+  invitado no la declara; se lee del host y, si hay túnel, de la concesión del router) o
   **ausente** (un equipo sin dirección: un conmutador puro). **Y va a donde va en una máquina
-  de verdad** (ADR 0013): en un contenedor, el motor la escribe en la cadena de red de la pata
+  de verdad** (ADR 0013): en un contenedor, el motor la escribe en la cadena de red de la interfaz
   (`ip=…`), así que `dhcp` nace **pidiendo** dirección al router de su red (que le da también
-  pasarela y DNS) y una estática nace **con** ella. Una estática lleva su **`puerta:`**
-  (declarada, no adivinada) para salir sin preguntar a nadie. Un invitado sin `direccion` nace
+  pasarela y DNS) y una estática nace **con** ella. Una estática lleva su **`gateway:`**
+  (declarada, no adivinada) para salir sin preguntar a nadie. Un invitado sin `address` nace
   sin ella, como siempre.
-- **`reservas: derivadas`** es la única forma de declarar reservas DHCP de un router: el
+- **`static_leases: derived`** es la única forma de declarar reservas DHCP de un router: el
   motor reserva, por la MAC que **deriva del vmid**, cada dirección estática declarada por
   otro invitado **de la misma red** —excluyendo al propio servidor—. El ámbito lo dice la
   **red que sirve cada servidor** (`red.prefijo`), así que un router con dos LANs reserva en
@@ -179,8 +179,8 @@ configurar dentro** de cada equipo, y el motor lo converge como una fase más de
   servidor pertenece se atribuye a la red en la que cae su dirección. (Sin `red` declarada,
   el ámbito es el bridge del invitado: es el caso de un Linux que sirve la suya.) Una MAC en
   un YAML es un bug.
-- **`lab.supernet`** acota todo lo del lab (lo vigila el check `supernet`), y
-  **`lab.camino`** pide el puesto de control que construye el motor (§`docs/camino-del-puesto-de-control.md`).
+- **`lab.espacio de direcciones`** acota todo lo del lab (lo vigila el check `address_space`), y
+  **`lab.túnel`** pide el bastión que construye el motor (§`docs/tunnel-del-bastion.md`).
 
 **Dentro de un área declarada, lo que no está en el YAML se quita del equipo; fuera de las
 áreas declaradas, el motor no opina** (regla 17).
@@ -242,15 +242,15 @@ rodea.
 
 El token lleva `VM.GuestAgent.Audit` y con eso el motor le pregunta a una VM por sus
 interfaces (`GET /nodes/<n>/qemu/<vmid>/agent/network-get-interfaces`) **por la
-puerta**, como cualquier otra llamada: su respuesta queda en `api.jsonl`. Es la única
+vía de acceso**, como cualquier otra llamada: su respuesta queda en `api.jsonl`. Es la única
 forma de saber qué dirección usa una VM QEMU —su config no la lleva, la pone el
-invitado por dentro—, así que es lo que permite que el puesto de control ya no elija la
+invitado por dentro—, así que es lo que permite que el bastión ya no elija la
 suya dándole la espalda a las VMs. Por eso **toda VM nace con `agent: 1`**: el canal
 aparece al arrancar, y esto se decide al nacer, como el bus del disco. Lo que ese
 privilegio concede es corto y está medido en el código de PVE del nodo: lecturas y
 `ping`. Lo que el motor NO puede hacer con él —leer o escribir ficheros dentro del
 invitado, congelar su sistema de ficheros, ejecutar programas— sigue vedado a
-propósito: es un canal de lectura, no una puerta al interior. Está razonado, con su
+propósito: es un canal de lectura, no una vía de acceso al interior. Está razonado, con su
 medida y su A/B, en [0011](docs/decisiones/0011-el-agente-de-invitado.md).
 
 ### Los bridges: qué se lleva `destroy` y qué no
@@ -265,7 +265,7 @@ motor (`lab=<lab> gestionado por netlabs_v4_b`), y `destroy` sólo borra un brid
 se cumplen **las dos** condiciones:
 
 1. su `comments` lleva la marca de **este** lab (consta que lo creó él), y
-2. **ningún invitado de fuera del lab lo está usando** — se miran **todas** las patas
+2. **ningún invitado de fuera del lab lo está usando** — se miran **todas** las interfaces
    (`net0`, `net1`…) de todos los invitados que no son del lab; y si la config de
    alguno no se pudo leer, **no se borra**: en la duda se conserva.
 
@@ -299,45 +299,45 @@ ningún Proxmox. Con `--api` lee el estado real por la API.
 
 ---
 
-## Las cuatro puertas, y un diario de cada una
+## Las cuatro vías de acceso, y un diario de cada una
 
-Al mundo se le habla por **cuatro puertas**, y por ninguna otra: a **Proxmox** por
+Al mundo se le habla por **cuatro vías de acceso**, y por ninguna otra: a **Proxmox** por
 `tasks/pve_api.yml` (`/api2/json`, con `ansible.builtin.uri`), a **RouterOS** por
 `tasks/ros_api.yml` (su `/rest/…`, al que el motor llega por el túnel del puesto de
 control: la llamada la hace el motor en su máquina, sin `delegate_to`), al
 **interior Linux** por `tasks/interior_ssh.yml` (SSH), y a la **consola de la API**
-sólo desde `tasks/camino_consola.yml`. Ningún play llama "por fuera", y el wrapper
+sólo desde `tasks/console.yml`. Ningún play llama "por fuera", y el wrapper
 `./lab` **no llama a nada**: sólo valida y lanza `ansible-playbook`.
 
-Cada puerta deja **su diario**, y los tres son sagrados: `logs/api.jsonl` (cada
+Cada vía de acceso deja **su diario**, y los tres son sagrados: `logs/api.jsonl` (cada
 llamada a Proxmox y a RouterOS, con un campo `api` que dice a cuál y el rol del
 invitado), `logs/interior.jsonl` (cada paso dentro de un Linux) y
-`logs/camino.jsonl` (cada uso de la consola). Una línea JSON por operación, con su
+`logs/console.jsonl` (cada uso de la consola). Una línea JSON por operación, con su
 `ts`, su verbo y su resultado (truncado a `engine_diario_max_cuerpo`). **Si una
 ejecución no dejó diario, no ocurrió.** Ni la cabecera `Authorization` ni una
 contraseña o una clave se escriben jamás en un diario.
 
-El check `puerta` vigila mecánicamente las cuatro: la ruta base de Proxmox
+El check `gateway` vigila mecánicamente las cuatro: la ruta base de Proxmox
 (`/api2/json`) sólo puede aparecer en `pve_api.yml`, la de RouterOS (`/rest`) en
 `ros_api.yml`, los parámetros de conexión SSH a un invitado en `interior_ssh.yml` /
-`inventario_invitados.yml`, y el protocolo de consola en `camino_consola.yml`.
+`guest_inventory.yml`, y el protocolo de consola en `console.yml`.
 
 Los logs son **del lab** y van gitignored: son artefactos de ejecución que rotan,
 y lo que se versiona es la evidencia que se cita en la prosa del lab, no el
 fichero entero.
 
-### Lo asíncrono se espera, y se espera por la puerta
+### Lo asíncrono se espera, y se espera por la vía de acceso
 
 Proxmox crea, borra y recarga la red **en segundo plano**: la llamada responde un
 `UPID` y el trabajo continúa. Un paso que arranca un invitado no puede correr
 contra algo que aún se está creando. Por eso cada paso del plan pasa por
 `deployment_engine/tasks/pve_api_y_esperar.yml`, que ejecuta la llamada por la
-puerta y, **si la respuesta es un `UPID`**, espera sondeando
+vía de acceso y, **si la respuesta es un `UPID`**, espera sondeando
 `GET /nodes/<nodo>/tasks/<upid>/status` hasta que la tarea deja de estar `running`.
 
 La espera es **una regla, no una lista**: cualquier paso asíncrono (crear, borrar,
 recargar la red) queda cubierto sin enumerarlo. Y **cada sondeo pasa por la misma
-puerta**, así que cada uno deja su línea en el diario: la espera no es una llamada
+vía de acceso**, así que cada uno deja su línea en el diario: la espera no es una llamada
 a espaldas del diario. El bucle es finito: `engine_tarea_intentos` sondeos (40 por
 defecto) con una espera **creciente** entre uno y otro —`engine_tarea_intervalo` (2 s)
 al principio y hasta `engine_tarea_intervalo_max` (15 s) al final, ≈5 min 40 s de
@@ -360,7 +360,7 @@ vmids, ni el nombre de un bridge. Sí hay **reglas**.
 | el `nombre:` corto de un invitado (opcional: su alias) | ...y si no lo declara, el alias es su rol: `rt-borde`, `srv-1`, `ws-2` |
 | recursos (cores, memoria, disco) | la **MAC**: derivada del vmid (`BC:24:11:` + los 3 bytes bajos) |
 | bridges del lab y direcciones | la **descripción**: `lab=<lab> rol=<rol> gestionado por netlabs_v4_b` |
-| orden de arranque por escalones | la **pertenencia al pool**: el invitado se crea dentro del pool del lab |
+| orden de arranque por etapas | la **pertenencia al pool**: el invitado se crea dentro del pool del lab |
 | | el **`comments` del bridge**: `lab=<lab> gestionado por netlabs_v4_b`, sólo si el motor lo crea él |
 
 **El vmid y la MAC no se declaran nunca**, y el **tipo de equipo sí**: sin él no hay nombre que
@@ -431,9 +431,9 @@ es lanzarlos en paralelo.
 4. por invitado, comprueba los campos declarados (cores, memoria, red, descripción,
    bridge) y si está arrancado;
 5. **mira DENTRO de cada invitado** que declara `config`: relee sus áreas por su
-   puerta —REST del router, SSH del Linux— y las compara con lo declarado **en los
+   vía de acceso —REST del router, SSH del Linux— y las compara con lo declarado **en los
    dos sentidos**, con el **mismo driver** que usa `apply` pero en modo **sólo
-   lectura** (no escribe nada: comprobar no cambia el mundo). Si el camino no
+   lectura** (no escribe nada: comprobar no cambia el mundo). Si el túnel no
    responde, no se entra y cada invitado queda **«no comprobable»** con su motivo:
    el veredicto cae, porque **no se aprueba lo que no se ha mirado**;
 6. falla con código de salida ≠ 0 si hay drift, dejando el informe en
@@ -499,10 +499,10 @@ credenciales y sin Proxmox**:
 | `links` | cada enlace markdown de un `.md` resuelve a una ruta existente |
 | `docs` | la región generada de cada `.md` es **idéntica** a su render |
 | `refs` | qué documentos citan un fichero, y cuáles están caducados desde su sellado |
-| `puerta` | las cuatro puertas: `/api2/json` sólo en `pve_api.yml`, `/rest` sólo en `ros_api.yml`, el SSH del interior sólo en `interior_ssh.yml` / `inventario_invitados.yml`, el protocolo de consola sólo en `camino_consola.yml` |
+| `gateway` | las cuatro vías de acceso: `/api2/json` sólo en `pve_api.yml`, `/rest` sólo en `ros_api.yml`, el SSH del interior sólo en `interior_ssh.yml` / `guest_inventory.yml`, el protocolo de consola sólo en `console.yml` |
 | `privilegios` | nada del motor concede privilegios de la API fuera de la guarda de `preflight`, y ningún invitado declarado nace privilegiado |
-| `supernet` | toda dirección y todo rango de un lab cae dentro de su `lab.supernet`, y los supernets de dos labs no se solapan |
-| `declaracion` | coherencia del estado deseado: un rol en dos listas, un bridge citado que no existe, dos roles con la misma dirección, un bridge con un nombre que el núcleo rechazaría (guiones, >15 caracteres), un `dhcp` con áreas que pidan entrar… **y además ACONSEJA** lo que es legal pero casi siempre es un olvido (arrancar en el mismo escalón que quien te da la dirección, una dirección estática dentro del rango del DHCP, una pasarela que no es nadie del lab, una VM sin imagen, un bridge por el que no pasa nadie, dos DHCP en un bridge): un consejo dice dónde, qué pasa y qué escribir, y **no bloquea** |
+| `address_space` | toda dirección y todo rango de un lab cae dentro de su `lab.espacio de direcciones`, y los espacio de direccioness de dos labs no se solapan |
+| `declaracion` | coherencia del estado deseado: un rol en dos listas, un bridge citado que no existe, dos roles con la misma dirección, un bridge con un nombre que el núcleo rechazaría (guiones, >15 caracteres), un `dhcp` con áreas que pidan entrar… **y además ACONSEJA** lo que es legal pero casi siempre es un olvido (arrancar en el mismo etapa que quien te da la dirección, una dirección estática dentro del rango del DHCP, una pasarela que no es nadie del lab, una VM sin imagen, un bridge por el que no pasa nadie, dos DHCP en un bridge): un consejo dice dónde, qué pasa y qué escribir, y **no bloquea** |
 | `colisiones` | los labs declarados no comparten bridges, direcciones ni nombres |
 | `pureza-lab` | ni un valor de lab (ni su nombre) dentro de `deployment_engine/` |
 | `readme` | el README no lleva ningún valor de lab |
@@ -516,7 +516,7 @@ Cada check grita con **el fichero y el comando que lo arregla**.
 | cambiaste `labs/<lab>/<lab>.yml` | `./lab --lab <lab> plan` y luego `./lab check docs` |
 | cambiaste un lab con `config:` (un driver, un área) | `./lab --lab <lab> plan --api` y `./lab check docs` |
 | cambiaste un playbook, tarea, filtro o herramienta | `./lab check refs <ruta>` y revisa los docs que salgan |
-| tocaste un driver del interior (`routeros`/`linux`) | `./lab check puerta` + `python3 test/test_interior.py` y `test/test_routeros.py` |
+| tocaste un driver del interior (`routeros`/`linux`) | `./lab check access` + `python3 test/test_interior.py` y `test/test_routeros.py` |
 | cambiaste el texto de prosa de un `.md` | `./lab check docs --sellar <doc>` |
 | creaste o borraste ficheros | `./lab check links` |
 | antes de cualquier commit | `./lab check` (todo) + `ansible-lint` |
@@ -550,15 +550,15 @@ Esta sección no lleva adjetivos.
 - **Idempotencia**: una segunda ejecución seguida de `apply` sale `changed=0` y su
   diario sólo tiene `GET` (regla 6).
 - **La fase 2, contra el mismo VPS**: el lab de aceptación (seis invitados, dos CHR, tres
-  escalones, el puesto de control con su camino) se despliega, **converge en UNA sola
+  etapas, el bastión con su túnel) se despliega, **converge en UNA sola
   pasada** y da `verify` CORRECTO (`labs/<lab>/logs/verify-<ts>.json`); la
   segunda pasada de `apply` deja el diario de la API y el del interior **sólo con
-  lecturas**, y el plan ya **no reemite** `construir_camino` cuando el camino responde.
+  lecturas**, y el plan ya **no reemite** `construir_túnel` cuando el túnel responde.
 - **`verify` mira DENTRO**, no sólo el mundo de la API: relee cada invitado que declara
-  `config` por su puerta —REST del router, SSH del Linux— y lo compara con lo declarado
+  `config` por su pasarela —REST del router, SSH del Linux— y lo compara con lo declarado
   **en los dos sentidos**, con el **mismo driver** que usa `apply` pero en modo **sólo
   lectura**. Medido: `verify` da CORRECTO con «**3/3 invitado(s) leído(s) por dentro y
-  coincidente(s)**» y **cero** escrituras en el diario de la API; y con el camino caído
+  coincidente(s)**» y **cero** escrituras en el diario de la API; y con el túnel caído
   cada invitado queda «no comprobable» y el veredicto **cae**, porque no se aprueba lo
   que no se ha mirado.
 - **Convivencia**: las tres topologías declaradas, **desplegadas a la vez** (nueve
@@ -624,10 +624,10 @@ FALLA colisiones: dos labs declaran lo mismo (no pueden convivir):
   - 'ejemplo-topologia' y 'prueba-temporal' comparten la dirección: 192.0.2.11
 ```
 
-**5. Una llamada a la API fuera de la puerta** (en `deployment_engine/playbooks/plan.yml`):
+**5. Una llamada a la API fuera de la vía de acceso** (en `deployment_engine/playbooks/plan.yml`):
 
 ```
-FALLA puerta: alguien llama a la API fuera de deployment_engine/tasks/pve_api.yml:
+FALLA gateway: alguien llama a la API fuera de deployment_engine/tasks/pve_api.yml:
   - deployment_engine/playbooks/plan.yml
 ```
 
@@ -682,7 +682,7 @@ for p in deployment_engine/playbooks/*.yml; do ansible-playbook --syntax-check "
   pero pueden no hacerlo (un nodo llamado `Proxmox` alcanzado por su IP): usar el
   host como nombre de nodo hace que la API responda 596 "no such node".
 - **Lo asíncrono se espera sondeando la API, no con un `until`.** Proxmox responde
-  un `UPID` y trabaja en segundo plano; el motor sondea la tarea por la puerta
+  un `UPID` y trabaja en segundo plano; el motor sondea la tarea por la vía de acceso
   (`tasks/esperar_tarea.yml`) para que **cada sondeo deje su línea en el diario**.
   Un `retries`/`until` de Ansible habría sondeado a espaldas del diario.
 - **Sólo `ansible.builtin`.** El motor no instala ni usa ninguna colección.
@@ -706,7 +706,7 @@ Una línea cada una, y nada más:
 
 ## Ver también (punteros al código, del documento al fichero)
 
-- La **puerta única** a la API y el diario de cada llamada:
+- La **vía de acceso única** a la API y el diario de cada llamada:
   [deployment_engine/tasks/pve_api.yml](deployment_engine/tasks/pve_api.yml)
 - El **asignador de identidad** (vmid, nombre canónico, MAC):
   [deployment_engine/filter_plugins/identidad.py](deployment_engine/filter_plugins/identidad.py)
@@ -720,18 +720,18 @@ Una línea cada una, y nada más:
   [deployment_engine/filter_plugins/interior.py](deployment_engine/filter_plugins/interior.py)
 - La **guía para escribir un lab** (las decisiones, en orden, con su trampa y su check):
   [docs/crear-un-lab.md](docs/crear-un-lab.md)
-- El **camino del puesto de control** (la consola, el túnel, el puerto derivado):
-  [docs/camino-del-puesto-de-control.md](docs/camino-del-puesto-de-control.md)
+- El **túnel del bastión** (la consola, el túnel, el puerto derivado):
+  [docs/tunnel-del-bastion.md](docs/tunnel-del-bastion.md)
 - Las **decisiones** que no se re-litigan:
   [0001](docs/decisiones/0001-solo-api-de-proxmox.md),
   [0002](docs/decisiones/0002-el-pool-como-frontera-de-propiedad.md),
   [0003](docs/decisiones/0003-documento-con-dos-regiones.md),
-  [0004](docs/decisiones/0004-el-camino-y-el-token.md),
+  [0004](docs/decisiones/0004-el-tunnel-y-el-token.md),
   [0005](docs/decisiones/0005-el-driver-del-interior.md),
   [0006](docs/decisiones/0006-escribir-en-routeros.md),
-  [0007](docs/decisiones/0007-las-patas-se-declaran.md),
-  [0008](docs/decisiones/0008-una-direccion-por-pata.md),
+  [0007](docs/decisiones/0007-las-interfaces-se-declaran.md),
+  [0008](docs/decisiones/0008-una-direccion-por-interface.md),
   [0009](docs/decisiones/0009-verify-mira-dentro.md),
-  [0010](docs/decisiones/0010-el-rest-por-el-camino.md),
+  [0010](docs/decisiones/0010-el-rest-por-el-tunnel.md),
   [0011](docs/decisiones/0011-el-agente-de-invitado.md),
   [0012](docs/decisiones/0012-la-salida-del-lab.md)

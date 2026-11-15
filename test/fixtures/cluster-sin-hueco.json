@@ -3,8 +3,8 @@
   "vmids_usados": [100, 101, 102, 103, 104, 105],
   "bridges_nodo": ["vmbr0"],
   "pools": {"otro-lab": {"comment": "otro lab del mismo nodo"}},
-  "invitados": {},
-  "invitados_otros": {
+  "guests": {},
+  "guests_otros": {
     "otro-lab-a": {"vmid": 100, "pool": "lab_otro-lab", "descripcion": "lab=otro-lab rol=a gestionado por netlabs_v4_b"},
     "otro-lab-b": {"vmid": 101, "pool": "lab_otro-lab", "descripcion": "lab=otro-lab rol=b gestionado por netlabs_v4_b"},
     "otro-lab-c": {"vmid": 102, "pool": "lab_otro-lab", "descripcion": "lab=otro-lab rol=c gestionado por netlabs_v4_b"},

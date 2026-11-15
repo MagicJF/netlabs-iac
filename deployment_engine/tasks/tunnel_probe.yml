@@ -1,0 +1,102 @@
+---
+# PROPÓSITO:   LEER EL CAMINO EN EL MUNDO. Comprobar, ANTES de planificar, si el puerto
+#              reenviado del bastión YA contesta -- para que el plan sepa si el
+#              túnel está EN PIE y no reemita `construir_túnel` (que reescribe la línea del
+#              `authorized_keys` de casa y reenvía la orden por la consola) cuando ya lo está.
+#              Es lo que hace que la SEGUNDA pasada de `apply` no cambie nada (regla 6).
+# INVARIANTES: son LECTURAS LOCALES: `wait_for` al mismo puerto que prueba
+#              `comprobar_túnel` (127.0.0.1:<engine_túnel_puerto_base + vmid del control>)
+#              Y a los puertos por los que el túnel tiene que reenviar el REST (80) de cada
+#              router que YA EXISTE (127.0.0.1:<engine_túnel_rest_puerto_base + su vmid>).
+#              Esos segundos importan: un túnel en pie que NO reenvía los REST --uno
+#              construido antes de que el motor los reenviara-- haría que las llamadas del
+#              driver fallaran sin que nadie supiera por qué. Sondeando el puerto, el túnel
+#              se declara caído y el plan lo RECONSTRUYE. No se sondea ningún router que no
+#              exista todavía: en la primera pasada no hay ninguno, y no se fuerza nada.
+#              No toca la API de Proxmox ni el invitado. Todo sale del vmid: NADA derivado se
+#              guarda (regla 11). Sin bastión en el lab, no sondea y deja
+#              `responde` en falso.
+# LÍMITES:     no prueba que el invitado FUNCIONE, sólo que el puerto contesta (que el
+#              reenvío está puesto): es lo justo para decidir si hay que reconstruir. La
+#              prueba de punta a punta --que la cadena casa -> 443 -> puesto -> vuelta esté
+#              ENTERA-- es `comprobar_túnel`, y va dentro del plan, no aquí.
+# VER:         filter_plugins/interior.py (túnel_responde, pasos_del_túnel,
+#              interfaces_rest_del_puesto_control); tasks/tunnel.yml;
+#              docs/tunnel-del-bastion.md; docs/decisiones/0010-*.md
+#
+# Variables que espera:  identidad, declaracion, engine_túnel_puerto_base,
+#                        engine_túnel_rest_puerto_base
+# Y deja:                estado  (con `túnel.responde` y `túnel.rest`)
+
+- name: "TÚNEL·MUNDO · el puerto del túnel de este lab (20000 + vmid del bastión)"
+  ansible.builtin.set_fact:
+    tunnel_mundo_puerto: >-
+      {{ ('' if (tunnel_mundo_puesto | length == 0)
+          else ((engine_tunnel_puerto_base | int) + (tunnel_mundo_puesto.vmid | int)) | string) }}
+  vars:
+    # Quién es el bastión: lo pregunta a la función pura, no a un valor del lab.
+    tunnel_mundo_puesto: >-
+      {{ identidad.guests
+         | selectattr('rol', 'equalto', (declaracion | interior_bastion))
+         | list | first | default({}) }}
+
+# Los puertos por los que este túnel YA debería estar reenviando el REST: los de los routers
+# que existen en el mundo. Sale de la MISMA función pura que usa el plan (una sola respuesta
+# para la misma pregunta), así que lo que aquí se sondea y lo que el túnel reenvía allí no
+# se pueden separar.
+- name: "TÚNEL·MUNDO · los REST que este túnel debería reenviar ya (los routers que existen)"
+  ansible.builtin.set_fact:
+    tunnel_mundo_rest: >-
+      {{ (declaracion
+          | interior_interfaces_rest(identidad,
+              {'tunnel_rest_puerto_base': engine_tunnel_rest_puerto_base}))
+         | map(attribute='puerto') | list }}
+
+# `failed_when: false` a propósito: un puerto que no contesta NO es un error, es la RESPUESTA
+# («el túnel no está en pie»). El plan decide con eso.
+- name: "TÚNEL·MUNDO · sondear si el túnel del túnel ya contesta (lectura local)"
+  ansible.builtin.wait_for:
+    host: "127.0.0.1"
+    port: "{{ tunnel_mundo_puerto | int }}"
+    timeout: 1
+    state: started
+  register: tunnel_mundo_sonda
+  failed_when: false
+  when: tunnel_mundo_puerto | length > 0
+
+# Lo mismo con el REST de cada router que ya existe: si el túnel está en pie pero NO los
+# reenvía (uno construido antes de que el motor los reenviara), el túnel NO está servido, y
+# el plan tiene que rehacerlo. Si el router existiera pero estuviera parado, el puerto
+# contesta igual --el reenvío está puesto-- y esto no dispara nada: es un «no» del invitado,
+# no del túnel.
+- name: "TÚNEL·MUNDO · sondear si el túnel ya reenvía el REST de los routers que existen"
+  ansible.builtin.wait_for:
+    host: "127.0.0.1"
+    port: "{{ puerto | int }}"
+    timeout: 1
+    state: started
+  loop: "{{ tunnel_mundo_rest }}"
+  loop_control:
+    loop_var: puerto
+  register: tunnel_mundo_sondas_rest
+  failed_when: false
+  when: tunnel_mundo_rest | length > 0
+
+- name: "TÚNEL·MUNDO · dejar en el estado si el túnel responde o no"
+  ansible.builtin.set_fact:
+    estado: >-
+      {{ estado | combine({'tunnel': {'responde': tunnel_mundo_responde,
+                                      'rest': tunnel_mundo_rest}}) }}
+  vars:
+    # Todas las sondas de REST tienen que haber contestado. `state` sólo aparece en la
+    # respuesta buena: cuando `wait_for` se cansa no lo pone, y eso es un «no».
+    tunnel_mundo_rest_ok: >-
+      {{ ((tunnel_mundo_sondas_rest.results | default([]))
+          | selectattr('state', 'defined')
+          | selectattr('state', 'equalto', 'started') | list | length)
+         == (tunnel_mundo_rest | length) }}
+    # Se convierte a booleano de verdad AQUÍ: el estado viaja por texto, y un «False»
+    # escrito con letras es una cadena que en Python es cierta (`bool('False')` es True).
+    tunnel_mundo_responde: >-
+      {{ ((tunnel_mundo_sonda.state | default('') == 'started')
+          and (tunnel_mundo_rest_ok | bool)) | bool }}

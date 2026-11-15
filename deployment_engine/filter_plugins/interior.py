@@ -24,7 +24,7 @@
 #              no converge (puentes, cortafuegos, dns…): están en AREAS_PENDIENTES y
 #              la validación las rechaza diciéndolo, para que no parezca que se
 #              ignoran. Añadirlas es un driver y un ADR, nunca una plantilla más.
-# VER:         docs/decisiones/0005-el-driver-del-interior.md; docs/camino-del-puesto-de-control.md;
+# VER:         docs/decisiones/0005-el-driver-del-interior.md; docs/tunnel-del-bastion.md;
 #              README.md §El interior; ./lab check declaracion
 
 # --- Los dos tipos de interior ------------------------------------------------
@@ -34,30 +34,30 @@ TIPOS = ("linux", "routeros")
 
 # --- Las áreas de cada tipo, EN ORDEN DE CONVERGENCIA -------------------------
 # El orden importa y no es casual (es el que v3 pagó caro):
-#   * `camino` va primero en Linux porque es LA FORMA DE ENTRAR: si el puesto de
+#   * `tunnel` va primero en Linux porque es LA FORMA DE ENTRAR: si el puesto de
 #     control no tiene su salida, ninguna otra área de ese invitado se puede
-#     converger (no hay camino por el que llegar).
-#   * `direcciones` va ANTES de `cliente_dhcp` en RouterOS, y esto está MEDIDO, no
+#     converger (no hay túnel por el que llegar).
+#   * `addresses` va ANTES de `dhcp_client` en RouterOS, y esto está MEDIDO, no
 #     supuesto: al deshabilitar el cliente DHCP de fábrica, RouterOS se lleva la
 #     dirección que ese cliente instaló, y con ella el REST --la escritura se queda
-#     sin respuesta y el motor pierde el camino a mitad de faena-- (comprobado en un
+#     sin respuesta y el motor pierde el túnel a mitad de faena-- (comprobado en un
 #     CHR 7.25.1 sobre `ether1`: la llamada murió a los 34 s, el equipo se quedó sin
 #     dirección y hubo que rehacer el lab). Poniendo primero la dirección declarada,
 #     el equipo sigue alcanzable pase lo que pase después.
-#   * `identidad` va la ÚLTIMA en RouterOS en la primera convergencia (ver
-#     `identidad_al_final`), para no perder el camino de vuelta a mitad de faena:
+#   * `identity` va la ÚLTIMA en RouterOS en la primera convergencia (ver
+#     `identidad_al_final`), para no perder el túnel de vuelta a mitad de faena:
 #     primero se añade y se verifica lo nuevo, y sólo entonces se cambia la
 #     identidad del equipo. v3 lo llamaba intercambio atómico.
-#   * `cortafuegos` va al final: no se cierra una puerta antes de haber pasado por
+#   * `cortafuegos` va al final: no se cierra una vía de acceso antes de haber pasado por
 #     ella.
 AREAS = {
-    # `direcciones` (Linux) no es un área con driver propio: es la forma LISTA de
-    # `direccion` -- las patas extra del invitado, una por bridge del lab. Está aquí
+    # `addresses` (Linux) no es un área con driver propio: es la forma LISTA de
+    # `address` -- las interfaces extra del invitado, una por bridge del lab. Está aquí
     # porque el vocabulario es cerrado y hay que nombrarla, y `areas_de` la funde en
-    # `direccion` para que la convergencia tenga un solo camino.
-    "linux": ("camino", "direccion", "direcciones", "reenvio", "dhcp_servidor"),
+    # `address` para que la convergencia tenga un solo túnel.
+    "linux": ("tunnel", "address", "addresses", "ip_forward", "dhcp_server"),
     "routeros": (
-        "identidad", "direcciones", "servicios", "cliente_dhcp", "rutas", "dhcp", "exterior",
+        "identity", "addresses", "ip_services", "dhcp_client", "routes", "dhcp_server", "uplink",
     ),
 }
 
@@ -65,38 +65,38 @@ AREAS = {
 # a propósito: la validación las rechaza con un motivo legible en vez de aceptarlas
 # y luego no hacer nada con ellas, que es la forma más silenciosa de mentir.
 AREAS_PENDIENTES = {
-    "routeros": ("puentes", "cortafuegos"),
-    "linux": ("pasarela", "rutas", "dns", "claves"),
+    "routeros": ("bridges", "firewall"),
+    "linux": ("gateway", "routes", "dns", "claves"),
 }
 
-# --- Servicios: el alcance del área `servicios` -------------------------------
+# --- Servicios: el alcance del área `ip_services` -------------------------------
 # El área manda sobre estos servicios y sólo sobre estos: lo que se declara se
 # deshabilita y lo que NO se declara (pero está en esta lista) se vuelve a
-# habilitar. `www` no está: es donde vive REST, o sea el camino de vuelta, y
+# habilitar. `www` no está: es donde vive REST, o sea el túnel de vuelta, y
 # deshabilitarlo deja el equipo sin forma de ser configurado nunca más.
 SERVICIOS_GESTIONADOS = ("api", "api-ssl", "ftp", "telnet", "ssh")
 SERVICIOS_NUNCA_DESHABILITADOS = ("www",)
 
-# --- El camino ---------------------------------------------------------------
-# El único vocabulario que el puesto de control declara es `camino`. El resto (por
+# --- El túnel ---------------------------------------------------------------
+# El único vocabulario que el bastión declara es `tunnel`. El resto (por
 # dónde sale, con qué clave, en qué puerto) es entorno, no lab: vive en secrets.yml
 # y en vars/engine.yml. Un lab que llevara dentro la dirección de casa dejaría de
 # poder desplegarse en otra casa.
-CLAVE_CAMINO = "camino"
+CLAVE_TUNNEL = "tunnel"
 
 # El nombre del script `echo <base64> | base64 -d | sh` que se manda por la consola.
 # Lo pone el MOTOR dentro de su propio equipo, así que no es un valor de ningún lab.
-RUTA_GUION_CAMINO = "/usr/local/sbin/netlabs-camino"
-UNIDAD_CAMINO = "netlabs-camino.service"
+RUTA_GUION_TUNNEL = "/usr/local/sbin/netlabs-tunnel"
+UNIDAD_TUNNEL = "netlabs-tunnel.service"
 
-# Las dos acciones del camino, con nombre propio: el plan las nombra y el ejecutor
+# Las dos acciones del túnel, con nombre propio: el plan las nombra y el ejecutor
 # las despacha, y una cadena suelta en dos sitios es una cadena que se separa.
-ACCION_CAMINO = "construir_camino"
-ACCION_COMPROBAR_CAMINO = "comprobar_camino"
+ACCION_TUNNEL = "construir_tunnel"
+ACCION_COMPROBAR_TUNNEL = "comprobar_tunnel"
 ACCION_INTERIOR = "converger_interior"
 
 # El puerto por el que se deja ver un RouterOS: su REST vive en el servicio `www` de
-# fábrica. Es el MISMO que sondea la barrera de un escalón (`espera_de_servicio`), así
+# fábrica. Es el MISMO que sondea la barrera de una etapa (`espera_de_servicio`), así
 # que es una constante y no un número repetido en dos sitios que se puedan separar.
 PUERTO_REST_ROUTEROS = 80
 
@@ -109,9 +109,9 @@ class ErrorMotor(Exception):
 # Vocabulario: qué se puede declarar dentro de cada tipo
 # ---------------------------------------------------------------------------
 
-def tipo_de(invitado):
+def tipo_de(guest):
     """El tipo de interior declarado, o None si el invitado no declara `config`."""
-    config = (invitado or {}).get("config")
+    config = (guest or {}).get("config")
     if not isinstance(config, dict) or not config:
         return None
     tipos = [t for t in TIPOS if t in config]
@@ -123,53 +123,53 @@ def tipo_de(invitado):
     return tipos[0]
 
 
-def areas_de(invitado):
+def areas_de(guest):
     """{área: valor declarado} del invitado, en orden de convergencia.
 
     La dirección del invitado es un área más, y por eso aparece aquí: el nivel de
-    arriba (`direccion:` en el invitado) es la dirección de su pata de gestión, y
+    arriba (`address:` en el invitado) es la dirección de su interfaz de gestión, y
     dentro de un Linux es algo que hay que converger leyendo y escribiendo, no un
     campo que la API del hipervisor guarde.
     """
-    tipo = tipo_de(invitado)
+    tipo = tipo_de(guest)
     if tipo is None:
         return {}
-    declaradas = dict((invitado.get("config") or {}).get(tipo) or {})
+    declaradas = dict((guest.get("config") or {}).get(tipo) or {})
     if tipo == "linux":
-        # La de gestión sale del campo `direccion` del invitado (la de la pata por la que
-        # el plan levanta el túnel), y va primero. Si el lab declara además `direcciones`
-        # --una lista de `{interfaz, direccion}`--, son las OTRAS patas: un puesto de
+        # La de gestión sale del campo `address` del invitado (la de la interfaz por la que
+        # el plan levanta el túnel), y va primero. Si el lab declara además `addresses`
+        # --una lista de `{interfaz, direccion}`--, son las OTRAS interfaces: un puesto de
         # control necesita una por cada bridge del lab, porque si no, un invitado que
         # cuelgue de ese bridge es inalcanzable para el motor (medido: el CHR del segundo
-        # escalón no contesta y su convergencia no se puede ni empezar).
-        propias = [dict(p) for p in (declaradas.get("direcciones") or [])]
-        declaradas.pop("direcciones", None)
-        propia = str(invitado.get("direccion") or "")
+        # etapa no contesta y su convergencia no se puede ni empezar).
+        propias = [dict(p) for p in (declaradas.get("addresses") or [])]
+        declaradas.pop("addresses", None)
+        propia = str(guest.get("address") or "")
         if propia and propia != "dhcp":
-            propias = [{"interfaz": "eth0", "direccion": propia}] + propias
-        declaradas["direccion"] = propias or invitado.get("direccion")
+            propias = [{"interface": "eth0", "address": propia}] + propias
+        declaradas["address"] = propias or guest.get("address")
     if tipo == "routeros":
-        # En un RouterOS, la dirección de su pata de GESTIÓN no la pone nadie de fuera: la
-        # escribe el motor por su REST. Va DENTRO del área `direcciones` (es la dirección
-        # de una interfaz), en la primera pata -- que es donde vive el cliente DHCP de
+        # En un RouterOS, la dirección de su interfaz de GESTIÓN no la pone nadie de fuera: la
+        # escribe el motor por su REST. Va DENTRO del área `addresses` (es la dirección
+        # de una interfaz), en la primera interfaz -- que es donde vive el cliente DHCP de
         # fábrica que esta misma convergencia apaga (medido: `ether1`).
         #
-        # Se DERIVA del `direccion:` del invitado, y por eso no se escribe dos veces ni se
+        # Se DERIVA del `address:` del invitado, y por eso no se escribe dos veces ni se
         # puede olvidar: apagar el cliente de fábrica sin poner la dirección estática
-        # dejaría al router sin dirección, o sea sin camino de vuelta para el motor que lo
+        # dejaría al router sin dirección, o sea sin túnel de vuelta para el motor que lo
         # configura. Es el mismo papel que la línea de arriba, con otro mecanismo: en un
         # Linux la dirección la pone el propio invitado; en un RouterOS, el motor.
-        propia = str(invitado.get("direccion") or "")
+        propia = str(guest.get("address") or "")
         if propia and propia != "dhcp":
-            declaradas["direcciones"] = list(declaradas.get("direcciones") or []) + [
-                {"interfaz": INTERFAZ_GESTION_ROUTEROS, "direccion": propia}
+            declaradas["addresses"] = list(declaradas.get("addresses") or []) + [
+                {"interface": INTERFAZ_GESTION_ROUTEROS, "address": propia}
             ]
     return {area: declaradas.get(area) for area in AREAS[tipo] if area in declaradas}
 
 
-def areas_a_leer(invitado):
+def areas_a_leer(guest):
     """Las áreas que el driver tiene que LEER dentro del equipo (las declaradas)."""
-    return list(areas_de(invitado).keys())
+    return list(areas_de(guest).keys())
 
 
 def es_direccion_dinamica(valor):
@@ -178,35 +178,35 @@ def es_direccion_dinamica(valor):
     return str(valor or "").strip().lower() == "dhcp"
 
 
-def areas_que_piden_visita(invitado):
+def areas_que_piden_visita(guest):
     """Las áreas declaradas que exigen ENTRAR en el invitado (leer o escribir dentro).
 
     Una dirección DINÁMICA no pide visita: su valor es un hecho que se lee del HOST
     (`GET /nodes/<nodo>/lxc/<vmid>/interfaces`, §6.3/§11) y, además, no se podría
     escribir desde dentro sin saber primero a qué dirección conectar — un círculo.
-    Un invitado cuya ÚNICA área sea ésa (un `config: linux: {}` con `direccion: dhcp`,
+    Un invitado cuya ÚNICA área sea ésa (un `config: linux: {}` con `address: dhcp`,
     el caso de los puestos dinámicos) no se converge: no hay nada que hacer dentro y
     el motor no entra a ciegas (regla 16). `configurar_<tipo>.yml` sólo se despacha
     para un invitado con áreas que piden visita.
     """
     return {
-        area for area, valor in areas_de(invitado).items()
-        if not (area == "direccion" and es_direccion_dinamica(valor))
+        area for area, valor in areas_de(guest).items()
+        if not (area == "address" and es_direccion_dinamica(valor))
     }
 
 
-def declara_interior(invitado):
+def declara_interior(guest):
     """¿Este invitado declara interior? (si no, el motor no entra: ni lee ni escribe)."""
-    return tipo_de(invitado) is not None
+    return tipo_de(guest) is not None
 
 
-def tiene_camino(invitado):
-    """¿Es el puesto de control? (declara `config.linux.camino`)."""
-    return CLAVE_CAMINO in ((invitado.get("config") or {}).get("linux") or {})
+def tiene_tunnel(guest):
+    """¿Es el bastión? (declara `config.linux.tunnel`)."""
+    return CLAVE_TUNNEL in ((guest.get("config") or {}).get("linux") or {})
 
 
 # ---------------------------------------------------------------------------
-# La dirección de la pata de gestión: el motor la DERIVA (nada derivado se guarda)
+# La dirección de la interfaz de gestión: el motor la DERIVA (nada derivado se guarda)
 # ---------------------------------------------------------------------------
 
 def direccion_libre(subred, usadas, desde_arriba=True):
@@ -242,15 +242,15 @@ def direccion_libre(subred, usadas, desde_arriba=True):
 
 
 def salida_derivada(estado, parametros):
-    """Lo que el motor DERIVA para la pata de fuera de un lab: puerta y dirección.
+    """Lo que el motor DERIVA para la interfaz de fuera de un lab: vía de acceso y dirección.
 
     Son valores del ENTORNO -- por dónde sale este nodo y qué dirección libre hay en esa
     red -- así que el lab no los declara: el lab sólo dice QUE este router es la salida.
 
-    Es la MISMA regla que la pata del puesto de control en ese mismo bridge: la dirección
-    del bridge es la puerta, y la del invitado se elige contando por ARRIBA entre las
+    Es la MISMA regla que la interfaz del bastión en ese mismo bridge: la dirección
+    del bridge es la vía de acceso, y la del invitado se elige contando por ARRIBA entre las
     libres (así nunca cae dentro de un pool que reparta un router del lab). El DNS se toma
-    también como la puerta: es donde este nodo sirve el resolutor de esa red (medido).
+    también como la gateway: es donde este nodo sirve el resolutor de esa red (medido).
 
     (Se probó a pedir la dirección por DHCP, que sería lo natural, y en este entorno no
     puede ser: medido con captura, las ofertas del bridge de salida salen con el checksum
@@ -261,39 +261,39 @@ def salida_derivada(estado, parametros):
     subred = str((estado.get("bridges_direcciones") or {}).get(puente) or "")
     if not puente or "/" not in subred:
         raise ErrorMotor(
-            f"este lab declara `exterior` (salida a internet) y el motor no sabe por "
+            f"este lab declara `uplink` (salida a internet) y el motor no sabe por "
             f"dónde sale el nodo: falta `pve_bridge_gestion` en secrets.yml o ese bridge "
             f"no tiene dirección en el nodo (salió: puente='{puente}', red='{subred}')"
         )
-    puerta, _, prefijo = subred.partition("/")
+    gateway, _, prefijo = subred.partition("/")
     direccion = direccion_libre(subred, estado.get("direcciones_usadas") or [], desde_arriba=True)
-    return {"salida_puerta": puerta, "salida_direccion": f"{direccion}/{prefijo}"}
+    return {"salida_acceso": gateway, "salida_direccion": f"{direccion}/{prefijo}"}
 
 
-def patas_del_puesto_control(invitado, declaracion, estado, parametros):
-    """Las patas del puesto de control, TODAS al nacer: (bridge, dirección, máscara, puerta).
+def interfaces_del_bastion(guest, declaracion, estado, parametros):
+    """Las interfaces del bastión, TODAS al nacer: (bridge, dirección, máscara, vía de acceso).
 
-    Nace completo porque cambiarle las patas a un invitado en marcha obliga a
+    Nace completo porque cambiarle las interfaces a un invitado en marcha obliga a
     reiniciarlo, y aquí no se reinicia la máquina que está trabajando (§5).
 
     **El ORDEN es el orden de `eth0, eth1, ...` dentro del invitado**, y por eso no es
-    libre: primero las patas del LAB (la del bridge que el invitado declara la primera,
+    libre: primero las interfaces del LAB (la del bridge que el invitado declara la primera,
     porque es la que la declaración llama `eth0` en sus áreas --el servidor DHCP del
-    puesto sirve por `eth0`--) y **la pata del bridge de gestión del NODO la ÚLTIMA**.
+    puesto sirve por `eth0`--) y **la interfaz del bridge de gestión del NODO la ÚLTIMA**.
     Así el nombre de interfaz que escribe el lab sigue significando lo mismo en
     cualquier nodo, y el valor de entorno (qué bridge da salida) no se filtra a la
     declaración.
 
-      * Una pata por cada bridge del LAB. La del bridge que el invitado declara lleva
+      * Una interfaz por cada bridge del LAB. La del bridge que el invitado declara lleva
         su dirección DECLARADA (la gestión no puede depender de los routers que está
         desplegando); las demás las elige el motor por arriba, esquivando las
         direcciones que el lab declara y las que están en uso.
-      * La ÚLTIMA pata va en el bridge de gestión del NODO (valor de entorno, no del
+      * La ÚLTIMA interfaz va en el bridge de gestión del NODO (valor de entorno, no del
         lab): es por donde el puesto sale hacia casa, y es la única que lleva PUERTA
         (la dirección que el nodo tiene en ese bridge). Su dirección la elige el motor
         de entre las libres, leyendo las que ya usa cada invitado del nodo.
 
-    Si el invitado declara camino y no hay bridge de gestión, esto **falla**: un puesto
+    Si el invitado declara túnel y no hay bridge de gestión, esto **falla**: un puesto
     de control sin salida es un lab que no se puede converger, y decirlo es más útil
     que crear el invitado y descubrirlo tres pasos después.
     """
@@ -302,89 +302,89 @@ def patas_del_puesto_control(invitado, declaracion, estado, parametros):
     usadas = estado.get("direcciones_usadas") or []
     if not puente_gestion:
         raise ErrorMotor(
-            f"el invitado {invitado.get('rol')} declara camino y el motor no sabe por "
+            f"el invitado {guest.get('rol')} declara túnel y el motor no sabe por "
             "dónde da salida este nodo: falta `pve_bridge_gestion` en secrets.yml "
             "(el bridge del nodo con dirección y salida, hoy `vmbr1`)"
         )
 
-    patas = []
-    # Las direcciones que el lab declara en un bridge: ninguna pata de gestión puede
+    interfaces = []
+    # Las direcciones que el lab declara en un bridge: ninguna interfaz de gestión puede
     # caer encima de un router o de un servidor que el lab ya ha reservado.
     declaradas_por_bridge = {}
-    for otro in declaracion.get("invitados", []):
-        direccion = str(otro.get("direccion") or "")
+    for otro in declaracion.get("guests", []):
+        direccion = str(otro.get("address") or "")
         if direccion and direccion != "dhcp" and "/" in direccion:
             declaradas_por_bridge.setdefault(otro.get("bridge"), []).append(direccion)
 
-    # La pata DECLARADA va la primera: es `eth0` para el invitado, y así lo que el lab
-    # declara en sus áreas (`dhcp_servidor: interfaz: eth0`) dice lo mismo en cualquier
+    # La interfaz DECLARADA va la primera: es `eth0` para el invitado, y así lo que el lab
+    # declara en sus áreas (`dhcp_server: interface: eth0`) dice lo mismo en cualquier
     # nodo. Es la única cuya dirección no decide el motor.
-    if invitado.get("bridge") and invitado.get("direccion"):
-        patas.append(
+    if guest.get("bridge") and guest.get("address"):
+        interfaces.append(
             {
-                "bridge": invitado["bridge"],
-                "direccion": invitado["direccion"],
-                "puerta": "",
-                "papel": "pata declarada del puesto de control",
+                "bridge": guest["bridge"],
+                "address": guest["address"],
+                "gateway": "",
+                "papel": "interfaz declarada del bastión",
             }
         )
     for bridge in declaracion.get("bridges", []):
         nombre = bridge.get("nombre")
-        if not nombre or nombre == invitado.get("bridge"):
+        if not nombre or nombre == guest.get("bridge"):
             continue
-        subred = bridge.get("direccion")
+        subred = bridge.get("address")
         usadas_aqui = list(usadas) + declaradas_por_bridge.get(nombre, [])
         direccion = direccion_libre(subred, usadas_aqui) if subred else ""
-        patas.append(
+        interfaces.append(
             {
                 "bridge": nombre,
-                "direccion": f"{direccion}/{subred.split('/')[1]}" if direccion else "",
-                "puerta": "",
-                "papel": "pata del puesto de control en un bridge del lab",
+                "address": f"{direccion}/{subred.split('/')[1]}" if direccion else "",
+                "gateway": "",
+                "papel": "interfaz del bastión en un bridge del lab",
             }
         )
 
-    # Y la ÚLTIMA, la salida: el bridge de gestión del nodo, con su puerta.
+    # Y la ÚLTIMA, la salida: el bridge de gestión del nodo, con su pasarela.
     subred = str(direcciones_bridge.get(puente_gestion) or "")
     if not subred:
         raise ErrorMotor(
             f"el bridge de gestión `{puente_gestion}` no tiene dirección en este nodo: "
-            "sin dirección no hay puerta por la que salir hacia casa"
+            "sin dirección no hay vía de acceso por la que salir hacia casa"
         )
     usadas_salida = list(usadas) + [
-        p["direccion"] for p in patas if p.get("direccion")
+        p["address"] for p in interfaces if p.get("address")
     ]
     direccion = direccion_libre(subred, usadas_salida)
-    patas.append(
+    interfaces.append(
         {
             "bridge": puente_gestion,
-            "direccion": f"{direccion}/{subred.split('/')[1]}",
-            # La puerta de la pata de gestión es la dirección que el NODO tiene en ese
+            "address": f"{direccion}/{subred.split('/')[1]}",
+            # La vía de acceso de la interfaz de gestión es la dirección que el NODO tiene en ese
             # bridge (10.10.10.1 en vmbr1): por ahí sale hacia casa. No es un valor del
             # lab: se lee de la red del nodo.
-            "puerta": subred.split("/")[0],
+            "gateway": subred.split("/")[0],
             "papel": "salida hacia casa",
         }
     )
-    return patas
+    return interfaces
 
 
-def puerto_camino(vmid, parametros):
+def puerto_tunnel(vmid, parametros):
     """El puerto del nodo de control donde el puesto deja su sshd. DERIVADO del vmid."""
-    return int(parametros.get("camino_puerto_base") or 20000) + int(vmid)
+    return int(parametros.get("tunnel_puerto_base") or 20000) + int(vmid)
 
 
-def puerto_rest_camino(vmid, parametros):
+def puerto_rest_tunnel(vmid, parametros):
     """El puerto del nodo de control por el que se llega al REST de un invitado.
 
-    El puesto de control reenvía, por el MISMO túnel del camino, el puerto 80 de cada
+    El bastión reenvía, por el MISMO túnel del túnel, el puerto 80 de cada
     equipo con el que el motor habla por REST (los que declaran `config.routeros`). Así
-    el `uri` se ejecuta en la máquina del motor --una sola puerta, un solo sitio-- y el
-    puesto sólo hace de camino, en vez de delegarle la llamada. Se DERIVA del vmid, como
-    el puerto del camino: nada que guardar (regla 11). La banda (21000+) no pisa la del
-    camino (20000+) para vmids de tres cifras, que es lo que usa un clúster normal.
+    el `uri` se ejecuta en la máquina del motor --una sola vía de acceso, un solo sitio-- y el
+    puesto sólo hace de túnel, en vez de delegarle la llamada. Se DERIVA del vmid, como
+    el puerto del tunnel: nada que guardar (regla 11). La banda (21000+) no pisa la del
+    túnel (20000+) para vmids de tres cifras, que es lo que usa un clúster normal.
     """
-    return int(parametros.get("camino_rest_puerto_base") or 21000) + int(vmid)
+    return int(parametros.get("tunnel_rest_puerto_base") or 21000) + int(vmid)
 
 
 def permitlisten_de(puertos):
@@ -401,103 +401,103 @@ def permitlisten_de(puertos):
 
 def _declarado_por_rol(declaracion, rol):
     """El invitado DECLARADO con ese rol. La declaración normalizada es una lista plana."""
-    for invitado in (declaracion or {}).get("invitados") or []:
-        if invitado.get("rol") == rol:
-            return invitado
+    for guest in (declaracion or {}).get("guests") or []:
+        if guest.get("rol") == rol:
+            return guest
     return {}
 
 
-def patas_rest_del_puesto_control(declaracion, identidad, parametros):
-    """Los equipos por los que el puesto de control tiene que abrir camino de REST.
+def interfaces_rest_del_bastion(declaracion, identidad, parametros):
+    """Los equipos por los que el bastión tiene que abrir túnel de REST.
 
     Se pregunta a la DECLARACIÓN quién trae `config.routeros` --son los únicos con los
     que este motor habla por REST: el vocabulario es cerrado-- y al mapa de identidad
     por su vmid, que es de donde sale el puerto. Un equipo sin dirección declarada no
     entra: no hay a dónde reenviar, y un `dhcp` con interior de RouterOS ya lo rechaza
-    la validación de la declaración. Sale ordenada por rol para que el guion del camino
+    la validación de la declaración. Sale ordenada por rol para que el guion del túnel
     sea el mismo en cada pasada (si no, un `apply` lo reescribiría por nada).
     """
-    patas = []
-    for invitado in (identidad or {}).get("invitados") or []:
-        declarado = _declarado_por_rol(declaracion, invitado.get("rol"))
+    interfaces = []
+    for guest in (identidad or {}).get("guests") or []:
+        declarado = _declarado_por_rol(declaracion, guest.get("rol"))
         if "routeros" not in (declarado.get("config") or {}):
             continue
         # La dirección declarada, sin el prefijo: lo que viaja en `-R` es una dirección, no
         # una red. `dhcp` NO es una dirección --no se sabe a dónde reenviar--, así que un
         # equipo así no entra (la validación de la declaración ya lo rechaza cuando declara
         # interior; aquí se dice lo mismo por si llegara por otra vía).
-        direccion = _sin_prefijo(declarado.get("direccion"))
+        direccion = _sin_prefijo(declarado.get("address"))
         if not direccion or direccion == "dhcp":
             continue
-        patas.append(
+        interfaces.append(
             {
-                "rol": invitado.get("rol"),
-                "direccion": direccion,
-                "puerto": puerto_rest_camino(invitado.get("vmid"), parametros),
+                "rol": guest.get("rol"),
+                "address": direccion,
+                "puerto": puerto_rest_tunnel(guest.get("vmid"), parametros),
                 "puerto_servicio": PUERTO_REST_ROUTEROS,
             }
         )
-    return sorted(patas, key=lambda pata: str(pata["rol"]))
+    return sorted(interfaces, key=lambda interface: str(interface["rol"]))
 
 
-def guion_camino(clave_privada, host, puerto, usuario, puerto_local, patas_rest=None):
+def guion_tunnel(clave_privada, host, puerto, usuario, puerto_local, interfaces_rest=None):
     """El texto que se manda por la consola: UNA sola vez, y queda puesto.
 
     Qué hace, y por qué esto y no otra cosa:
 
-      1. deja la clave del camino dentro del invitado, con sus permisos;
+      1. deja la clave del túnel dentro del invitado, con sus permisos;
       2. escribe un GUION que abre la salida hacia casa con `ssh -R`: el puesto de
          control se conecta al sshd del nodo de control y deja reenviado un puerto
          local SUYO hacia su propio sshd (por ahí se le lee la consola y de ahí cuelga
          el lab) y, por cada equipo con el que el motor habla por REST, OTRO puerto
          local hacia el puerto 80 de ese equipo: así el `uri` del motor se ejecuta en
-         la máquina del motor, y el puesto sólo hace de camino;
+         la máquina del motor, y el puesto sólo hace de túnel;
       3. lo pone como UNIDAD de systemd con `Restart=always` y la habilita.
 
     El punto 3 es lo que hace que la consola se use UNA vez por vida del invitado y
-    no en cada `apply`: si el invitado reinicia, el camino se levanta solo. Y es
+    no en cada `apply`: si el invitado reinicia, el túnel se levanta solo. Y es
     idempotente: volver a mandarlo reescribe lo mismo y reinicia el servicio.
 
     Va en base64 porque la consola no es un canal de datos fiable: una línea, sin
     heredocs ni comillas que escapar, sin nada que el eco pueda romper.
     """
     # `\` + salto de línea: lo que la shell lee como «la línea sigue». Se escribe con
-    # chr() para que ningún nivel de escapes lo pueda romper por el camino.
+    # chr() para que ningún nivel de escapes lo pueda romper por el túnel.
     seguimos = chr(92) + "\n"
-    reenvios = "".join(
-        f"  -R {pata['puerto']}:{pata['direccion']}:{pata['puerto_servicio']} {seguimos}"
-        for pata in (patas_rest or [])
+    ip_forwards = "".join(
+        f"  -R {interface['puerto']}:{interface['address']}:{interface['puerto_servicio']} {seguimos}"
+        for interface in (interfaces_rest or [])
     )
     return f"""#!/bin/sh
-# PROPÓSITO: abrir la salida hacia casa del puesto de control y sostenerla.
+# PROPÓSITO: abrir la salida hacia casa del bastión y sostenerla.
 # Lo escribe el motor UNA vez, por la consola, al nacer el invitado
-# (docs/camino-del-puesto-de-control.md). Si el invitado reinicia, systemd lo
+# (docs/tunnel-del-bastion.md). Si el invitado reinicia, systemd lo
 # vuelve a levantar: no hace falta volver a entrar por consola.
 set -u
 mkdir -p /root/.ssh && chmod 700 /root/.ssh
-cat > /root/.ssh/netlabs_camino <<'FIN_CLAVE'
+cat > /root/.ssh/netlabs_tunnel <<'FIN_CLAVE'
 {clave_privada}
 FIN_CLAVE
-chmod 600 /root/.ssh/netlabs_camino
-cat > {RUTA_GUION_CAMINO} <<'FIN_GUION'
+chmod 600 /root/.ssh/netlabs_tunnel
+cat > {RUTA_GUION_TUNNEL} <<'FIN_GUION'
 #!/bin/sh
-exec ssh -i /root/.ssh/netlabs_camino \\
+exec ssh -i /root/.ssh/netlabs_tunnel \\
   -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \\
   -o ExitOnForwardFailure=yes \\
   -o ServerAliveInterval=15 -o ServerAliveCountMax=3 \\
   -N -R {puerto_local}:localhost:22 \\
-{reenvios}  -p {puerto} {usuario}@{host}
+{ip_forwards}  -p {puerto} {usuario}@{host}
 FIN_GUION
-chmod 755 {RUTA_GUION_CAMINO}
-cat > /etc/systemd/system/{UNIDAD_CAMINO} <<'FIN_UNIDAD'
+chmod 755 {RUTA_GUION_TUNNEL}
+cat > /etc/systemd/system/{UNIDAD_TUNNEL} <<'FIN_UNIDAD'
 [Unit]
-Description=netlabs_v4_b: salida hacia el nodo de control (el camino del lab)
+Description=netlabs_v4_b: salida hacia el nodo de control (el túnel del lab)
 After=network-online.target ssh.service
 Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart={RUTA_GUION_CAMINO}
+ExecStart={RUTA_GUION_TUNNEL}
 Restart=always
 RestartSec=5
 
@@ -505,9 +505,9 @@ RestartSec=5
 WantedBy=multi-user.target
 FIN_UNIDAD
 systemctl daemon-reload
-systemctl enable --now {UNIDAD_CAMINO}
+systemctl enable --now {UNIDAD_TUNNEL}
 sleep 4
-echo {marca_camino()}
+echo {marca_tunnel()}
 """
 
 
@@ -517,7 +517,7 @@ def linea_consola(guion):
     En base64 porque la consola NO es un canal de datos fiable: se manda una línea
     sin heredocs, sin comillas y sin nada que el eco pueda romper. Y se decodifica en
     el equipo (`base64 -d | sh`) para que lo que se ejecute sea exactamente lo que se
-    codificó aquí, sin que nadie lo reinterprete por el camino.
+    codificó aquí, sin que nadie lo reinterprete por el túnel.
     """
     import base64 as modulo_base64
 
@@ -525,28 +525,28 @@ def linea_consola(guion):
     return f"echo {codificado} | base64 -d | sh"
 
 
-def marca_camino(_entrada=None):
+def marca_tunnel(_entrada=None):
     """Lo que el guion imprime al final: la consola no devuelve código de salida, se
     reconoce el ECO. Sin marca, el motor no sabe si la línea se ejecutó.
 
     Recibe un argumento que IGNORA porque se usa como filtro de Ansible
-    (`'' | interior_marca_camino`): un filtro siempre recibe lo de su izquierda. El
+    (`'' | interior_marca_túnel`): un filtro siempre recibe lo de su izquierda. El
     valor de la marca no depende de nada: es una constante que el guion y el motor
     tienen que decir igual, y por eso vive en un solo sitio (aquí).
     """
-    return "NETLABS_CAMINO_PUESTO_42"
+    return "NETLABS_TUNNEL_PUESTO_42"
 
 
-def camino_responde(estado):
-    """¿El túnel del camino está en pie, según lo último que el motor comprobó?
+def tunnel_responde(estado):
+    """¿El túnel del túnel está en pie, según lo último que el motor comprobó?
 
     Se lee del ESTADO (que lo trae una lectura: el puerto reenviado del nodo de
     control contesta o no), no de una marca que el motor se hubiera dejado: una
     marca se queda pegada cuando el puesto se reinicia, y un puerto que no contesta
     no se puede fingir. Ausente = no responde: en un clúster simulado (un `plan` sin
-    credenciales) no hay camino, y el plan lo dice.
+    credenciales) no hay túnel, y el plan lo dice.
     """
-    return _afirmativo((estado or {}).get("camino", {}).get("responde"))
+    return _afirmativo((estado or {}).get("tunnel", {}).get("responde"))
 
 
 def _afirmativo(valor):
@@ -562,79 +562,79 @@ def _afirmativo(valor):
     return bool(valor)
 
 
-def pasos_del_camino(invitado, declaracion, estado, parametros, identidad=None):
-    """Los pasos del CAMINO de este invitado (el puesto de control), en orden.
+def pasos_del_tunnel(guest, declaracion, estado, parametros, identidad=None):
+    """Los pasos del CAMINO de este invitado (el bastión), en orden.
 
-    El camino es lo que hace ENTRAR a Ansible en la red del lab, así que va antes de
+    El túnel es lo que hace ENTRAR a Ansible en la red del lab, así que va antes de
     converger nada: sin él no se llega a ningún invitado. Tiene dos mitades:
 
-      1. `construir_camino` -- el arranque: el motor deja su clave pública dentro del
+      1. `construir_túnel` -- el arranque: el motor deja su clave pública dentro del
          invitado (al crear, por API), escribe UNA línea en su propio
          `authorized_keys` con `restrict,port-forwarding,permitlisten=<puerto>`, y
          manda por la consola UNA línea en base64 que levanta el túnel hacia casa.
-      2. `comprobar_camino` -- la prueba de punta a punta: que el puerto reenviado del
+      2. `comprobar_túnel` -- la prueba de punta a punta: que el puerto reenviado del
          nodo de control conteste. Eso demuestra la cadena entera (casa -> 443 ->
          puesto -> vuelta), no una parte.
 
-    Si el camino YA responde, la mitad 1 no se emite: reconstruir un túnel que
+    Si el túnel YA responde, la mitad 1 no se emite: reconstruir un túnel que
     funciona en cada `apply` sería justo el error que este plan viene a evitar. La
     comprobación se emite siempre: es una LECTURA, y `apply` tiene que poder decir
-    que el camino está en pie ahora, no que lo estuvo.
+    que el túnel está en pie ahora, no que lo estuvo.
 
-    La clave privada del camino NO viaja en el paso: el plan no lleva secretos. El
+    La clave privada del túnel NO viaja en el paso: el plan no lleva secretos. El
     paso lleva lo que hay que hacer (dónde, en qué puerto, hacia quién) y el guion se
     arma al ejecutarlo, con la clave que el motor lee de su propio `~/.ssh`.
     """
-    if not tiene_camino(invitado):
+    if not tiene_tunnel(guest):
         return []
 
-    declarado = (invitado.get("config") or {}).get("linux") or {}
-    salida = (declarado.get(CLAVE_CAMINO) or {}).get("salida") or {}
-    puerto_local = puerto_camino(invitado["vmid"], parametros)
-    # Las patas de REST: una por equipo con el que el motor hablará por REST. Van dentro
+    declarado = (guest.get("config") or {}).get("linux") or {}
+    salida = (declarado.get(CLAVE_TUNNEL) or {}).get("salida") or {}
+    puerto_local = puerto_tunnel(guest["vmid"], parametros)
+    # Las interfaces de REST: una por equipo con el que el motor hablará por REST. Van dentro
     # del paso porque el puerto de cada una sale de su vmid, y el vmid sólo se conoce en
     # el plan (que los asigna todos de una vez), no al ejecutar el paso.
-    patas_rest = patas_rest_del_puesto_control(declaracion, identidad, parametros)
+    interfaces_rest = interfaces_rest_del_bastion(declaracion, identidad, parametros)
     # Los puertos que el túnel dejará autorizados y reenviados: el suyo y el REST de cada
-    # equipo. Es la MISMA lista que escribe `tasks/camino.yml` en `authorized_keys`.
+    # equipo. Es la MISMA lista que escribe `tasks/tunnel.yml` en `authorized_keys`.
     puertos_autorizados = permitlisten_de(
-        [puerto_local] + [pata["puerto"] for pata in patas_rest]
+        [puerto_local] + [interface["puerto"] for interface in interfaces_rest]
     )
-    if patas_rest:
+    if interfaces_rest:
         detalle_rest = "y, por el MISMO túnel, reenvía el puerto 80 de cada equipo de REST: " + (
-            ", ".join(f"{pata['rol']}->127.0.0.1:{pata['puerto']}" for pata in patas_rest)
+            ", ".join(f"{interface['rol']}->127.0.0.1:{interface['puerto']}" for interface in interfaces_rest)
         )
     else:
         detalle_rest = "este lab no configura ningún RouterOS: por el túnel sólo va la consola"
-    host_salida = str(salida.get("host") or parametros.get("camino_host") or "")
-    puerto_salida = int(salida.get("puerto") or parametros.get("camino_puerto") or 443)
+    host_salida = str(salida.get("host") or parametros.get("tunnel_host") or "")
+    puerto_salida = int(salida.get("puerto") or parametros.get("tunnel_puerto") or 443)
 
     pasos = []
-    if not camino_responde(estado):
-        patas = patas_del_puesto_control(invitado, declaracion, estado, parametros)
+    if not tunnel_responde(estado):
+        interfaces = interfaces_del_bastion(guest, declaracion, estado, parametros)
         pasos.append(
             {
-                "accion": ACCION_CAMINO,
-                "via": "camino",
-                "rol": invitado.get("rol"),
-                "escalon": invitado.get("escalon"),
+                "accion": ACCION_TUNNEL,
+                "via": "tunnel",
+                "rol": guest.get("rol"),
+                "stage": guest.get("stage"),
                 "metodo": None,
                 "ruta": None,
                 "parametros": {
-                    "vmid": invitado["vmid"],
+                    "vmid": guest["vmid"],
                     "puerto": puerto_local,
                     "salida_host": host_salida,
                     "salida_puerto": puerto_salida,
-                    "patas": [
-                        {"bridge": pata["bridge"], "direccion": pata["direccion"]} for pata in patas
+                    "interfaces": [
+                        {"bridge": interface["bridge"], "address": interface["address"]} for interface in interfaces
                     ],
-                    "rest": patas_rest,
+                    "rest": interfaces_rest,
                 },
                 "detalle": [
                     "la clave pública del motor se deja en el invitado al CREARLO (ssh-public-keys):",
                     "  por ahí entra Ansible, y sin eso no habría forma de llegar a configurarlo",
                     f"en casa se añade UNA línea a authorized_keys con restrict,port-forwarding,"
-                    f"{puertos_autorizados} (la clave del camino no da shell, sólo los reenvíos de este túnel)",
+                    f"{puertos_autorizados} (la clave del túnel no da shell, sólo los reenvíos de este túnel)",
                     f"por la consola del invitado se manda UNA línea (base64) que levanta "
                     f"ssh -R {puerto_local}:127.0.0.1:22 hacia {host_salida}:{puerto_salida}",
                     detalle_rest,
@@ -642,7 +642,7 @@ def pasos_del_camino(invitado, declaracion, estado, parametros, identidad=None):
                     "y el motor la busca en el eco",
                 ],
                 "porque": (
-                    f"el rol '{invitado['rol']}' es el puesto de control de este lab: hasta que su "
+                    f"el rol '{guest['rol']}' es el bastión de este lab: hasta que su "
                     f"túnel no esté en pie no se puede entrar en ningún invitado, así que va antes "
                     f"de converger nada"
                 ),
@@ -651,21 +651,21 @@ def pasos_del_camino(invitado, declaracion, estado, parametros, identidad=None):
 
     pasos.append(
         {
-            "accion": ACCION_COMPROBAR_CAMINO,
-            "via": "camino",
-            "rol": invitado.get("rol"),
-            "escalon": invitado.get("escalon"),
+            "accion": ACCION_COMPROBAR_TUNNEL,
+            "via": "tunnel",
+            "rol": guest.get("rol"),
+            "stage": guest.get("stage"),
             "metodo": None,
             "ruta": None,
             "parametros": {
                 "puerto": puerto_local,
                 "salida_host": host_salida,
                 "salida_puerto": puerto_salida,
-                "vmid": invitado["vmid"],
+                "vmid": guest["vmid"],
             },
             "porque": (
                 f"comprueba la cadena entera: si el puerto {puerto_local} del nodo de control "
-                f"contesta, el camino casa -> {host_salida}:{puerto_salida} -> puesto -> vuelta funciona"
+                f"contesta, el túnel casa -> {host_salida}:{puerto_salida} -> puesto -> vuelta funciona"
             ),
         }
     )
@@ -676,7 +676,7 @@ def pasos_del_camino(invitado, declaracion, estado, parametros, identidad=None):
 # Reservas DHCP derivadas: la MAC no se declara NUNCA (regla 14)
 # ---------------------------------------------------------------------------
 
-def reservas_derivadas(declaracion, identidad, invitado_servidor, en_red=None):
+def reservas_derivadas(declaracion, identidad, guest_servidor, en_red=None):
     """Las reservas que el servidor DHCP de `invitado_servidor` tiene que tener.
 
     Se DERIVAN: por cada OTRO invitado alcanzable por ese servidor que declare una
@@ -689,22 +689,22 @@ def reservas_derivadas(declaracion, identidad, invitado_servidor, en_red=None):
 
       * `en_red` (un prefijo, p. ej. 10.41.1.0/24): el servidor DHCP de un RouterOS
         declara la RED que sirve, y su interfaz (ether2) no tiene por qué coincidir
-        con la pata de gestión del invitado (`bridge:`). Se reserva a quien tenga una
+        con la interfaz de gestión del invitado (`bridge:`). Se reserva a quien tenga una
         dirección declarada DENTRO de esa red. Ésta es la forma buena para un router.
       * sin `en_red`: el ámbito es el BRIDGE del propio invitado. Es el caso de un
-        Linux que sirve la red del bridge en el que está (el puesto de control).
+        Linux que sirve la red del bridge en el que está (el bastión).
 
     Ámbito por bridge como respaldo de un router: sirve para no dejar las reservas
     vacías cuando no se declara `red`, y por eso se usa sólo entonces.
     """
-    servidor = str(invitado_servidor.get("rol"))
-    bridge = invitado_servidor.get("bridge")
-    por_rol = {i["rol"]: i for i in identidad["invitados"]}
+    servidor = str(guest_servidor.get("rol"))
+    bridge = guest_servidor.get("bridge")
+    por_rol = {i["rol"]: i for i in identidad["guests"]}
     reservas = []
-    for otro in declaracion.get("invitados", []):
+    for otro in declaracion.get("guests", []):
         if otro.get("rol") == servidor:
             continue
-        direccion = str(otro.get("direccion") or "")
+        direccion = str(otro.get("address") or "")
         if not direccion or direccion == "dhcp" or "/" not in direccion:
             continue
         if en_red:
@@ -718,15 +718,15 @@ def reservas_derivadas(declaracion, identidad, invitado_servidor, en_red=None):
         reservas.append(
             {
                 "rol": otro.get("rol"),
-                "direccion": direccion,
+                "address": direccion,
                 "mac": identidad_otro["mac"],
             }
         )
-    return sorted(reservas, key=lambda r: r["direccion"])
+    return sorted(reservas, key=lambda r: r["address"])
 
 
 def en_red_siendo(direccion, red):
-    """¿Cae `direccion` (con máscara) dentro de la red `red`?
+    """¿Cae `address` (con máscara) dentro de la red `red`?
 
     Se comparan los OCTETOS que la máscara de `red` cubre, entero a entero: 10.41.1.7
     está en 10.41.1.0/24 porque los tres primeros octetos coinciden. Con prefijos que
@@ -750,61 +750,61 @@ def en_red_siendo(direccion, red):
 # (declarado, leído) -> pasos del interior
 # ---------------------------------------------------------------------------
 
-def _paso(accion, invitado, area, operaciones, porque):
+def _paso(accion, guest, area, operaciones, porque):
     """Un paso del interior. Sin `porque` no hay paso: un paso sin razón es un bug."""
     return {
         "accion": accion,
         "via": "interior",
-        "rol": invitado.get("rol"),
-        "escalon": invitado.get("escalon"),
+        "rol": guest.get("rol"),
+        "stage": guest.get("stage"),
         "metodo": None,
         "ruta": None,
         "parametros": {
             "area": area,
-            "tipo": tipo_de(invitado),
+            "tipo": tipo_de(guest),
             "operaciones": operaciones,
         },
         "porque": porque,
     }
 
 
-def _identidad_canonica(declarado, leido):
-    """Diferencia del área `identidad`: nombre del equipo y credenciales del motor.
+def _identity_canonica(declarado, leido):
+    """Diferencia del área `identity`: nombre del equipo y credenciales del motor.
 
-    El valor DECLARADO del área es el nombre, tal cual (`identidad: rt-borde`): la
+    El valor DECLARADO del área es el nombre, tal cual (`identity: rt-borde`): la
     declaración no envuelve en un mapa lo que ya es un dato.
 
     Son TRES cosas distintas y no se confunden (medido: un CHR nace con el usuario
     `admin` sin contraseña y sin ninguna clave): que el usuario exista, que la credencial
     del motor esté puesta en él, y que la clave pública esté importada. Si no se
-    distinguieran, el motor daría por bueno un equipo con la puerta abierta.
+    distinguieran, el motor daría por bueno un equipo con la vía de acceso abierta.
     """
     operaciones = []
     esperado = str(declarado or "")
     actual = str((leido or {}).get("nombre") or "")
     if esperado and actual != esperado:
-        operaciones.append({"op": "poner_identidad", "nombre": esperado})
+        operaciones.append({"op": "set_identity", "nombre": esperado})
     # La CLAVE primero y la CREDENCIAL al final, y esto está medido: cambiar la contraseña
     # invalida al instante la de fábrica, y la escritura siguiente --importar la clave-- se
     # queda sin credencial con la que hablar (401 sobre `/user/ssh-keys/add`, medido en un
     # CHR 7.25.1: la contraseña se cambió, la clave no llegó, y el paso se paró). Con la
     # clave ya importada, el motor entra con ella y la contraseña es lo ÚLTIMO que se toca.
     if not (leido or {}).get("clave_motor"):
-        operaciones.append({"op": "importar_clave_motor"})
+        operaciones.append({"op": "import_engine_key"})
     if not (leido or {}).get("usuario_motor"):
-        operaciones.append({"op": "crear_usuario_motor"})
+        operaciones.append({"op": "create_engine_user"})
     elif not (leido or {}).get("credencial_motor"):
         # `tolerar_sin_respuesta`: cambiar la contraseña del usuario con el que se está
         # hablando MATA la sesión, y RouterOS contesta 400 `Bad Request Session closed`
         # (medido en el CHR 7.25.1) aunque el cambio haya surtido efecto. Es un corte por
         # diseño, como apagar el cliente DHCP: se tolera, y la convergencia la dice la
         # REELECTURA (que ya entra con la credencial nueva).
-        operaciones.append({"op": "poner_credencial_motor", "tolerar_sin_respuesta": True})
+        operaciones.append({"op": "set_engine_credential", "tolerar_sin_respuesta": True})
     return operaciones
 
 
-def _servicios_canonicos(declarado, leido):
-    """Diferencia del área `servicios`, en los dos sentidos y dentro del alcance.
+def _ip_services_canonicos(declarado, leido):
+    """Diferencia del área `ip_services`, en los dos sentidos y dentro del alcance.
 
     Lo declarado se deshabilita; lo que el motor gestiona y NO se declara se
     habilita. Fuera del alcance (p. ej. `www`) el motor no opina.
@@ -813,44 +813,44 @@ def _servicios_canonicos(declarado, leido):
     apagados = set(str(s) for s in ((leido or {}).get("deshabilitados") or []))
     operaciones = []
     for servicio in sorted(deseados - apagados):
-        operaciones.append({"op": "deshabilitar_servicio", "servicio": servicio})
+        operaciones.append({"op": "disable_service", "servicio": servicio})
     for servicio in sorted((apagados - deseados) & set(SERVICIOS_GESTIONADOS)):
-        operaciones.append({"op": "habilitar_servicio", "servicio": servicio})
+        operaciones.append({"op": "enable_service", "servicio": servicio})
     return operaciones
 
 
-def _cliente_dhcp_canonico(declarado, leido):
-    """Diferencia del área `cliente_dhcp`: el de fábrica de un CHR recién nacido."""
+def _dhcp_client_canonico(declarado, leido):
+    """Diferencia del área `dhcp_client`: el de fábrica de un CHR recién nacido."""
     if (declarado or {}).get("deshabilitar") and (leido or {}).get("habilitado"):
-        return [{"op": "deshabilitar_cliente_dhcp"}]
+        return [{"op": "disable_dhcp_client"}]
     return []
 
 
-def _direcciones_canonicas(declarado, leido):
-    """Diferencia del área `direcciones`. La dinámica con el mismo valor NO se toca
+def _addresses_canonicas(declarado, leido):
+    """Diferencia del área `addresses`. La dinámica con el mismo valor NO se toca
     aquí: no se puede borrar por la API (es de otro dueño) y por eso es RESIDUO, y
     el residuo se resuelve con `reiniciar_invitado` (§9.2, ADR 0007).
 
     Lo DECLARADO es la lista tal cual se escribe en el lab
-    (`- {interfaz: ether2, direccion: 10.40.1.1/24}`); lo LEÍDO es lo que el driver
+    (`- {interface: ether2, address: 10.40.1.1/24}`); lo LEÍDO es lo que el driver
     saca del equipo, ya separado en `estaticas` y `dinamicas`.
     """
     deseadas = {
-        (str(d.get("interfaz")), str(d.get("direccion"))) for d in (declarado or [])
+        (str(d.get("interface")), str(d.get("address"))) for d in (declarado or [])
     }
     actuales = {
-        (str(d.get("interfaz")), str(d.get("direccion")))
+        (str(d.get("interface")), str(d.get("address")))
         for d in ((leido or {}).get("estaticas") or [])
     }
     operaciones = []
     for interfaz, direccion in sorted(deseadas - actuales):
-        operaciones.append({"op": "poner_direccion", "interfaz": interfaz, "direccion": direccion})
+        operaciones.append({"op": "add_address", "interface": interfaz, "address": direccion})
     for interfaz, direccion in sorted(actuales - deseadas):
-        operaciones.append({"op": "quitar_direccion", "interfaz": interfaz, "direccion": direccion})
+        operaciones.append({"op": "remove_address", "interface": interfaz, "address": direccion})
     return operaciones
 
 
-def _rutas_canonicas(declarado, leido):
+def _routes_canonicas(declarado, leido):
     """Diferencia del área `rutas`: sólo las ESTÁTICAS. Las conectadas las pone el
     sistema y la dinámica del DHCP es residuo (`reiniciar_invitado`).
 
@@ -858,17 +858,17 @@ def _rutas_canonicas(declarado, leido):
     driver saca del equipo.
     """
     deseadas = {
-        (str(r.get("destino")), str(r.get("pasarela"))) for r in (declarado or [])
+        (str(r.get("dst_address")), str(r.get("gateway"))) for r in (declarado or [])
     }
     actuales = {
-        (str(r.get("destino")), str(r.get("pasarela")))
+        (str(r.get("dst_address")), str(r.get("gateway")))
         for r in ((leido or {}).get("estaticas") or [])
     }
     operaciones = []
     for destino, pasarela in sorted(deseadas - actuales):
-        operaciones.append({"op": "poner_ruta", "destino": destino, "pasarela": pasarela})
+        operaciones.append({"op": "add_route", "dst_address": destino, "gateway": pasarela})
     for destino, pasarela in sorted(actuales - deseadas):
-        operaciones.append({"op": "quitar_ruta", "destino": destino, "pasarela": pasarela})
+        operaciones.append({"op": "remove_route", "dst_address": destino, "gateway": pasarela})
     return operaciones
 
 
@@ -881,14 +881,14 @@ def _red_normalizada(red):
     """
     red = red or {}
     return {
-        "prefijo": str(red.get("prefijo") or ""),
-        "pasarela": str(red.get("pasarela") or ""),
+        "address": str(red.get("address") or ""),
+        "gateway": str(red.get("gateway") or ""),
         "dns": sorted(str(d) for d in (red.get("dns") or [])),
     }
 
 
 def _reserva_es_de_este_servidor(reserva, nombre_servidor, prefijo_red, cuantos_servidores):
-    """¿La concesión `reserva` la sirve el servidor DHCP de este ámbito?
+    """¿La concesión `static_lease` la sirve el servidor DHCP de este ámbito?
 
     Un RouterOS con dos LANs tiene dos servidores, y cada concesión dice a cuál sirve
     (`server`). Compararlas TODAS contra cada ámbito -- que es lo que se hacía -- hacía
@@ -907,10 +907,10 @@ def _reserva_es_de_este_servidor(reserva, nombre_servidor, prefijo_red, cuantos_
         return False
     if cuantos_servidores <= 1:
         return True
-    return bool(prefijo_red) and en_red_siendo(reserva.get("direccion"), prefijo_red)
+    return bool(prefijo_red) and en_red_siendo(reserva.get("address"), prefijo_red)
 
 
-def _dhcp_canonico(declarado, leido, declaracion, identidad, invitado):
+def _dhcp_server_canonico(declarado, leido, declaracion, identidad, guest):
     """Diferencia del área `dhcp` de un RouterOS: red, servidor, pool y reservas.
 
     Las reservas se comparan por MAC: la dirección que reserva el router tiene que
@@ -925,40 +925,40 @@ def _dhcp_canonico(declarado, leido, declaracion, identidad, invitado):
     """
     operaciones = []
     for declarado_servidor in declarado or []:
-        interfaz = str(declarado_servidor.get("interfaz"))
+        interfaz = str(declarado_servidor.get("interface"))
         encontrado = None
         for candidato in (leido or {}).get("servidores") or []:
-            if str(candidato.get("interfaz")) == interfaz:
+            if str(candidato.get("interface")) == interfaz:
                 encontrado = candidato
                 break
         rango = str((declarado_servidor.get("pool") or {}).get("rango") or "")
         if encontrado is None:
-            operaciones.append({"op": "poner_servidor_dhcp", "interfaz": interfaz, "rango": rango})
+            operaciones.append({"op": "add_dhcp_server", "interface": interfaz, "rango": rango})
         elif str(encontrado.get("rango") or "") != rango:
-            operaciones.append({"op": "poner_servidor_dhcp", "interfaz": interfaz, "rango": rango})
-        red = declarado_servidor.get("red") or {}
-        if red and _red_normalizada(red) != _red_normalizada((encontrado or {}).get("red")):
+            operaciones.append({"op": "add_dhcp_server", "interface": interfaz, "rango": rango})
+        red = declarado_servidor.get("network") or {}
+        if red and _red_normalizada(red) != _red_normalizada((encontrado or {}).get("network")):
             # Se compara con lo LEÍDO, no se escribe por si acaso: reescribir la red en
             # cada ejecución rompería la idempotencia (y mentiría sobre `changed=0`).
             normalizada = _red_normalizada(red)
             operaciones.append(
                 {
-                    "op": "poner_red_dhcp",
-                    "prefijo": normalizada["prefijo"],
-                    "pasarela": normalizada["pasarela"],
+                    "op": "add_dhcp_network",
+                    "address": normalizada["address"],
+                    "gateway": normalizada["gateway"],
                     "dns": normalizada["dns"],
                 }
             )
         # Las reservas de ESTE servidor: su ámbito es la RED que sirve (`red.prefijo`)
         # y, si no la declara, el bridge en el que vive el invitado.
         reservas = reservas_derivadas(
-            declaracion, identidad, invitado, en_red=red.get("prefijo")
+            declaracion, identidad, guest, en_red=red.get("address")
         )
         # El prefijo no entra en la comparación: RouterOS guarda la dirección pelada
         # (`10.40.1.11`), y compararla con `10.40.1.11/24` haría que la reserva no
         # cuadrara NUNCA y se reescribiera en cada pasada.
         deseadas = {
-            str(r["mac"]).upper(): str(r["direccion"]).split("/")[0] for r in reservas
+            str(r["mac"]).upper(): str(r["address"]).split("/")[0] for r in reservas
         }
         # Y las que HAY: sólo las que sirve ESTE servidor (ver
         # `_reserva_es_de_este_servidor`). El nombre del servidor es derivado
@@ -967,37 +967,37 @@ def _dhcp_canonico(declarado, leido, declaracion, identidad, invitado):
         # se deriva, que es lo mismo.
         nombre_servidor = str((encontrado or {}).get("nombre") or "") or (PREFIJO_POOL + interfaz)
         actuales = {
-            str(r.get("mac")).upper(): str(r.get("direccion"))
-            for r in ((leido or {}).get("reservas") or [])
+            str(r.get("mac")).upper(): str(r.get("address"))
+            for r in ((leido or {}).get("static_leases") or [])
             if _reserva_es_de_este_servidor(
-                r, nombre_servidor, str(red.get("prefijo") or ""), len(declarado or [])
+                r, nombre_servidor, str(red.get("address") or ""), len(declarado or [])
             )
         }
         for mac, direccion in sorted(deseadas.items()):
             if actuales.get(mac) != direccion:
                 operaciones.append(
                     {
-                        "op": "poner_reserva",
+                        "op": "add_static_lease",
                         "mac": mac,
                         # Una reserva es una DIRECCIÓN, no una red: RouterOS guarda
                         # `10.40.1.11` y no `10.40.1.11/24`, y comparar con el prefijo
                         # haría que la reserva no cuadrara nunca (reescritura eterna).
-                        "direccion": direccion.split("/")[0],
-                        # Y va atada al servidor de ESA interfaz: un router con dos LANs
+                        "address": direccion.split("/")[0],
+                        # Y va atada al servidor de ESA interface: un router con dos LANs
                         # no puede reservar en la primera lo que vive en la segunda.
-                        "interfaz": interfaz,
+                        "interface": interfaz,
                     }
                 )
         for mac in sorted(set(actuales) - set(deseadas)):
-            operaciones.append({"op": "quitar_reserva", "mac": mac})
+            operaciones.append({"op": "remove_static_lease", "mac": mac})
 
     # Las interfaces con DHCP que ya no se declaran: se quitan (dentro del área, lo
     # que no está declarado sale).
-    declaradas = {str(s.get("interfaz")) for s in (declarado or [])}
+    declaradas = {str(s.get("interface")) for s in (declarado or [])}
     for candidato in (leido or {}).get("servidores") or []:
-        if str(candidato.get("interfaz")) not in declaradas:
+        if str(candidato.get("interface")) not in declaradas:
             operaciones.append(
-                {"op": "quitar_servidor_dhcp", "interfaz": str(candidato.get("interfaz"))}
+                {"op": "remove_dhcp_server", "interface": str(candidato.get("interface"))}
             )
     return operaciones
 
@@ -1005,7 +1005,7 @@ def _dhcp_canonico(declarado, leido, declaracion, identidad, invitado):
 def _misma_red(una, otra, prefijo):
     """¿Dos direcciones caen en la misma red? (a mano: el motor no importa librerías).
 
-    Se usa para decidir si la dirección que YA tiene la pata de fuera es de la red por la que
+    Se usa para decidir si la dirección que YA tiene la interfaz de fuera es de la red por la que
     se sale -- y adoptarla, en vez de renumerarla en cada pasada.
     """
     try:
@@ -1023,18 +1023,18 @@ def _misma_red(una, otra, prefijo):
     return (valores[0] & mascara) == (valores[1] & mascara)
 
 
-def _exterior_canonico(declarado, leido, parametros):
-    """Diferencia del área `exterior`: que la pata de fuera tenga salida, y nada más.
+def _uplink_canonico(declarado, leido, parametros):
+    """Diferencia del área `uplink`: que la interfaz de fuera tenga salida, y nada más.
 
     Cuatro hechos, y ninguno se supone:
-      * una dirección en la pata de fuera -- la que el motor DERIVA de la red por la que sale
+      * una dirección en la interfaz de fuera -- la que el motor DERIVA de la red por la que sale
         el nodo (el lab no declara ninguna dirección de casa);
       * una ruta por defecto (la que sea: si el lab ya declaró una, esa vale -- el consejo
         `exterior-con-ruta` avisa de que lo normal es no declararla y dejar que la ponga el
-        motor por la puerta de fuera);
+        motor por la pasarela de fuera);
       * la regla de MASQUERADE del motor (sus direcciones son privadas: sin traducirlas la
         respuesta no vuelve);
-      * el resolutor DNS encendido Y apuntando a la puerta de fuera, que es donde este nodo
+      * el resolutor DNS encendido Y apuntando a la pasarela de fuera, que es donde este nodo
         sirve el DNS de esa red (sin eso, los invitados que salen por aquí resuelven con
         quien no es).
 
@@ -1043,89 +1043,89 @@ def _exterior_canonico(declarado, leido, parametros):
     """
     if not isinstance(leido, dict):
         return []
-    interfaz = str(leido.get("interfaz") or "")
+    interfaz = str(leido.get("interface") or "")
     direccion = str(parametros.get("salida_direccion") or "")
-    puerta = str(parametros.get("salida_puerta") or "")
+    gateway = str(parametros.get("salida_acceso") or "")
     operaciones = []
-    # La dirección, y una sola: si la pata YA tiene una de la red por la que se sale, el motor
+    # La dirección, y una sola: si la interfaz YA tiene una de la red por la que se sale, el motor
     # la ADOPTA (no la renumera). Medido: derivándola en cada pasada el motor dejaba una
     # dirección nueva por pasada -- y el `changed` no bajaba nunca a cero. Las que sobren se
     # quitan, que es la regla de siempre dentro de un área declarada (regla 17).
     ya_puesta = str(leido.get("de_la_red") or "")
     deseada = direccion
-    if ya_puesta and "/" in direccion and _misma_red(ya_puesta, puerta or direccion, direccion.split("/")[1]):
+    if ya_puesta and "/" in direccion and _misma_red(ya_puesta, gateway or direccion, direccion.split("/")[1]):
         deseada = f"{ya_puesta}/{direccion.split('/')[1]}"
     puestas = [str(d) for d in (leido.get("todas") or [])]
     for puesta in puestas:
         if puesta != deseada:
             operaciones.append(
                 {
-                    "op": "quitar_direccion",
-                    "interfaz": interfaz,
-                    "direccion": puesta,
+                    "op": "remove_address",
+                    "interface": interfaz,
+                    "address": puesta,
                     "id": str((leido.get("ids") or {}).get(puesta) or ""),
                 }
             )
     if deseada and deseada not in puestas:
-        operaciones.append({"op": "poner_direccion", "interfaz": interfaz, "direccion": deseada})
-    if puerta and not str(leido.get("por_defecto") or ""):
-        operaciones.append({"op": "poner_ruta", "destino": "0.0.0.0/0", "pasarela": puerta})
+        operaciones.append({"op": "add_address", "interface": interfaz, "address": deseada})
+    if gateway and not str(leido.get("por_defecto") or ""):
+        operaciones.append({"op": "add_route", "dst_address": "0.0.0.0/0", "gateway": gateway})
     if not leido.get("masquerade"):
-        operaciones.append({"op": "poner_masquerade", "interfaz": interfaz})
-    if not leido.get("resolutor") or puerta not in str(leido.get("servidores") or ""):
-        operaciones.append({"op": "activar_resolutor", "servidores": [puerta] if puerta else []})
+        operaciones.append({"op": "add_masquerade", "interface": interfaz})
+    if not leido.get("resolutor") or gateway not in str(leido.get("servidores") or ""):
+        operaciones.append({"op": "enable_dns_resolver", "servidores": [gateway] if gateway else []})
     return operaciones
 
 
-def _direccion_linux_canonica(declarado, leido):
-    """Diferencia del área `direccion` de un Linux.
+def _address_linux_canonica(declarado, leido):
+    """Diferencia del área `address` de un Linux.
 
-    `direccion: dhcp` no se escribe: se COMPRUEBA (§6.3). Por eso aquí no hay
+    `address: dhcp` no se escribe: se COMPRUEBA (§6.3). Por eso aquí no hay
     operaciones, y la comprobación de que la concesión está dentro del rango
     declarado la hace `verify`, que sí mira la tabla de concesiones.
 
     El área admite dos formas, y la segunda existe por una razón medida: un puesto de
     control necesita UNA dirección por cada bridge del lab para poder llegar a los
-    invitados que cuelgan de él. Cuando el lab declara `direcciones` (lista de
+    invitados que cuelgan de él. Cuando el lab declara `addresses` (lista de
     `{interfaz, direccion}`), se comparan una a una; la de gestión sigue viniendo del
-    campo `direccion` del invitado, que es lo que el plan usa para el túnel.
+    campo `address` del invitado, que es lo que el plan usa para el túnel.
     """
     if not declarado or str(declarado) == "dhcp":
         return []
-    actuales = (leido or {}).get("direcciones") or []
+    actuales = (leido or {}).get("addresses") or []
     if isinstance(declarado, list):
-        # Si la lectura no trae la lista de patas (un motor viejo, o una lectura parcial),
+        # Si la lectura no trae la lista de interfaces (un motor viejo, o una lectura parcial),
         # se usa la de gestión: es la única que se conocía antes de esta forma, y sin este
         # respaldo el área se creería sin hacer y volvería a escribir en cada pasada.
-        if not actuales and (leido or {}).get("direccion"):
-            actuales = [{"interfaz": "eth0", "direccion": (leido or {}).get("direccion")}]
-        tengo = {(str(p.get("interfaz")), str(p.get("direccion"))) for p in actuales}
+        if not actuales and (leido or {}).get("address"):
+            actuales = [{"interface": "eth0", "address": (leido or {}).get("address")}]
+        tengo = {(str(p.get("interface")), str(p.get("address"))) for p in actuales}
         return [
             {
-                "op": "poner_direccion",
-                "interfaz": str(p.get("interfaz")),
-                "direccion": str(p.get("direccion")),
+                "op": "add_address",
+                "interface": str(p.get("interface")),
+                "address": str(p.get("address")),
             }
             for p in declarado
-            if (str(p.get("interfaz")), str(p.get("direccion"))) not in tengo
+            if (str(p.get("interface")), str(p.get("address"))) not in tengo
         ]
     operaciones = []
-    if str((leido or {}).get("direccion") or "") != str(declarado):
+    if str((leido or {}).get("address") or "") != str(declarado):
         operaciones.append(
-            {"op": "poner_direccion", "interfaz": "eth0", "direccion": str(declarado)}
+            {"op": "add_address", "interface": "eth0", "address": str(declarado)}
         )
     return operaciones
 
 
-def _reenvio_canonico(declarado, leido):
-    """Diferencia del área `reenvio`: `ip_forward` (lo necesita el servidor DHCP)."""
+def _ip_forward_canonico(declarado, leido):
+    """Diferencia del área `ip_forward`: `ip_forward` (lo necesita el servidor DHCP)."""
     if declarado and not (leido or {}).get("activo"):
-        return [{"op": "activar_reenvio"}]
+        return [{"op": "enable_ip_forward"}]
     return []
 
 
-def _dhcp_servidor_canonico(declarado, leido, declaracion, identidad, invitado):
-    """Diferencia del área `dhcp_servidor` de un Linux: dnsmasq, reservas y el
+def _dnsmasq_canonico(declarado, leido, declaracion, identidad, guest):
+    """Diferencia del área `dhcp_server` de un Linux: dnsmasq, reservas y el
     apagado del offload del checksum, sin el cual las ofertas DHCP salen rotas y el
     kernel del CHR las tira (medido en v3, y sigue siendo cierto).
 
@@ -1134,9 +1134,9 @@ def _dhcp_servidor_canonico(declarado, leido, declaracion, identidad, invitado):
     """
     if not declarado:
         return []
-    reservas = reservas_derivadas(declaracion, identidad, invitado)
+    reservas = reservas_derivadas(declaracion, identidad, guest)
     operaciones = []
-    interfaz = str(declarado.get("interfaz") or "")
+    interfaz = str(declarado.get("interface") or "")
     rango = str(declarado.get("rango") or "")
     actual = leido or {}
     # `hay_que_recargar` es lo que decide si dnsmasq se toca: no basta con que el
@@ -1150,47 +1150,47 @@ def _dhcp_servidor_canonico(declarado, leido, declaracion, identidad, invitado):
         # apagar los offloads. Si el invitado es tan viejo que no sabemos qué tiene
         # (no se pudo leer nada), no se instala: se escribe y se deja que el fallo
         # hable. Instalar a ciegas es cambiar un equipo por si acaso.
-        operaciones.append({"op": "instalar_herramientas", "paquetes": faltan})
-    if str(actual.get("interfaz") or "") != interfaz or str(actual.get("rango") or "") != rango:
-        operaciones.append({"op": "escribir_dnsmasq", "interfaz": interfaz, "rango": rango})
+        operaciones.append({"op": "install_tools", "paquetes": faltan})
+    if str(actual.get("interface") or "") != interfaz or str(actual.get("rango") or "") != rango:
+        operaciones.append({"op": "write_dnsmasq", "interface": interfaz, "rango": rango})
         hay_que_recargar = True
     if not actual.get("offload_apagado"):
         # Sin esto las ofertas DHCP salen con el checksum sin resolver y el kernel del
         # CHR las tira (medido en v3 y comprobado en esta fase): el laboratorio entero
         # depende de esta línea.
-        operaciones.append({"op": "apagar_offload", "interfaz": interfaz})
+        operaciones.append({"op": "disable_offload", "interface": interfaz})
         hay_que_recargar = True
     # Sin el prefijo: la reserva vive DENTRO del rango del bridge (eso ya lo valida la
     # declaración) y dnsmasq guarda la dirección pelada. Comparar con el prefijo haría que
     # las reservas nunca cuadraran y el fichero se reescribiera en cada pasada.
-    deseadas = {str(r["mac"]).upper(): str(r["direccion"]) for r in reservas}
+    deseadas = {str(r["mac"]).upper(): str(r["address"]) for r in reservas}
     actuales = {
-        str(r.get("mac")).upper(): str(r.get("direccion")).split("/")[0]
-        for r in (actual.get("reservas") or [])
+        str(r.get("mac")).upper(): str(r.get("address")).split("/")[0]
+        for r in (actual.get("static_leases") or [])
     }
     for mac, direccion in sorted(deseadas.items()):
         # Se compara por DIRECCIÓN: la derivada lleva su prefijo y dnsmasq guarda la
         # dirección pelada. La operación sí lleva el valor derivado entero, que es el que
         # manda al fichero (la comparación es lo único que se normaliza).
         if actuales.get(mac) != direccion.split("/")[0]:
-            operaciones.append({"op": "poner_reserva", "mac": mac, "direccion": direccion})
+            operaciones.append({"op": "add_static_lease", "mac": mac, "address": direccion})
             hay_que_recargar = True
     for mac in sorted(set(actuales) - set(deseadas)):
-        operaciones.append({"op": "quitar_reserva", "mac": mac})
+        operaciones.append({"op": "remove_static_lease", "mac": mac})
         hay_que_recargar = True
     if hay_que_recargar or not actual.get("servicio_activo"):
-        operaciones.append({"op": "recargar_dnsmasq"})
+        operaciones.append({"op": "reload_dnsmasq"})
     return operaciones
 
 
-def _camino_canonico(declarado, leido):
-    """Diferencia del área `camino`. Lo ESCRIBE la consola, una sola vez por vida del
+def _tunnel_canonico(declarado, leido):
+    """Diferencia del área `tunnel`. Lo ESCRIBE la consola, una sola vez por vida del
     invitado: aquí sólo se decide si hay que volver a mandar la línea."""
     if declarado is None:
         return []
     if (leido or {}).get("salida"):
         return []
-    return [{"op": "mandar_linea_consola"}]
+    return [{"op": "send_console_line"}]
 
 
 def residuo_dinamico(leido):
@@ -1210,10 +1210,10 @@ def residuo_dinamico(leido):
     return (bool(motivos), "; ".join(motivos))
 
 
-def pasos_de_convergencia(invitado, identidad, declaracion, leido, parametros):
+def pasos_de_convergencia(guest, identidad, declaracion, leido, parametros):
     """(declarado, leído) -> pasos del interior de ESTE invitado, en orden.
 
-    `identidad` es el mapa del LAB entero (no la identidad de este invitado): las
+    `identity` es el mapa del LAB entero (no la identidad de este invitado): las
     reservas DHCP del servidor de un bridge se derivan de las direcciones estáticas
     de LOS DEMÁS invitados de ese bridge, así que sin la identidad completa no se
     pueden calcular. Se pasa entera y no se recorta: un mapa recortado da reservas
@@ -1228,15 +1228,15 @@ def pasos_de_convergencia(invitado, identidad, declaracion, leido, parametros):
         Un área que ya coincide no genera paso: por eso la segunda ejecución sale
         `changed=0` con los diarios llenos de lecturas.
     """
-    tipo = tipo_de(invitado)
+    tipo = tipo_de(guest)
     if tipo is None:
         return []
-    if not areas_que_piden_visita(invitado):
+    if not areas_que_piden_visita(guest):
         # Nada que hacer DENTRO: la única área es una dirección dinámica, que se lee del
         # HOST (§6.3). Entrar sería a ciegas (no se sabe a qué dirección conectar).
         return []
-    rol = invitado.get("rol")
-    declaradas = areas_de(invitado)
+    rol = guest.get("rol")
+    declaradas = areas_de(guest)
 
     if not leido:
         # La forma GRUESA: UN paso por invitado. Un paso por área repetiría la misma
@@ -1249,7 +1249,7 @@ def pasos_de_convergencia(invitado, identidad, declaracion, leido, parametros):
         return [
             _paso(
                 "converger_interior",
-                invitado,
+                guest,
                 # No es un área suelta (no se ha leído ninguna): es el invitado entero.
                 None,
                 [],
@@ -1262,7 +1262,7 @@ def pasos_de_convergencia(invitado, identidad, declaracion, leido, parametros):
     if not leido.get("alcanzable"):
         raise ErrorMotor(
             f"el invitado '{rol}' tiene interior declarado ({tipo}) y no se puede "
-            f"alcanzar para convergerlo: {leido.get('motivo') or 'sin camino'}. "
+            f"alcanzar para convergerlo: {leido.get('motivo') or 'sin túnel'}. "
             "El verbo para aquí en vez de seguir a ciegas."
         )
 
@@ -1271,48 +1271,53 @@ def pasos_de_convergencia(invitado, identidad, declaracion, leido, parametros):
     # La identidad de un RouterOS va la ÚLTIMA en la primera convergencia: primero
     # se añade y se verifica lo nuevo, y sólo entonces se cambia el equipo por
     # dentro. Si se cambiara antes, un fallo a mitad dejaría el equipo accesible con
-    # las credenciales viejas y sin camino de vuelta para el motor.
+    # las credenciales viejas y sin túnel de vuelta para el motor.
     #
     # «Primera convergencia» no se adivina por la forma del mapa leído: se decide con
     # lo que las operaciones dicen. Si la identidad no tiene nada que cambiar, no hay
     # paso de identidad y el orden da igual.
     operaciones_identidad = (
-        _identidad_canonica(declaradas["identidad"], areas_leidas.get("identidad"))
-        if "identidad" in declaradas
+        _identity_canonica(declaradas["identity"], areas_leidas.get("identity"))
+        if "identity" in declaradas
         else None
     )
     orden = list(declaradas.keys())
     if tipo == "routeros" and operaciones_identidad:
-        orden.remove("identidad")
-        orden.append("identidad")
+        orden.remove("identity")
+        orden.append("identity")
 
     pasos = []
     for area in orden:
         actual = areas_leidas.get(area)
-        if area == "identidad":
+        if area == "identity":
             operaciones = operaciones_identidad or []
-        elif area == "servicios":
-            operaciones = _servicios_canonicos(declaradas[area], actual)
-        elif area == "cliente_dhcp":
-            operaciones = _cliente_dhcp_canonico(declaradas[area], actual)
-        elif area == "direcciones":
-            operaciones = _direcciones_canonicas(declaradas[area], actual)
-        elif area == "rutas":
-            operaciones = _rutas_canonicas(declaradas[area], actual)
-        elif area == "dhcp":
-            operaciones = _dhcp_canonico(declaradas[area], actual, declaracion, identidad, invitado)
-        elif area == "exterior":
-            operaciones = _exterior_canonico(declaradas[area], actual, parametros)
-        elif area == "direccion":
-            operaciones = _direccion_linux_canonica(declaradas[area], actual)
-        elif area == "reenvio":
-            operaciones = _reenvio_canonico(declaradas[area], actual)
-        elif area == "dhcp_servidor":
-            operaciones = _dhcp_servidor_canonico(
-                declaradas[area], actual, declaracion, identidad, invitado
-            )
-        elif area == "camino":
-            operaciones = _camino_canonico(declaradas[area], actual)
+        elif area == "ip_services":
+            operaciones = _ip_services_canonicos(declaradas[area], actual)
+        elif area == "dhcp_client":
+            operaciones = _dhcp_client_canonico(declaradas[area], actual)
+        elif area == "addresses":
+            operaciones = _addresses_canonicas(declaradas[area], actual)
+        elif area == "routes":
+            operaciones = _routes_canonicas(declaradas[area], actual)
+        elif area == "uplink":
+            operaciones = _uplink_canonico(declaradas[area], actual, parametros)
+        elif area == "address":
+            operaciones = _address_linux_canonica(declaradas[area], actual)
+        elif area == "ip_forward":
+            operaciones = _ip_forward_canonico(declaradas[area], actual)
+        elif area == "dhcp_server":
+            # El área se llama igual en los dos drivers: quién la atiende lo decide
+            # el tipo de equipo, no el nombre del área.
+            if tipo == "routeros":
+                operaciones = _dhcp_server_canonico(
+                    declaradas[area], actual, declaracion, identidad, guest
+                )
+            else:
+                operaciones = _dnsmasq_canonico(
+                    declaradas[area], actual, declaracion, identidad, guest
+                )
+        elif area == "tunnel":
+            operaciones = _tunnel_canonico(declaradas[area], actual)
         else:  # pragma: no cover - el validador ya rechaza lo que no está en AREAS
             raise ErrorMotor(f"el área '{area}' no tiene driver: añadirla es un ADR")
 
@@ -1330,7 +1335,7 @@ def pasos_de_convergencia(invitado, identidad, declaracion, leido, parametros):
             pasos.append(
                 _paso(
                     "converger_interior",
-                    invitado,
+                    guest,
                     area,
                     operaciones,
                     f"el área '{area}' del rol '{rol}' ({tipo}) no coincide con lo "
@@ -1342,10 +1347,10 @@ def pasos_de_convergencia(invitado, identidad, declaracion, leido, parametros):
     if hay_residuo:
         pasos.append(
             {
-                "accion": "reiniciar_invitado",
+                "accion": "reiniciar_guest",
                 "via": "api",
                 "rol": rol,
-                "escalon": invitado.get("escalon"),
+                "stage": guest.get("stage"),
                 "metodo": "POST",
                 "ruta": None,  # el plan la completa con el nodo y el vmid
                 "parametros": {"reinicio": "residuo del cliente DHCP de fábrica"},
@@ -1359,97 +1364,97 @@ def pasos_de_convergencia(invitado, identidad, declaracion, leido, parametros):
     return pasos
 
 
-def espera_de_servicio(invitado):
+def espera_de_servicio(guest):
     """El paso que comprueba que un invitado CONTESTA --la barrera que va DELANTE de
-    converger su interior-- y, con eso, que su escalón sirve antes de pasar al
-    siguiente (regla 18: nunca se arranca un escalón antes de que el anterior esté
+    converger su interior-- y, con eso, que su etapa sirve antes de pasar al
+    siguiente (regla 18: nunca se arranca una etapa antes de que el anterior esté
     convergido y sirviendo).
 
-    Va antes del interior y no al final del escalón porque un invitado recién arrancado
+    Va antes del interior y no al final de la etapa porque un invitado recién arrancado
     no contesta al instante: un CHR tarda en bootear y en pedir su dirección por DHCP,
     y convergerlo nada más arrancarlo aborta la pasada. La sonda le da ese tiempo.
 
     No es un `wait_for` sobre el invitado: es una petición a la dirección que la
     declaración promete, en el puerto por el que ese tipo se deja ver (el REST de
-    RouterOS, el sshd de un Linux). No necesita identidad: la sonda va a la
+    RouterOS, el sshd de un Linux). No necesita identity: la sonda va a la
     dirección declarada, que es lo que la declaración promete.
     """
-    tipo = tipo_de(invitado)
+    tipo = tipo_de(guest)
     if tipo is None:
         return None
     # Sólo se sondea lo que la declaración PROMETE con una dirección fija: un equipo que
-    # toma su dirección por DHCP (`direccion: dhcp`) no tiene dirección que preguntar hasta
+    # toma su dirección por DHCP (`address: dhcp`) no tiene dirección que preguntar hasta
     # que su router se la da, así que no hay sonda que valga -- y no se inventa una. El
-    # escalón se arranca sin barrera y el lab lo dice en su prosa.
-    if _a_entero(_sin_prefijo(invitado.get("direccion"))) is None:
+    # etapa se arranca sin barrera y el lab lo dice en su prosa.
+    if _a_entero(_sin_prefijo(guest.get("address"))) is None:
         return None
     puerto = 80 if tipo == "routeros" else 22
     return {
         "accion": "esperar_servicio",
         "via": "sonda",
-        "rol": invitado.get("rol"),
-        "escalon": invitado.get("escalon"),
+        "rol": guest.get("rol"),
+        "stage": guest.get("stage"),
         "metodo": None,
         "ruta": None,
         "parametros": {
             "tipo": tipo,
-            "direccion": str(invitado.get("direccion") or "").split("/")[0],
+            "address": str(guest.get("address") or "").split("/")[0],
             "puerto": puerto,
         },
         "porque": (
-            f"el interior de '{invitado['rol']}' no se toca hasta que contesta: un "
-            f"invitado del escalón {invitado.get('escalon')} recién arrancado tarda en "
+            f"el interior de '{guest['rol']}' no se toca hasta que contesta: un "
+            f"invitado de la etapa {guest.get('stage')} recién arrancado tarda en "
             f"dar señales en el puerto {puerto}"
         ),
     }
 
 
 # ---------------------------------------------------------------------------
-# (declaración) -> el puesto de control; y las LECTURAS y ESCRITURAS de un Linux
+# (declaración) -> el bastión; y las LECTURAS y ESCRITURAS de un Linux
 # ---------------------------------------------------------------------------
 
-def puesto_control(declaracion):
-    """El ROL del invitado que es el puesto de control del lab (el bastión del camino).
+def bastion(declaracion):
+    """El ROL del invitado que es el bastión del lab (el bastión del túnel).
 
-    No se pregunta por un nombre ni por un vmid: se pregunta quién declara `camino`,
+    No se pregunta por un nombre ni por un vmid: se pregunta quién declara `tunnel`,
     que es lo que hace que un invitado sea el que sale hacia casa. Devuelve '' si el
     lab no declara ninguno, y entonces `apply` dice que no hay por dónde entrar (regla
     16) en vez de intentarlo.
     """
     # La declaración que circula por el motor está NORMALIZADA: sus invitados son una
-    # lista plana (`invitados`), cada uno con su `tipo`. Se lee igual que en el resto de
+    # lista plana (`guests`), cada uno con su `tipo`. Se lee igual que en el resto de
     # este fichero -- una sola forma de leer la declaración, o hay dos verdades.
-    for invitado in (declaracion or {}).get("invitados") or []:
-        if tiene_camino(invitado):
-            return invitado.get("rol") or ""
+    for guest in (declaracion or {}).get("guests") or []:
+        if tiene_tunnel(guest):
+            return guest.get("rol") or ""
     return ""
 
 
 # Las lecturas, una por área, y el porqué de cada comando. Van aquí (y no en el
 # playbook) porque son DATOS: el driver no decide qué preguntar, lo lee de aquí.
 #
-# Todas son de SOLO LECTURA y baratas: una vuelta de SSH por área, con el camino.
+# Todas son de SOLO LECTURA y baratas: una vuelta de SSH por área, con el túnel.
 # Ninguna necesita `root` para preguntar, pero se entra como root porque para
 # ESCRIBIR sí hace falta, y usar dos usuarios distintos según el paso sería una
 # complicación sin premio.
 LECTURAS_LINUX = {
-    "direccion": {
-        # TODAS las patas con dirección (no sólo eth0): el puesto de control declara una
-        # dirección por cada bridge del lab, porque un CHR del segundo escalón cuelga de un
-        # bridge al que el puesto sólo llega si tiene pata con dirección ahí (medido: sin
+    "address": {
+        # TODAS las interfaces con dirección (no sólo eth0): el bastión declara una
+        # dirección por cada bridge del lab, porque un CHR del segundo etapa cuelga de un
+        # bridge al que el puesto sólo llega si tiene interfaz con dirección ahí (medido: sin
         # ella, el router no contesta y su convergencia es imposible).
         "comando": "ip -4 -o addr show scope global",
-        "descripcion": "las direcciones de sus patas (gestión y bridges del lab)",
+        "descripcion": "las direcciones de sus interfaces (gestión y bridges del lab)",
     },
-    "reenvio": {
+    "ip_forward": {
         "comando": "cat /proc/sys/net/ipv4/ip_forward",
         "descripcion": "si el equipo reenvía paquetes (lo necesita su servidor DHCP)",
     },
-    "camino": {
-        "comando": "systemctl is-active netlabs-camino",
+    "tunnel": {
+        "comando": "systemctl is-active netlabs-tunnel",
         "descripcion": "si la salida hacia casa está levantada",
     },
-    "dhcp_servidor": {
+    "dhcp_server": {
         # CUATRO cosas en un viaje, separadas por una marca que el analizador conoce:
         #   1) la configuración que el motor dejó (si la dejó),
         #   2) el estado REAL de los offloads de la interfaz,
@@ -1470,7 +1475,7 @@ LECTURAS_LINUX = {
 SEPARADOR = "---NETLABS---"
 
 
-def lecturas_linux(invitado):
+def lecturas_linux(guest):
     """Las lecturas que hay que hacer dentro de un Linux, en orden, por área declarada.
 
     Sólo se pregunta por lo que el lab DECLARA: fuera de las áreas declaradas el motor
@@ -1483,7 +1488,7 @@ def lecturas_linux(invitado):
             "comando": LECTURAS_LINUX[area]["comando"],
             "descripcion": LECTURAS_LINUX[area]["descripcion"],
         }
-        for area in areas_a_leer(invitado)
+        for area in areas_a_leer(guest)
         if area in LECTURAS_LINUX
     ]
 
@@ -1516,27 +1521,27 @@ def leido_linux(lecturas):
             continue
         lineas = _lineas(texto)
 
-        if area == "direccion":
+        if area == "address":
             partes = lineas[0].split() if lineas else []
             # `ip -4 -o addr show scope global` -> "3: eth0    inet 10.40.0.10/24 ..."
-            # Una línea por pata con dirección: la de gestión (eth0, la que el plan usa
+            # Una línea por interfaz con dirección: la de gestión (eth0, la que el plan usa
             # para el túnel) y las que el lab declare para los bridges del lab.
-            patas = []
+            interfaces = []
             for linea in lineas:
                 trozos = linea.split()
                 if len(trozos) > 3 and trozos[2] == "inet":
-                    patas.append({"interfaz": trozos[1], "direccion": trozos[3]})
-            de_gestion = [p for p in patas if p["interfaz"] == "eth0"]
-            leido["direccion"] = {
-                "direccion": (de_gestion or patas or [{"direccion": ""}])[0]["direccion"],
-                "direcciones": patas,
+                    interfaces.append({"interface": trozos[1], "address": trozos[3]})
+            de_gestion = [p for p in interfaces if p["interface"] == "eth0"]
+            leido["address"] = {
+                "address": (de_gestion or interfaces or [{"address": ""}])[0]["address"],
+                "addresses": interfaces,
             }
 
-        elif area == "reenvio":
-            leido["reenvio"] = {"activo": (lineas[0] if lineas else "") == "1"}
+        elif area == "ip_forward":
+            leido["ip_forward"] = {"activo": (lineas[0] if lineas else "") == "1"}
 
-        elif area == "camino":
-            leido["camino"] = {"salida": (lineas[0] if lineas else "") == "active"}
+        elif area == "tunnel":
+            leido["tunnel"] = {"salida": (lineas[0] if lineas else "") == "active"}
 
         elif area == "claves":
             try:
@@ -1544,7 +1549,7 @@ def leido_linux(lecturas):
             except ValueError:
                 leido["claves"] = {"cuantas": 0}
 
-        elif area == "dhcp_servidor":
+        elif area == "dhcp_server":
             bloques = str(texto).split(SEPARADOR)
             configuracion = _lineas(bloques[0] if bloques else "")
             offloads = bloques[1] if len(bloques) > 1 else ""
@@ -1565,14 +1570,14 @@ def leido_linux(lecturas):
                 if linea.startswith("dhcp-host="):
                     partes = linea[len("dhcp-host="):].split(",")
                     if len(partes) >= 2:
-                        reservas.append({"mac": partes[0], "direccion": partes[1]})
+                        reservas.append({"mac": partes[0], "address": partes[1]})
             # El servicio: sin esto el motor no sabe si dnsmasq está vivo, y `recargar` se pediría
             # en CADA pasada -- que es exactamente romper la idempotencia.
             servicio = _lineas(bloques[3] if len(bloques) > 3 else "")
-            leido["dhcp_servidor"] = {
-                "reservas": reservas,
+            leido["dhcp_server"] = {
+                "static_leases": reservas,
                 "servicio_activo": bool(servicio) and servicio[0] == "active",
-                "interfaz": _valor(configuracion, "interface", prefijo="").lstrip(),
+                "interface": _valor(configuracion, "interface", prefijo="").lstrip(),
                 # dnsmasq escribe el rango como `inicio,fin,mascara,tiempo`; la
                 # declaración lo escribe `inicio-fin`. Se normaliza AQUÍ para poder
                 # comparar: sin esto el fichero se reescribiría en cada pasada y la
@@ -1598,7 +1603,7 @@ def configuracion_dnsmasq(declarado, reservas):
     router que sirve esa red (`red.dns`), no este equipo; montar un DNS aquí sería
     una primitiva que nadie ha declarado (regla 15).
     """
-    interfaz = str((declarado or {}).get("interfaz") or "")
+    interfaz = str((declarado or {}).get("interface") or "")
     rango = str((declarado or {}).get("rango") or "")
     if not interfaz or not rango:
         return ""
@@ -1621,8 +1626,8 @@ def configuracion_dnsmasq(declarado, reservas):
         "log-dhcp",
     ]
     for reserva in reservas or []:
-        if reserva.get("mac") and reserva.get("direccion"):
-            lineas.append(f"dhcp-host={reserva['mac']},{reserva['direccion'].split('/')[0]}")
+        if reserva.get("mac") and reserva.get("address"):
+            lineas.append(f"dhcp-host={reserva['mac']},{reserva['address'].split('/')[0]}")
     return "\n".join(lineas) + "\n"
 
 
@@ -1631,7 +1636,7 @@ def configuracion_dnsmasq(declarado, reservas):
 RUTA_DNSMASQ = "/etc/dnsmasq.d/netlabs.conf"
 
 
-def escrituras_linux(operaciones, invitado, declaracion, identidad, parametros):
+def escrituras_linux(operaciones, guest, declaracion, identidad, parametros):
     """(operaciones decididas) -> los comandos que las ejecutan, en orden.
 
     Función PURA: no ejecuta nada, sólo traduce una operación a la línea que la hace.
@@ -1639,60 +1644,60 @@ def escrituras_linux(operaciones, invitado, declaracion, identidad, parametros):
     fichero entero, `ethtool -K` con el valor final): volver a aplicarlo deja el sistema
     igual, que es lo que hace verdadera la promesa de la regla 6.
     """
-    declarado = areas_de(invitado)
+    declarado = areas_de(guest)
     comandos = []
     for operacion in operaciones or []:
         op = operacion.get("op")
 
-        if op == "poner_direccion":
+        if op == "add_address":
             comandos.append({
-                "area": "direccion", "accion": "escribir", "declarado": operacion.get("direccion"),
+                "area": "address", "accion": "escribir", "declarado": operacion.get("address"),
                 "descripcion": "poner su dirección declarada",
-                "comando": f"ip addr replace {operacion['direccion']} dev {operacion.get('interfaz') or 'eth0'}",
+                "comando": f"ip addr replace {operacion['address']} dev {operacion.get('interface') or 'eth0'}",
             })
 
-        elif op == "activar_reenvio":
+        elif op == "enable_ip_forward":
             comandos.append({
-                "area": "reenvio", "accion": "escribir", "declarado": "true",
+                "area": "ip_forward", "accion": "escribir", "declarado": "true",
                 "descripcion": "dejar que reenvíe paquetes",
                 "comando": "sysctl -q -w net.ipv4.ip_forward=1 && printf 'net.ipv4.ip_forward=1\\n' > /etc/sysctl.d/99-netlabs.conf",
             })
 
-        elif op in ("instalar_paquetes", "instalar_herramientas"):
+        elif op in ("install_packages", "install_tools"):
             paquetes = " ".join(operacion.get("paquetes") or ["dnsmasq", "ethtool"])
             comandos.append({
-                "area": "dhcp_servidor", "accion": "escribir", "declarado": paquetes,
+                "area": "dhcp_server", "accion": "escribir", "declarado": paquetes,
                 "descripcion": f"poner en el aparato del motor lo que el servidor DHCP necesita: {paquetes}",
                 "comando": f"DEBIAN_FRONTEND=noninteractive apt-get install -y -qq {paquetes}",
             })
 
-        elif op in ("escribir_dnsmasq", "poner_reserva", "quitar_reserva"):
+        elif op in ("write_dnsmasq", "add_static_lease", "remove_static_lease"):
             # Las tres son la MISMA cosa: el fichero lleva TODAS las reservas, así que
             # cambiar una se hace reescribiéndolo entero. Reescribirlo dos veces en la
             # misma pasada sería trabajo duplicado: se hace una sola vez. El marcador es
             # la RUTA del fichero, escrita entera: buscar un trozo dio un fallo real
             # («dnsmasq.conf» NO está en «/etc/dnsmasq.d/netlabs.conf»).
             if not any(RUTA_DNSMASQ in c["comando"] for c in comandos):
-                reservas = reservas_derivadas(declaracion, identidad, invitado)
-                configuracion = configuracion_dnsmasq(declarado.get("dhcp_servidor"), reservas)
+                reservas = reservas_derivadas(declaracion, identidad, guest)
+                configuracion = configuracion_dnsmasq(declarado.get("dhcp_server"), reservas)
                 comandos.append({
-                    "area": "dhcp_servidor", "accion": "escribir",
-                    "declarado": f"{declarado.get('dhcp_servidor', {}).get('rango')} + {len(reservas)} reserva(s) derivada(s)",
+                    "area": "dhcp_server", "accion": "escribir",
+                    "declarado": f"{declarado.get('dhcp_server', {}).get('rango')} + {len(reservas)} reserva(s) derivada(s)",
                     "descripcion": "escribir su configuración de servidor DHCP (con las reservas derivadas)",
                     "comando": f"echo {_b64(configuracion)} | base64 -d > {RUTA_DNSMASQ}",
                 })
 
-        elif op == "apagar_offload":
-            interfaz = str((declarado.get("dhcp_servidor") or {}).get("interfaz") or "eth0")
+        elif op == "disable_offload":
+            interfaz = str((declarado.get("dhcp_server") or {}).get("interface") or "eth0")
             comandos.append({
-                "area": "dhcp_servidor", "accion": "escribir", "declarado": "off",
+                "area": "dhcp_server", "accion": "escribir", "declarado": "off",
                 "descripcion": "apagar los offloads de la interfaz (sin esto las ofertas DHCP no llegan al CHR)",
                 "comando": f"ethtool -K {interfaz} tx off gso off tso off",
             })
 
-        elif op == "recargar_dnsmasq":
+        elif op == "reload_dnsmasq":
             comandos.append({
-                "area": "dhcp_servidor", "accion": "escribir", "declarado": "activo",
+                "area": "dhcp_server", "accion": "escribir", "declarado": "activo",
                 "descripcion": "poner en marcha (o recargar) el servidor DHCP",
                 "comando": "systemctl enable --now dnsmasq >/dev/null 2>&1; systemctl restart dnsmasq",
             })
@@ -1707,9 +1712,9 @@ def pendiente_de_driver(operacion):
     el driver PARA con su nombre en vez de saltársela en silencio.
     """
     conocidas = {
-        "poner_direccion", "activar_reenvio", "instalar_paquetes", "instalar_herramientas",
-        "escribir_dnsmasq", "poner_reserva", "quitar_reserva",
-        "apagar_offload", "recargar_dnsmasq",
+        "add_address", "enable_ip_forward", "install_packages", "install_tools",
+        "write_dnsmasq", "add_static_lease", "remove_static_lease",
+        "disable_offload", "reload_dnsmasq",
     }
     op = (operacion or {}).get("op")
     if op in conocidas:
@@ -1719,13 +1724,13 @@ def pendiente_de_driver(operacion):
 
 
 def comando_de(resultado):
-    """El comando que produjo un resultado de la puerta (`tasks/interior_ssh.yml`).
+    """El comando que produjo un resultado de la vía de acceso (`tasks/interior_ssh.yml`).
 
     Ansible NO deja la clave `item` cuando el bucle usa `loop_var` propio: deja el nombre
     que le diste (`interior_comando`) y lo dice en `ansible_loop_var`. Se leen las dos
     formas porque un analizador que sólo entiende `item` se queda mudo -- y pasó: el
     motor entró en el invitado, lo leyó (rc=0 en el diario) y luego dijo «el driver no leyó
-    el área 'camino'», que era mentira.
+    el área 'tunnel'», que era mentira.
     """
     if not isinstance(resultado, dict):
         return {}
@@ -1735,10 +1740,10 @@ def comando_de(resultado):
     return resultado.get("item") or {}
 
 
-def leido_de_lecturas(resultados, invitado):
-    """(lo que devolvió la puerta) -> el mapa `leído` que come `pasos_de_convergencia`.
+def leido_de_lecturas(resultados, guest):
+    """(lo que devolvió la vía de acceso) -> el mapa `leído` que come `pasos_de_convergencia`.
 
-    `resultados` es lo que deja la puerta (`interior_ssh.yml`): una lista con el
+    `resultados` es lo que deja la vía de acceso (`interior_ssh.yml`): una lista con el
     comando de cada paso (`item`) y su salida (`stdout`, `rc`, `stderr`).
 
     Aquí se decide lo PRIMERO y más importante: si al invitado se le pudo PREGUNTAR.
@@ -1766,7 +1771,7 @@ def leido_de_lecturas(resultados, invitado):
         "alcanzable": not motivo,
         "motivo": motivo,
         "areas": areas,
-        "invitado": (invitado or {}).get("rol"),
+        "guest": (guest or {}).get("rol"),
     }
 
 
@@ -1804,32 +1809,32 @@ def requiere_lectura(area, leido):
 # RouterOS: lo que se lee por su REST y lo que se escribe por su REST
 # ---------------------------------------------------------------------------
 # Un RouterOS no se toca por SSH en este motor (regla 13): se lee y se escribe por su
-# REST, que es la misma puerta (`tasks/ros_api.yml`). Igual que en Linux, las lecturas
+# REST, que es la misma vía de acceso (`tasks/ros_api.yml`). Igual que en Linux, las lecturas
 # son DATOS y no lógica: el driver no decide qué preguntar, lo lee de aquí.
 #
 # Cada ruta se eligió midiendo un CHR real (7.25.1): `/system/identity` contesta un
 # OBJETO (`{"name":"CHR"}`) y una tabla contesta una LISTA. El analizador sabe leer las
 # dos formas porque las dos existen.
 LECTURAS_ROUTEROS = {
-    "identidad": (
+    "identity": (
         ("/system/identity", "el nombre del equipo"),
         ("/user", "los usuarios que tiene (el del motor, si está)"),
         ("/user/ssh-keys", "las claves autorizadas (la del motor, si está importada)"),
     ),
-    "servicios": (("/ip/service", "qué servicios de gestión tiene abiertos"),),
-    "cliente_dhcp": (("/ip/dhcp-client", "el cliente de fábrica, si sigue vivo"),),
-    "direcciones": (("/ip/address", "sus direcciones, estáticas y dinámicas"),),
-    "rutas": (("/ip/route", "sus rutas: estáticas, conectadas y las del DHCP"),),
-    "dhcp": (
+    "ip_services": (("/ip/service", "qué servicios de gestión tiene abiertos"),),
+    "dhcp_client": (("/ip/dhcp-client", "el cliente de fábrica, si sigue vivo"),),
+    "addresses": (("/ip/address", "sus direcciones, estáticas y dinámicas"),),
+    "routes": (("/ip/route", "sus rutas: estáticas, conectadas y las del DHCP"),),
+    "dhcp_server": (
         ("/ip/dhcp-server", "los servidores DHCP que tiene"),
         ("/ip/pool", "los rangos de direcciones que reparte"),
         ("/ip/dhcp-server/network", "las redes que anuncia"),
         ("/ip/dhcp-server/lease", "sus concesiones y sus reservas"),
     ),
     # La salida del lab: la tabla de NAT (para saber si la regla del motor está), el
-    # resolutor y el cliente de fuera (su concesión es la prueba de que la pata tiene red).
-    "exterior": (
-        ("/ip/address", "la dirección de la pata de fuera (si la tiene)"),
+    # resolutor y el cliente de fuera (su concesión es la prueba de que la interfaz tiene red).
+    "uplink": (
+        ("/ip/address", "la dirección de la interfaz de fuera (si la tiene)"),
         ("/ip/route", "por dónde manda lo que no es de ninguna de sus redes"),
         ("/ip/firewall/nat", "sus reglas de NAT (la del motor, si está)"),
         ("/ip/dns", "cómo tiene el resolutor y a quién le pregunta"),
@@ -1841,21 +1846,21 @@ LECTURAS_ROUTEROS = {
 # rango, no el nombre de un objeto intermedio del equipo, y así no hay que guardar nada.
 PREFIJO_POOL = "netlabs-"
 
-# La pata de gestión de un RouterOS: la primera, y donde vive el cliente DHCP de fábrica
+# La interfaz de gestión de un RouterOS: la primera, y donde vive el cliente DHCP de fábrica
 # (medido en un CHR: `ether1`, con su concesión dinámica). No es un valor de ningún lab:
 # es cómo numera RouterOS sus interfaces ethernet (empieza en 1, y `net0` de Proxmox es
 # `ether1` del router). El motor la usa para poner la dirección de gestión DERIVADA del
-# `direccion:` del invitado, que es lo que impide dejarlo sin camino de vuelta.
+# `address:` del invitado, que es lo que impide dejarlo sin túnel de vuelta.
 INTERFAZ_GESTION_ROUTEROS = "ether1"
 
-# --- El exterior: la salida del lab -------------------------------------------
-# Un router que declara `exterior` es la puerta del lab hacia fuera. La pata de fuera la
+# --- El uplink: la salida del lab -------------------------------------------
+# Un router que declara `uplink` es la pasarela del lab hacia fuera. La interfaz de fuera la
 # añade el PLAN (una más, la ÚLTIMA, sobre el bridge del nodo que tiene salida: valor de
 # entorno, `pve_bridge_gestion` en secrets.yml, nunca del lab), así que su interfaz no se
-# declara: se deriva de cuántas patas declaró el invitado. En un router con dos bridges el
+# declara: se deriva de cuántas interfaces declaró el invitado. En un router con dos bridges el
 # exterior es `ether3`.
 #
-# Lo que hace el motor con esa pata es lo mínimo para que haya salida, y ninguna de las
+# Lo que hace el motor con esa interfaz es lo mínimo para que haya salida, y ninguna de las
 # tres cosas lleva un valor de casa dentro:
 #   * un cliente DHCP en esa interfaz, que es lo que le da dirección, ruta por defecto y
 #     servidores DNS de la red de fuera (sin que el motor tenga que saber ninguno);
@@ -1863,38 +1868,38 @@ INTERFAZ_GESTION_ROUTEROS = "ether1"
 #     traducirlas no vuelven;
 #   * el resolutor DNS del router encendido (`allow-remote-requests`), para que los
 #     invitados que lo tienen de pasarela puedan resolver nombres.
-MARCA_EXTERIOR = "netlabs-exterior"
+MARCA_EXTERIOR = "netlabs-uplink"
 
 
-def patas_de_un_invitado(invitado):
-    """Las patas DECLARADAS de un invitado, en orden: la lista `bridges` de una VM, o el
+def interfaces_de_un_guest(guest):
+    """Las interfaces DECLARADAS de un invitado, en orden: la lista `bridges` de una VM, o el
     `bridge` suelto de un contenedor.
 
     Vive aquí y no se importa de `declaracion.py` a propósito: la flecha va de la
     validación al interior, nunca al revés (sería un círculo).
     """
-    patas = invitado.get("bridges")
-    if isinstance(patas, list) and patas:
-        return [str(pata) for pata in patas]
-    if invitado.get("bridge"):
-        return [str(invitado["bridge"])]
+    interfaces = guest.get("bridges")
+    if isinstance(interfaces, list) and interfaces:
+        return [str(interface) for interface in interfaces]
+    if guest.get("bridge"):
+        return [str(guest["bridge"])]
     return []
 
 
-def interfaz_exterior(invitado):
-    """La interfaz de la pata de fuera de un RouterOS, o '' si no declara `exterior`.
+def interfaz_exterior(guest):
+    """La interfaz de la interfaz de fuera de un RouterOS, o '' si no declara `uplink`.
 
-    Se DERIVA: es la siguiente a las patas declaradas (el plan añade la suya al final).
+    Se DERIVA: es la siguiente a las interfaces declaradas (el plan añade la suya al final).
     Así el lab no nombra una interfaz que no ha declarado -- si lo hiciera, la validación
-    la rechazaría, porque no está entre sus patas, y con razón.
+    la rechazaría, porque no está entre sus interfaces, y con razón.
     """
-    if "exterior" not in ((invitado.get("config") or {}).get("routeros") or {}):
+    if "uplink" not in ((guest.get("config") or {}).get("routeros") or {}):
         return ""
-    return f"ether{len(patas_de_un_invitado(invitado)) + 1}"
+    return f"ether{len(interfaces_de_un_guest(guest)) + 1}"
 
 # Los campos que son credenciales: si alguno viaja en el cuerpo de una llamada, su valor
 # se tapa en el diario. Por NOMBRE y no por confianza en el llamante: la contraseña del
-# motor viaja de verdad en el cuerpo de `poner_credencial_motor`, y un descuido no puede
+# motor viaja de verdad en el cuerpo de `set_engine_credential`, y un descuido no puede
 # acabar con ella escrita en un fichero.
 CAMPOS_SECRETOS = ("password", "passphrase", "clave", "key", "secret", "private-key")
 
@@ -1915,14 +1920,14 @@ def sin_secretos(datos):
     return datos
 
 
-def lecturas_routeros(invitado):
+def lecturas_routeros(guest):
     """Las lecturas que hay que hacer por REST en un RouterOS, por área declarada.
 
     Sólo se pregunta por lo que el lab DECLARA: fuera de las áreas declaradas el motor
     no opina (regla 17), así que tampoco pregunta.
     """
     lecturas = []
-    for area in areas_a_leer(invitado):
+    for area in areas_a_leer(guest):
         for ruta, descripcion in LECTURAS_ROUTEROS.get(area, ()):
             lecturas.append(
                 {
@@ -1969,7 +1974,7 @@ def _ros_clave(*partes):
     """La clave con la que se recuerda el `.id` de algo compuesto.
 
     En una dirección o en una ruta hacen falta DOS cosas para identificarlas (la
-    interfaz y la dirección; el destino y la pasarela), y en un router con dos patas la
+    interfaz y la dirección; el destino y la pasarela), y en un router con dos interfaces la
     dirección sola no basta. Se unen en una CADENA y no en una tupla: esto viaja por
     hechos de Ansible, y una tupla como clave de un mapa se rompe en cuanto algo lo
     serializa a JSON.
@@ -1977,10 +1982,10 @@ def _ros_clave(*partes):
     return "|".join(str(parte) for parte in partes)
 
 
-def leido_routeros(leidos, invitado=None, usuario_motor="", clave_publica="", credencial="motor"):
+def leido_routeros(leidos, guest=None, usuario_motor="", clave_publica="", credencial="motor"):
     """(lo que contestó el REST) -> el mapa `leído` que comen las diferencias.
 
-    `leidos` es lo que acumula la puerta: `{ruta: {area, status, json, error}}`. Función
+    `leidos` es lo que acumula la gateway: `{ruta: {area, status, json, error}}`. Función
     PURA: se prueba con fixtures, sin RouterOS delante.
 
     La primera decisión es si al equipo se le pudo PREGUNTAR, y ahí un `status` -1 (no
@@ -1996,7 +2001,7 @@ def leido_routeros(leidos, invitado=None, usuario_motor="", clave_publica="", cr
         if int((entrada or {}).get("status") or 0) == -1 and not motivo:
             motivo = str((entrada or {}).get("error") or "no se pudo conectar con el invitado")
 
-    # --- identidad: el nombre, el usuario del motor y su clave ---
+    # --- identity: el nombre, el usuario del motor y su clave ---
     if "/system/identity" in leidos:
         identidad = leidos.get("/system/identity") or {}
         nombre_dato = identidad.get("json")
@@ -2010,7 +2015,7 @@ def leido_routeros(leidos, invitado=None, usuario_motor="", clave_publica="", cr
             for k in claves
             if str(clave_publica).strip()
         )
-        areas["identidad"] = {
+        areas["identity"] = {
             "nombre": nombre,
             "usuario_motor": existe_usuario,
             # Se llegó con la credencial del motor: eso ES el estado «la credencial del
@@ -2032,20 +2037,20 @@ def leido_routeros(leidos, invitado=None, usuario_motor="", clave_publica="", cr
             for s in _ros_lista((leidos.get("/ip/service") or {}).get("json"))
             if not _ros_si(s.get("dynamic"))
         ]
-        areas["servicios"] = {
+        areas["ip_services"] = {
             "deshabilitados": [str(s.get("name")) for s in servicios if _ros_si(s.get("disabled"))],
             "habilitados": [str(s.get("name")) for s in servicios if not _ros_si(s.get("disabled"))],
             "ids": _ros_ids(servicios, lambda s: s.get("name")),
         }
 
-    # --- cliente_dhcp: el de fábrica, el de las patas DEL LAB ---
-    # El cliente de la pata de FUERA (área `exterior`) no cuenta aquí, y es una decisión:
+    # --- dhcp_client: el de fábrica, el de las interfaces DEL LAB ---
+    # El cliente de la interfaz de FUERA (área `uplink`) no cuenta aquí, y es una decisión:
     # no es un residuo, es la salida del lab. Si contara, el motor lo quitaría --quitar el
     # cliente de fábrica se lleva TODOS los que encuentre-- y el lab se quedaría sin salida
     # en la primera pasada; y mientras estuviera vivo, el residuo dinámico no se declararía
     # nunca y el intercambio de la dirección de gestión no llegaría a hacerse, así que la
     # segunda pasada pediría cosas de más (la idempotencia se rompe justo por aquí).
-    exterior = interfaz_exterior(invitado)
+    exterior = interfaz_exterior(guest)
     cliente = []
     if "/ip/dhcp-client" in leidos:
         cliente = [
@@ -2053,38 +2058,38 @@ def leido_routeros(leidos, invitado=None, usuario_motor="", clave_publica="", cr
             for entrada in _ros_lista((leidos.get("/ip/dhcp-client") or {}).get("json"))
             if str(entrada.get("interface")) != exterior
         ]
-        areas["cliente_dhcp"] = {
+        areas["dhcp_client"] = {
             "habilitado": any(not _ros_si(c.get("disabled")) for c in cliente),
             "interfaces": [str(c.get("interface")) for c in cliente],
             "ids": _ros_ids(cliente, lambda c: c.get("interface")),
         }
 
-    # --- direcciones: estáticas y dinámicas, separadas (la dinámica es RESIDUO) ---
+    # --- addresses: estáticas y dinámicas, separadas (la dinámica es RESIDUO) ---
     direcciones = []
     if "/ip/address" in leidos:
         direcciones = _ros_lista((leidos.get("/ip/address") or {}).get("json"))
-        # La pata de FUERA no es una pata del lab: su dirección no la manda esta área, la
-        # manda `exterior`. Si se leyera aquí, esta área la tomaría por una dirección de
+        # La interfaz de FUERA no es una interfaz del lab: su dirección no la manda esta área, la
+        # manda `uplink`. Si se leyera aquí, esta área la tomaría por una dirección de
         # más (regla 17) y la quitaría en cada pasada -- y con ella la salida del lab.
-        de_fuera = interfaz_exterior(invitado)
+        de_fuera = interfaz_exterior(guest)
         direcciones = [
             d for d in direcciones if str(d.get("interface")) != de_fuera
         ]
         estaticas = [
-            {"interfaz": str(d.get("interface")), "direccion": str(d.get("address"))}
+            {"interface": str(d.get("interface")), "address": str(d.get("address"))}
             for d in direcciones
             if not _ros_si(d.get("dynamic"))
         ]
         dinamicas = [
-            {"interfaz": str(d.get("interface")), "direccion": str(d.get("address"))}
+            {"interface": str(d.get("interface")), "address": str(d.get("address"))}
             for d in direcciones
             if _ros_si(d.get("dynamic"))
         ]
-        areas["direcciones"] = {
+        areas["addresses"] = {
             "estaticas": estaticas,
             "dinamicas": dinamicas,
             # El `.id` es lo único con lo que se puede QUITAR una entrada, y se guarda
-            # por interfaz Y dirección: en un router con dos patas, la dirección sola no
+            # por interfaz Y dirección: en un router con dos interfaces, la dirección sola no
             # la identifica.
             "ids": {
                 _ros_clave(d.get("interface"), d.get("address")): str(d.get(".id") or "")
@@ -2095,22 +2100,22 @@ def leido_routeros(leidos, invitado=None, usuario_motor="", clave_publica="", cr
 
     # --- rutas: las que pone el motor son estáticas; las demás son del sistema ---
     if "/ip/route" in leidos:
-        rutas = _ros_lista((leidos.get("/ip/route") or {}).get("json"))
-        # La ruta por defecto es de `exterior` cuando este router es la salida (él la pone,
-        # por la puerta de fuera): si esta área la leyera, la tomaría por una ruta de más y
+        routes = _ros_lista((leidos.get("/ip/route") or {}).get("json"))
+        # La ruta por defecto es de `uplink` cuando este router es la salida (él la pone,
+        # por la pasarela de fuera): si esta área la leyera, la tomaría por una ruta de más y
         # la quitaría en cada pasada -- y el lab se quedaría sin salida.
-        if interfaz_exterior(invitado):
-            rutas = [r for r in rutas if str(r.get("dst-address")) != "0.0.0.0/0"]
+        if interfaz_exterior(guest):
+            routes = [r for r in routes if str(r.get("dst-address")) != "0.0.0.0/0"]
         estaticas = [
-            {"destino": str(r.get("dst-address")), "pasarela": str(r.get("gateway"))}
-            for r in rutas
+            {"dst_address": str(r.get("dst-address")), "gateway": str(r.get("gateway"))}
+            for r in routes
             if not _ros_si(r.get("dynamic"))
         ]
-        areas["rutas"] = {
+        areas["routes"] = {
             "estaticas": estaticas,
             "ids": {
                 _ros_clave(r.get("dst-address"), r.get("gateway")): str(r.get(".id") or "")
-                for r in rutas
+                for r in routes
                 if not _ros_si(r.get("dynamic"))
             },
         }
@@ -2134,8 +2139,8 @@ def leido_routeros(leidos, invitado=None, usuario_motor="", clave_publica="", cr
             for candidata in redes:
                 if en_red_siendo(rango.split("-")[0], str(candidata.get("address") or "")):
                     red = {
-                        "prefijo": str(candidata.get("address")),
-                        "pasarela": str(candidata.get("gateway")),
+                        "address": str(candidata.get("address")),
+                        "gateway": str(candidata.get("gateway")),
                         "dns": [
                             d.strip()
                             for d in str(candidata.get("dns-server") or "").split(",")
@@ -2146,25 +2151,25 @@ def leido_routeros(leidos, invitado=None, usuario_motor="", clave_publica="", cr
                     break
             servidores.append(
                 {
-                    "interfaz": interfaz,
+                    "interface": interfaz,
                     "rango": rango,
                     "nombre": str(servidor.get("name") or ""),
                     "id": str(servidor.get(".id") or ""),
-                    "red": red,
+                    "network": red,
                 }
             )
-        areas["dhcp"] = {
+        areas["dhcp_server"] = {
             "servidores": servidores,
             "pools": {
                 str(p.get("name")): {"id": str(p.get(".id") or ""), "rango": str(p.get("ranges") or "")}
                 for p in pools
             },
-            # Las concesiones DINÁMICAS no son reservas: son equipos que pidieron
+            # Las concesiones DINÁMICAS no son static_leases: son equipos que pidieron
             # dirección, y el motor no las declara ni las quita (no son suyas).
-            "reservas": [
+            "static_leases": [
                 {
                     "mac": str(c.get("mac-address")),
-                    "direccion": str(c.get("address")),
+                    "address": str(c.get("address")),
                     "servidor": str(c.get("server") or ""),
                     "id": str(c.get(".id") or ""),
                 }
@@ -2173,21 +2178,21 @@ def leido_routeros(leidos, invitado=None, usuario_motor="", clave_publica="", cr
             ],
         }
 
-    # --- exterior: la salida del lab ---
-    # Cuatro hechos, los cuatro leídos del equipo: la dirección de la pata de fuera, si
+    # --- uplink: la salida del lab ---
+    # Cuatro hechos, los cuatro leídos del equipo: la dirección de la interfaz de fuera, si
     # tiene ruta por defecto (y por dónde), si está la regla de NAT del motor, y cómo tiene
     # el resolutor (encendido y con quién resuelve). Nada se supone: se lee.
     if exterior and "/ip/firewall/nat" in leidos:
         propias = _ros_lista((leidos.get("/ip/address") or {}).get("json"))
-        # Las de la pata de fuera, con su `.id` (es lo único con lo que se puede quitar una,
+        # Las de la interfaz de fuera, con su `.id` (es lo único con lo que se puede quitar una,
         # y aquí SÍ puede haber más de una: cada pasada que no adoptara la que hay dejaría
         # otra puesta -- medido, y por eso el motor ADOPTA la primera que encuentre).
-        de_la_pata = [
+        de_la_interface = [
             d for d in propias
             if str(d.get("interface")) == exterior and not _ros_si(d.get("dynamic"))
         ]
-        direccion_propia = str(de_la_pata[0].get("address")) if de_la_pata else ""
-        # La dirección de la pata, en la forma en que se compara (sin el prefijo), para saber
+        direccion_propia = str(de_la_interface[0].get("address")) if de_la_interface else ""
+        # La dirección de la interfaz, en la forma en que se compara (sin el prefijo), para saber
         # si la que hay es de la red por la que se sale.
         direccion_desnuda = direccion_propia.split("/")[0]
         rutas_propias = _ros_lista((leidos.get("/ip/route") or {}).get("json"))
@@ -2206,12 +2211,12 @@ def leido_routeros(leidos, invitado=None, usuario_motor="", clave_publica="", cr
                 nuestra = regla
                 break
         ajustes_dns = (leidos.get("/ip/dns") or {}).get("json")
-        areas["exterior"] = {
-            "interfaz": exterior,
-            "direccion": direccion_propia,
-            "de_la_red": direccion_desnuda,   # la de la pata, sin el prefijo
-            "todas": [str(d.get("address")) for d in de_la_pata],
-            "ids": {str(d.get("address")): str(d.get(".id") or "") for d in de_la_pata},
+        areas["uplink"] = {
+            "interface": exterior,
+            "address": direccion_propia,
+            "de_la_red": direccion_desnuda,   # la de la interfaz, sin el prefijo
+            "todas": [str(d.get("address")) for d in de_la_interface],
+            "ids": {str(d.get("address")): str(d.get(".id") or "") for d in de_la_interface},
             "por_defecto": por_defecto,
             "masquerade": nuestra is not None,
             "id_masquerade": str((nuestra or {}).get(".id") or ""),
@@ -2233,19 +2238,19 @@ def leido_routeros(leidos, invitado=None, usuario_motor="", clave_publica="", cr
     # la forma de que el equipo sea alcanzable hasta que el motor entre a configurarlo --,
     # así que el residuo se declara sólo cuando el cliente ya está apagado. Si no, el plan
     # pediría un reinicio en la misma pasada en que lo apaga, sin saber si hacía falta.
-    cliente_vivo = bool((areas.get("cliente_dhcp") or {}).get("habilitado"))
-    dinamicas = (areas.get("direcciones") or {}).get("dinamicas") or []
+    cliente_vivo = bool((areas.get("dhcp_client") or {}).get("habilitado"))
+    dinamicas = (areas.get("addresses") or {}).get("dinamicas") or []
     declaradas = {
-        f"{d['interfaz']}:{d['direccion']}"
-        for d in (areas.get("direcciones") or {}).get("estaticas") or []
+        f"{d['interface']}:{d['address']}"
+        for d in (areas.get("addresses") or {}).get("estaticas") or []
     }
-    propia = str((invitado or {}).get("direccion") or "")
+    propia = str((guest or {}).get("address") or "")
     if propia and propia != "dhcp":
-        # La dirección con la que el invitado nace (`direccion:` del lab) también es
+        # La dirección con la que el invitado nace (`address:` del lab) también es
         # declarada: es la que el cliente de fábrica pidió por DHCP y la que se queda.
         declaradas.add(f"ether1:{propia}")
     residuo_direccion = (not cliente_vivo) and any(
-        f"{d['interfaz']}:{d['direccion']}" in declaradas for d in dinamicas
+        f"{d['interface']}:{d['address']}" in declaradas for d in dinamicas
     )
     rutas_crudas = _ros_lista((leidos.get("/ip/route") or {}).get("json"))
     # Un router que ES la salida del lab tiene una ruta por defecto dinámica A PROPÓSITO:
@@ -2266,7 +2271,7 @@ def leido_routeros(leidos, invitado=None, usuario_motor="", clave_publica="", cr
         "credencial": str(credencial),
         "areas": areas,
         "residuo": {"direccion_dinamica": residuo_direccion, "ruta_dinamica": residuo_ruta},
-        "invitado": (invitado or {}).get("rol"),
+        "guest": (guest or {}).get("rol"),
     }
 
 
@@ -2300,7 +2305,7 @@ def _prefijo_de(direccion):
     return partes[1] if len(partes) > 1 else ""
 
 
-def _intercambio_de_la_gestion(operaciones, declaracion, invitado, leido):
+def _intercambio_de_la_gestion(operaciones, declaracion, guest, leido):
     """Ordena las escrituras de RouterOS cuando la dirección de gestión la tiene puesta un
     cliente DHCP, y emite ese intercambio como UN guion que ejecuta el router ÉL MISMO.
 
@@ -2323,9 +2328,9 @@ def _intercambio_de_la_gestion(operaciones, declaracion, invitado, leido):
 
     Así no hay ventana en la que el equipo esté sin dirección, y no se depende de acertar
     el momento entre llamadas (medido: un `POST /ip/address/add` desde fuera se quedó sin
-    respuesta en el CHR del segundo escalón, con el MISMO cuerpo que en el primero contesta
+    respuesta en el CHR del segundo etapa, con el MISMO cuerpo que en el primero contesta
     200). El guion va al final de todo y justo antes de la credencial --que es el
-    intercambio que cierra--, porque es la escritura que puede dejar al equipo sin camino un
+    intercambio que cierra--, porque es la escritura que puede dejar al equipo sin túnel un
     instante: lo que se pueda dar hecho antes, hecho está. Y va declarando que puede no
     contestar (`tolerar_sin_respuesta`): quien prueba el efecto es la RELECTURA.
 
@@ -2334,32 +2339,32 @@ def _intercambio_de_la_gestion(operaciones, declaracion, invitado, leido):
     """
     operaciones = [dict(operacion) for operacion in (operaciones or [])]
     areas = (leido or {}).get("areas") or {}
-    direcciones_leidas = areas.get("direcciones") or {}
+    direcciones_leidas = areas.get("addresses") or {}
     dinamicas = {
-        _sin_prefijo((entrada or {}).get("direccion"))
+        _sin_prefijo((entrada or {}).get("address"))
         for entrada in direcciones_leidas.get("dinamicas") or []
     }
-    propia = _sin_prefijo((invitado or {}).get("direccion"))
-    cliente_vivo = bool((areas.get("cliente_dhcp") or {}).get("habilitado"))
+    propia = _sin_prefijo((guest or {}).get("address"))
+    cliente_vivo = bool((areas.get("dhcp_client") or {}).get("habilitado"))
 
     apagones = [
         operacion for operacion in operaciones
-        if operacion.get("op") == "deshabilitar_cliente_dhcp"
+        if operacion.get("op") == "disable_dhcp_client"
     ]
     choque = None
     for operacion in operaciones:
-        if operacion.get("op") != "poner_direccion":
+        if operacion.get("op") != "add_address":
             continue
-        if str(operacion.get("interfaz")) != INTERFAZ_GESTION_ROUTEROS:
+        if str(operacion.get("interface")) != INTERFAZ_GESTION_ROUTEROS:
             continue
-        if _sin_prefijo(operacion.get("direccion")) in dinamicas:
+        if _sin_prefijo(operacion.get("address")) in dinamicas:
             choque = operacion
     # El residuo: la entrada dinámica que dejó un cliente YA retirado. Sin cliente que
     # quitar, lo que hay que soltar es la entrada -- y lo dice la LECTURA, no la memoria.
     # Si la dirección ya está puesta como ESTÁTICA, no hay nada que soltar: pedirlo sería una
     # llamada de más en cada pasada, y la idempotencia vive de no tenerlas.
     estaticas = {
-        _sin_prefijo((entrada or {}).get("direccion"))
+        _sin_prefijo((entrada or {}).get("address"))
         for entrada in direcciones_leidas.get("estaticas") or []
     }
     residuo = (
@@ -2369,12 +2374,12 @@ def _intercambio_de_la_gestion(operaciones, declaracion, invitado, leido):
         return operaciones
 
     lineas = [
-        # Los clientes que hay que quitar, por interfaz: el op dice QUE hay que quitarlo y la
+        # Los clientes que hay que quitar, por interface: el op dice QUE hay que quitarlo y la
         # LECTURA dice dónde está (su mapa de `.id`s por interfaz), que es lo que el guion
         # necesita para encontrarlo.
         f"/ip dhcp-client remove [find interface={interfaz}]"
         for interfaz in (
-            sorted(((areas.get("cliente_dhcp") or {}).get("ids") or {}).keys())
+            sorted(((areas.get("dhcp_client") or {}).get("ids") or {}).keys())
             if apagones else []
         )
     ]
@@ -2388,12 +2393,12 @@ def _intercambio_de_la_gestion(operaciones, declaracion, invitado, leido):
         lineas.append(":delay 2s")
     if choque is not None:
         lineas.append(
-            f"/ip address add address={choque.get('direccion')} "
-            f"interface={choque.get('interfaz')}"
+            f"/ip address add address={choque.get('address')} "
+            f"interface={choque.get('interface')}"
         )
 
     guion = {
-        "op": "ejecutar_guion", "area": "direcciones", "lineas": lineas,
+        "op": "run_script", "area": "addresses", "lineas": lineas,
         "tolerar_sin_respuesta": True,
         "descripcion": "el intercambio de la dirección de gestión, dentro del router y de una vez",
     }
@@ -2402,34 +2407,34 @@ def _intercambio_de_la_gestion(operaciones, declaracion, invitado, leido):
     # segunda, con el duplicado que RouterOS rechaza--.
     fuera = [
         operacion for operacion in operaciones
-        if operacion.get("op") != "deshabilitar_cliente_dhcp" and operacion is not choque
+        if operacion.get("op") != "disable_dhcp_client" and operacion is not choque
     ]
     # Y el guion, al final, pero por delante de la credencial: el cambio de credencial deja
     # sin credencial a cualquier escritura posterior (medido: un 401 tolerado que se queda
     # sin hacer), así que la credencial sigue siendo lo ÚLTIMO que se toca.
     donde = len(fuera)
     for posicion, operacion in enumerate(fuera):
-        if operacion.get("op") == "poner_credencial_motor":
+        if operacion.get("op") == "set_engine_credential":
             donde = posicion
             break
     fuera.insert(donde, guion)
     return fuera
 
 
-def escrituras_routeros(operaciones, invitado, declaracion, identidad, parametros, leido):
+def escrituras_routeros(operaciones, guest, declaracion, identidad, parametros, leido):
     """(operaciones decididas) -> llamadas al REST, en orden.
 
     Aquí está el ÚNICO sitio donde el vocabulario del lab se traduce a objetos de
     RouterOS (`/ip/address/add`, `/ip/dhcp-server/lease/set`...). El lab declara qué
     quiere; esto dice cómo se pide. Cada llamada sale con su `metodo`, su `ruta` y su
-    `cuerpo`, y la puerta la diariza igual que cualquier otra.
+    `cuerpo`, y la vía de acceso la diariza igual que cualquier otra.
 
     Trampas ya pagadas y no repetidas (medidas en v3 y re-medidas en esta fase):
       * escribir una ruta se hace con `POST /add` (un `PUT` a la ruta de las rutas
         responde 400 «no such command»: comprobado en un CHR 7.25.1);
       * RouterOS no tiene «crear o actualizar»: si el objeto no está, se AÑADE, y si
         está, se MODIFICA -- y eso se decide aquí, con lo que se leyó;
-      * `www` no se deshabilita: es donde vive el REST, o sea el camino de vuelta;
+      * `www` no se deshabilita: es donde vive el REST, o sea el túnel de vuelta;
       * una estática que duplica una dinámica se RECHAZA, y por eso el intercambio de la
         dirección de gestión se le manda al router ENTERO y de una vez, como un guion
         (ver `_intercambio_de_la_gestion`).
@@ -2453,7 +2458,7 @@ def escrituras_routeros(operaciones, invitado, declaracion, identidad, parametro
             "descripcion": descripcion,
         }
         if dirigirse_a:
-            item["direccion"] = dirigirse_a
+            item["address"] = dirigirse_a
         if operacion.get("tolerar_sin_respuesta"):
             item["tolerar_sin_respuesta"] = True
         llamadas.append(item)
@@ -2461,10 +2466,10 @@ def escrituras_routeros(operaciones, invitado, declaracion, identidad, parametro
         # después (la relectura que se marca como `accion: leer`).
         return item
 
-    # La dirección de gestión la deriva el motor del `direccion:` del invitado (ver
+    # La dirección de gestión la deriva el motor del `address:` del invitado (ver
     # `pasos_de_convergencia`), así que la capa pura ya la tiene en el invitado normalizado.
     operaciones = _intercambio_de_la_gestion(
-        operaciones, declaracion, invitado, leido
+        operaciones, declaracion, guest, leido
     )
 
     for operacion in operaciones or []:
@@ -2472,87 +2477,87 @@ def escrituras_routeros(operaciones, invitado, declaracion, identidad, parametro
         area = str((operacion or {}).get("area") or "")
         dirigirse_a = str((operacion or {}).get("dirigirse_a") or "")
 
-        if op == "ejecutar_guion":
+        if op == "run_script":
             # El intercambio de la dirección de gestión, de UNA vez y dentro del router: él
             # quita su cliente DHCP, suelta la entrada dinámica que ese cliente dejó y pone
             # la estática, todo en la misma ejecución. Medido en un CHR 7.25.1: por pasos
             # desde fuera no se puede --quitar el cliente se lleva la dirección y la petición
             # muere sin contestar--, y un guion sí, porque corre entero dentro del equipo.
-            llamada(area or "direcciones", "POST", "/execute",
+            llamada(area or "addresses", "POST", "/execute",
                     {"script": "; ".join(operacion.get("lineas") or [])},
                     str(operacion.get("descripcion") or "el intercambio de la dirección de gestión"))
 
-        elif op == "poner_identidad":
+        elif op == "set_identity":
             llamada(area, "POST", "/system/identity/set",
                     {"name": str(operacion.get("nombre"))},
                     f"poner el nombre del equipo a '{operacion.get('nombre')}'")
 
-        elif op == "crear_usuario_motor":
+        elif op == "create_engine_user":
             # Se crea CON la credencial del motor puesta: crear un usuario sin contraseña
             # y ponérsela después deja una ventana en la que el equipo está abierto.
             llamada(area, "POST", "/user/add",
                     {"name": usuario, "group": "full", "password": clave},
                     f"crear el usuario del motor ('{usuario}') con su credencial")
 
-        elif op == "poner_credencial_motor":
+        elif op == "set_engine_credential":
             llamada(area, "POST", "/user/set",
                     {"numbers": usuario, "password": clave},
                     "poner la credencial del motor en el usuario del motor")
 
-        elif op == "importar_clave_motor":
+        elif op == "import_engine_key":
             llamada(area, "POST", "/user/ssh-keys/add",
                     {"user": usuario, "key": clave_publica},
                     "importar la clave pública del motor (sólo para depurar: se converge por REST)")
 
-        elif op in ("deshabilitar_servicio", "habilitar_servicio"):
+        elif op in ("disable_service", "enable_service"):
             servicio = str(operacion.get("servicio"))
-            identificador = ((areas.get("servicios") or {}).get("ids") or {}).get(servicio) or servicio
-            apagado = "yes" if op == "deshabilitar_servicio" else "no"
+            identificador = ((areas.get("ip_services") or {}).get("ids") or {}).get(servicio) or servicio
+            apagado = "yes" if op == "disable_service" else "no"
             llamada(area, "POST", "/ip/service/set",
                     {"numbers": identificador, "disabled": apagado},
                     f"{'deshabilitar' if apagado == 'yes' else 'habilitar'} el servicio '{servicio}'")
 
-        # (aquí no hay traducción de `deshabilitar_cliente_dhcp`, y es a propósito: al cliente
+        # (aquí no hay traducción de `disable_dhcp_client`, y es a propósito: al cliente
         # de fábrica no se le apaga desde fuera -- apagarlo se lleva la dirección y la petición
         # muere sin contestar --, se le QUITA dentro del guion del intercambio, junto a la
         # estática que hay que poner en su lugar: ver `_intercambio_de_la_gestion`)
-        elif op == "poner_direccion":
+        elif op == "add_address":
             llamada(area, "POST", "/ip/address/add",
-                    {"address": str(operacion.get("direccion")),
-                     "interface": str(operacion.get("interfaz"))},
-                    f"poner la dirección {operacion.get('direccion')} en {operacion.get('interfaz')}")
+                    {"address": str(operacion.get("address")),
+                     "interface": str(operacion.get("interface"))},
+                    f"poner la dirección {operacion.get('address')} en {operacion.get('interface')}")
 
-        elif op == "quitar_direccion":
-            clave_id = _ros_clave(operacion.get("interfaz"), operacion.get("direccion"))
+        elif op == "remove_address":
+            clave_id = _ros_clave(operacion.get("interface"), operacion.get("address"))
             identificador = str(operacion.get("id") or "") or (
-                ((areas.get("direcciones") or {}).get("ids") or {}).get(clave_id)
+                ((areas.get("addresses") or {}).get("ids") or {}).get(clave_id)
             )
             llamada(area, "POST", "/ip/address/remove",
-                    {"numbers": identificador or str(operacion.get("direccion"))},
-                    f"quitar la dirección {operacion.get('direccion')} de {operacion.get('interfaz')}")
+                    {"numbers": identificador or str(operacion.get("address"))},
+                    f"quitar la dirección {operacion.get('address')} de {operacion.get('interface')}")
 
-        elif op == "poner_ruta":
+        elif op == "add_route":
             llamada(area, "POST", "/ip/route/add",
-                    {"dst-address": str(operacion.get("destino")),
-                     "gateway": str(operacion.get("pasarela"))},
-                    f"poner la ruta {operacion.get('destino')} por {operacion.get('pasarela')}")
+                    {"dst-address": str(operacion.get("dst_address")),
+                     "gateway": str(operacion.get("gateway"))},
+                    f"poner la ruta {operacion.get('dst_address')} por {operacion.get('gateway')}")
 
-        elif op == "quitar_ruta":
-            clave_id = _ros_clave(operacion.get("destino"), operacion.get("pasarela"))
-            identificador = ((areas.get("rutas") or {}).get("ids") or {}).get(clave_id)
+        elif op == "remove_route":
+            clave_id = _ros_clave(operacion.get("dst_address"), operacion.get("gateway"))
+            identificador = ((areas.get("routes") or {}).get("ids") or {}).get(clave_id)
             llamada(area, "POST", "/ip/route/remove",
-                    {"numbers": identificador or str(operacion.get("destino"))},
-                    f"quitar la ruta {operacion.get('destino')} por {operacion.get('pasarela')}")
+                    {"numbers": identificador or str(operacion.get("dst_address"))},
+                    f"quitar la ruta {operacion.get('dst_address')} por {operacion.get('gateway')}")
 
-        elif op == "poner_masquerade":
-            interfaz = str(operacion.get("interfaz"))
+        elif op == "add_masquerade":
+            interfaz = str(operacion.get("interface"))
             llamada(area, "POST", "/ip/firewall/nat/add",
                     {"chain": "srcnat", "out-interface": interfaz,
                      "action": "masquerade", "comment": MARCA_EXTERIOR},
                     f"traducir lo que sale del lab por {interfaz} (masquerade): sus "
                     "direcciones son privadas y sin esto la respuesta no vuelve")
 
-        elif op == "activar_resolutor":
+        elif op == "enable_dns_resolver":
             servidores = [str(s) for s in (operacion.get("servidores") or []) if str(s)]
             cuerpo = {"allow-remote-requests": "yes"}
             if servidores:
@@ -2561,11 +2566,11 @@ def escrituras_routeros(operaciones, invitado, declaracion, identidad, parametro
                     "encender el resolutor DNS y decirle a quién preguntar: los invitados "
                     "que salen por aquí le preguntan a él")
 
-        elif op == "poner_servidor_dhcp":
-            interfaz = str(operacion.get("interfaz"))
+        elif op == "add_dhcp_server":
+            interfaz = str(operacion.get("interface"))
             rango = str(operacion.get("rango") or "")
             nombre_pool = PREFIJO_POOL + rango.split("-")[0]
-            pools = ((areas.get("dhcp") or {}).get("pools") or {})
+            pools = ((areas.get("dhcp_server") or {}).get("pools") or {})
             if nombre_pool in pools:
                 llamada(area, "POST", "/ip/pool/set",
                         {"numbers": pools[nombre_pool]["id"] or nombre_pool, "ranges": rango},
@@ -2575,8 +2580,8 @@ def escrituras_routeros(operaciones, invitado, declaracion, identidad, parametro
                         {"name": nombre_pool, "ranges": rango},
                         f"declarar el rango que reparte el router ({rango})")
             existente = None
-            for servidor in (areas.get("dhcp") or {}).get("servidores") or []:
-                if str(servidor.get("interfaz")) == interfaz:
+            for servidor in (areas.get("dhcp_server") or {}).get("servidores") or []:
+                if str(servidor.get("interface")) == interfaz:
                     existente = servidor
                     break
             cuerpo = {"interface": interfaz, "address-pool": nombre_pool, "disabled": "no"}
@@ -2589,69 +2594,69 @@ def escrituras_routeros(operaciones, invitado, declaracion, identidad, parametro
                 llamada(area, "POST", "/ip/dhcp-server/add", cuerpo,
                         f"servir DHCP en {interfaz} desde el rango {rango}")
 
-        elif op == "quitar_servidor_dhcp":
-            interfaz = str(operacion.get("interfaz"))
-            for servidor in (areas.get("dhcp") or {}).get("servidores") or []:
-                if str(servidor.get("interfaz")) == interfaz:
+        elif op == "remove_dhcp_server":
+            interfaz = str(operacion.get("interface"))
+            for servidor in (areas.get("dhcp_server") or {}).get("servidores") or []:
+                if str(servidor.get("interface")) == interfaz:
                     llamada(area, "POST", "/ip/dhcp-server/remove",
                             {"numbers": servidor.get("id") or interfaz},
                             f"dejar de servir DHCP en {interfaz} (ya no se declara)")
 
-        elif op == "poner_red_dhcp":
+        elif op == "add_dhcp_network":
             dns = operacion.get("dns") or []
             cuerpo = {
-                "address": str(operacion.get("prefijo")),
-                "gateway": str(operacion.get("pasarela")),
+                "address": str(operacion.get("address")),
+                "gateway": str(operacion.get("gateway")),
                 "dns-server": ",".join(str(d) for d in dns),
             }
             existente = None
-            for servidor in (areas.get("dhcp") or {}).get("servidores") or []:
-                if str((servidor.get("red") or {}).get("prefijo")) == str(operacion.get("prefijo")):
-                    existente = (servidor.get("red") or {}).get("id")
+            for servidor in (areas.get("dhcp_server") or {}).get("servidores") or []:
+                if str((servidor.get("network") or {}).get("address")) == str(operacion.get("address")):
+                    existente = (servidor.get("network") or {}).get("id")
                     break
             if existente:
                 llamada(area, "POST", "/ip/dhcp-server/network/set",
                         dict(cuerpo, numbers=existente),
-                        f"anunciar la red {operacion.get('prefijo')} con pasarela {operacion.get('pasarela')}")
+                        f"anunciar la red {operacion.get('address')} con pasarela {operacion.get('gateway')}")
             else:
                 llamada(area, "POST", "/ip/dhcp-server/network/add", cuerpo,
-                        f"anunciar la red {operacion.get('prefijo')} con pasarela {operacion.get('pasarela')}")
+                        f"anunciar la red {operacion.get('address')} con pasarela {operacion.get('gateway')}")
 
-        elif op == "poner_reserva":
+        elif op == "add_static_lease":
             mac = str(operacion.get("mac"))
-            interfaz = str(operacion.get("interfaz"))
-            # El servidor que reserva: el que ya está (leído), y si no, el que esta MISMA
+            interfaz = str(operacion.get("interface"))
+            # El servidor que static_lease: el que ya está (leído), y si no, el que esta MISMA
             # pasada acaba de crear (su nombre es derivado, no hay que adivinarlo). Nunca
             # `all`: una reserva sin servidor la puede servir cualquiera de las dos LANs.
             servidor = PREFIJO_POOL + interfaz if interfaz else ""
-            for candidato in (areas.get("dhcp") or {}).get("servidores") or []:
-                if str(candidato.get("interfaz")) == interfaz:
+            for candidato in (areas.get("dhcp_server") or {}).get("servidores") or []:
+                if str(candidato.get("interface")) == interfaz:
                     servidor = str(candidato.get("nombre") or servidor)
                     break
             existente = None
-            for reserva in (areas.get("dhcp") or {}).get("reservas") or []:
+            for reserva in (areas.get("dhcp_server") or {}).get("static_leases") or []:
                 if str(reserva.get("mac")).upper() == mac.upper():
                     existente = reserva.get("id")
                     break
             cuerpo = {
-                "address": str(operacion.get("direccion")),
+                "address": str(operacion.get("address")),
                 "mac-address": mac,
-                # La reserva se ata al servidor de ESA interfaz: un router con dos LANs
+                # La reserva se ata al servidor de ESA interface: un router con dos LANs
                 # no puede reservar en la primera lo que vive en la segunda.
                 "server": servidor or "all",
             }
             if existente:
                 llamada(area, "POST", "/ip/dhcp-server/lease/set",
                         dict(cuerpo, numbers=existente),
-                        f"reservar {operacion.get('direccion')} a la MAC derivada {mac}")
+                        f"reservar {operacion.get('address')} a la MAC derivada {mac}")
             else:
                 llamada(area, "POST", "/ip/dhcp-server/lease/add", cuerpo,
-                        f"reservar {operacion.get('direccion')} a la MAC derivada {mac}")
+                        f"reservar {operacion.get('address')} a la MAC derivada {mac}")
 
-        elif op == "quitar_reserva":
+        elif op == "remove_static_lease":
             mac = str(operacion.get("mac"))
             identificador = None
-            for reserva in (areas.get("dhcp") or {}).get("reservas") or []:
+            for reserva in (areas.get("dhcp_server") or {}).get("static_leases") or []:
                 if str(reserva.get("mac")).upper() == mac.upper():
                     identificador = reserva.get("id")
                     break
@@ -2682,7 +2687,7 @@ DRIVERS = {
 def tiene_driver(via, tipo):
     """¿Este motor sabe ejecutar un paso de esa vía (y, si es interior, de ese tipo)?"""
     via = via or "api"
-    if via in ("api", "camino"):
+    if via in ("api", "tunnel"):
         return True
     if via == "interior":
         return tipo in DRIVERS.get("interior", set())
@@ -2702,7 +2707,7 @@ def pasos_sin_driver(pasos):
     ]
 
 
-def invitados_a_verificar(declaracion):
+def guests_a_verificar(declaracion):
     """Los invitados que hay que MIRAR por dentro, para `verify` (regla 11 del README de
     verificación): los que declaran `config` con áreas que piden visita.
 
@@ -2710,18 +2715,18 @@ def invitados_a_verificar(declaracion):
     que no hay nada que preguntarle no se le abre una conexión -- ni siquiera para
     leer. Devuelve `[{'rol': …, 'tipo': …}]` en el orden de la declaración.
     """
-    # La declaración normalizada trae `invitados` (una sola lista, con el tipo ya
+    # La declaración normalizada trae `guests` (una sola lista, con el tipo ya
     # resuelto); la cruda trae `vms` + `containers`. Se aceptan las dos para que la
     # función sirva igual desde `verify` (normalizada) y desde una prueba (cruda).
-    if "invitados" in declaracion:
-        candidatos = declaracion.get("invitados") or []
+    if "guests" in declaracion:
+        candidatos = declaracion.get("guests") or []
     else:
         candidatos = list(declaracion.get("vms") or []) + list(declaracion.get("containers") or [])
     fuera = []
-    for invitado in candidatos:
-        tipo = tipo_de(invitado)
-        if tipo and areas_que_piden_visita(invitado):
-            fuera.append({"rol": invitado.get("rol"), "tipo": tipo})
+    for guest in candidatos:
+        tipo = tipo_de(guest)
+        if tipo and areas_que_piden_visita(guest):
+            fuera.append({"rol": guest.get("rol"), "tipo": tipo})
     return fuera
 
 
@@ -2737,7 +2742,7 @@ def informe_ok(informe_interior):
 
 
 def sin_comprobar(entradas, motivo):
-    """El informe del interior cuando NO se pudo mirar (p. ej. el camino del lab no
+    """El informe del interior cuando NO se pudo mirar (p. ej. el túnel del lab no
     responde): cada invitado a verificar queda como «no alcanzable» con el motivo. No se
     aprueba lo que no se ha mirado, así que el veredicto de `verify` cae por su propio
     peso en vez de dar por bueno lo que nadie ha comprobado."""
@@ -2778,23 +2783,23 @@ class FilterModule:
             "interior_tiene_driver": tiene_driver,
             "interior_configuracion_dnsmasq": configuracion_dnsmasq,
             "interior_declara": declara_interior,
-            "interior_tiene_camino": tiene_camino,
-            "interior_puesto_control": puesto_control,
+            "interior_tiene_tunnel": tiene_tunnel,
+            "interior_bastion": bastion,
             "interior_direccion_libre": direccion_libre,
-            "interior_patas": patas_del_puesto_control,
+            "interior_interfaces": interfaces_del_bastion,
             "interior_salida": salida_derivada,
-            "interior_puerto_camino": puerto_camino,
-            "interior_puerto_rest": puerto_rest_camino,
+            "interior_puerto_tunnel": puerto_tunnel,
+            "interior_puerto_rest": puerto_rest_tunnel,
             "interior_permitlisten": permitlisten_de,
-            "interior_patas_rest": patas_rest_del_puesto_control,
-            "interior_guion_camino": guion_camino,
+            "interior_interfaces_rest": interfaces_rest_del_bastion,
+            "interior_guion_tunnel": guion_tunnel,
             "interior_linea_consola": linea_consola,
-            "interior_marca_camino": marca_camino,
+            "interior_marca_tunnel": marca_tunnel,
             "interior_reservas": reservas_derivadas,
             "interior_residuo": residuo_dinamico,
             "interior_pasos": pasos_de_convergencia,
             "interior_espera": espera_de_servicio,
-            "interior_a_verificar": invitados_a_verificar,
+            "interior_a_verificar": guests_a_verificar,
             "interior_informe_ok": informe_ok,
             "interior_sin_comprobar": sin_comprobar,
         }

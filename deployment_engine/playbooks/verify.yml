@@ -28,21 +28,21 @@
       ansible.builtin.include_tasks: ../tasks/validar.yml
 
     - name: "VERIFY · leer el mundo y re-derivar la identidad"
-      ansible.builtin.include_tasks: ../tasks/identidad.yml
+      ansible.builtin.include_tasks: ../tasks/identity.yml
 
-    # La clave PÚBLICA del camino: el área `identidad` de un RouterOS la declara, y sin
+    # La clave PÚBLICA del tunnel: el área `identity` de un RouterOS la declara, y sin
     # leerla aquí el interior parecería no tenerla -- un falso drift. `plan` y `preflight`
     # ya la leen así, y sólo leerla no escribe nada, ni en el invitado ni en casa.
-    - name: "VERIFY · leer la clave pública del camino (para poder compararla DENTRO)"
-      ansible.builtin.include_tasks: ../tasks/camino.yml
+    - name: "VERIFY · leer la clave pública del túnel (para poder compararla DENTRO)"
+      ansible.builtin.include_tasks: ../tasks/tunnel.yml
       vars:
-        camino_solo_clave: true
-        camino_clave_generar: false
-        camino_clave: "{{ engine_camino_clave_base }}_{{ pve_lab }}_ed25519"
-      when: (declaracion.camino | default({}, true) | length) > 0
+        tunnel_solo_clave: true
+        tunnel_clave_generar: false
+        tunnel_clave: "{{ engine_tunnel_clave_base }}_{{ pve_lab }}_ed25519"
+      when: (declaracion.tunnel | default({}, true) | length) > 0
 
     # Los MISMOS parámetros que usa `apply` (mismos nombres, mismos valores): el driver
-    # del interior los necesita para resolver direcciones, MAC y camino. Si divergieran,
+    # del interior los necesita para resolver direcciones, MAC y túnel. Si divergieran,
     # `verify` estaría midiendo otra cosa que la que `apply` construyó.
     - name: "VERIFY · parámetros del entorno (los mismos que usa `apply`)"
       ansible.builtin.set_fact:
@@ -52,19 +52,19 @@
           comentario_pool: "topología gestionada por netlabs_v4_b (motor por API)"
           comentario_bridge: "{{ engine_plantilla_comentario_bridge }}"
           bridge_gestion: "{{ pve_bridge_gestion | default('') }}"
-          camino_host: "{{ pve_camino_salida_host | default('') }}"
-          camino_puerto: "{{ pve_camino_salida_puerto | default(443) }}"
-          camino_usuario: "{{ pve_camino_usuario | default('') }}"
-          camino_puerto_base: "{{ engine_camino_puerto_base }}"
-          camino_rest_puerto_base: "{{ engine_camino_rest_puerto_base }}"
+          tunnel_host: "{{ pve_tunnel_salida_host | default('') }}"
+          tunnel_puerto: "{{ pve_tunnel_salida_puerto | default(443) }}"
+          tunnel_usuario: "{{ pve_tunnel_usuario | default('') }}"
+          tunnel_puerto_base: "{{ engine_tunnel_puerto_base }}"
+          tunnel_rest_puerto_base: "{{ engine_tunnel_rest_puerto_base }}"
           mac_prefijo: "{{ engine_prefijo_mac }}"
-          camino_clave: "{{ engine_camino_clave_base }}_{{ pve_lab }}_ed25519"
+          tunnel_clave: "{{ engine_tunnel_clave_base }}_{{ pve_lab }}_ed25519"
           rol_control: "{{ engine_rol_control }}"
           almacenamiento_imagen: "{{ engine_almacenamiento_imagen }}"
-          camino_clave_publica: "{{ camino_clave_publica | default('') }}"
+          tunnel_clave_publica: "{{ tunnel_clave_publica | default('') }}"
 
-    - name: "VERIFY · leer si el camino del lab está en pie (para poder mirar dentro)"
-      ansible.builtin.include_tasks: ../tasks/camino_mundo.yml
+    - name: "VERIFY · leer si el túnel del lab está en pie (para poder mirar dentro)"
+      ansible.builtin.include_tasks: ../tasks/tunnel_probe.yml
 
     # Aquí sí hay que parar si no hay mundo: pero el informe se deja igual, porque
     # "no se pudo leer" es también un resultado y hay que poder demostrarlo.
@@ -90,7 +90,7 @@
             leer la API no se puede comparar con nada: el resultado honesto es un
             fallo, no un aprobado.
           no_verificable:
-            - "todo: sin estado del mundo no se ha comprobado ni un invitado"
+            - "todo: sin estado del mundo no se ha comprobado ni un guest"
       when: (pve_mundo_error | default('') | length) > 0
 
     - name: "VERIFY · resumen humano sin estado del mundo"
@@ -122,22 +122,22 @@
 
     # --- EL INTERIOR, comprobado DENTRO (y sin tocar nada) --------------------------
     # `verify` mira en los DOS mundos: el de la API (abajo) y el de dentro de cada
-    # invitado. Se relee cada invitado por su puerta con el MISMO driver que usa
+    # invitado. Se relee cada invitado por su pasarela con el MISMO driver que usa
     # `apply`, en modo `solo_leer` --no escribe nada: comprobar no cambia el mundo
     # (regla 6)--, y se compara la lectura con lo declarado en los DOS sentidos. Si el
-    # camino no responde, no se entra: se anota «no comprobable» en vez de aprobar a
-    # ciegas. `verify` NO construye el camino (eso es de `apply`).
-    # Si el camino no responde, los invitados no se pueden leer por dentro. NO se pasa
+    # túnel no responde, no se entra: se anota «no comprobable» en vez de aprobar a
+    # ciegas. `verify` NO construye el túnel (eso es de `apply`).
+    # Si el túnel no responde, los invitados no se pueden leer por dentro. NO se pasa
     # por alto: se anota cada uno como «no comprobable» y el veredicto cae -- verificar
-    # no es aprobar lo que no se ha mirado. Quien reconstruye el camino es `apply`.
-    - name: "VERIFY · si el camino no responde, anotar lo que NO se ha podido mirar"
+    # no es aprobar lo que no se ha mirado. Quien reconstruye el túnel es `apply`.
+    - name: "VERIFY · si el túnel no responde, anotar lo que NO se ha podido mirar"
       ansible.builtin.set_fact:
         interior_informe: >-
           {{ declaracion | interior_a_verificar
-             | interior_sin_comprobar('el camino del lab no responde: `./lab --lab '
+             | interior_sin_comprobar('el tunnel del lab no responde: `./lab --lab '
                ~ pve_lab ~ ' apply` lo reconstruye') }}
       when: >-
-        not (estado.camino.responde | default(false))
+        not (estado.tunnel.responde | default(false))
         and (declaracion | interior_a_verificar | length) > 0
 
     - name: "VERIFY · mirar dentro de cada invitado que declara config (sin escribir)"
@@ -148,7 +148,7 @@
       vars:
         interior_rol: "{{ interior_entrada.rol }}"
         interior_tipo_verificar: "{{ interior_entrada.tipo }}"
-      when: estado.camino.responde | default(false)
+      when: estado.tunnel.responde | default(false)
 
     - name: "VERIFY · comparar la declaración con la API (en los dos sentidos)"
       ansible.builtin.set_fact:

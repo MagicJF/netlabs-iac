@@ -9,7 +9,7 @@
 #              vmid ni ninguna MAC (regla 11): los deriva el motor del estado real.
 # LÍMITES:     el CHR no declara más áreas que las mínimas para ser alcanzable, así que el
 #              motor lo deja convergido pero sin servir ninguna red. Aun así necesita el
-#              puesto de control: es quien le da la PRIMERA dirección por DHCP (reserva por
+#              bastión: es quien le da la PRIMERA dirección por DHCP (reserva por
 #              su MAC derivada) y quien lee su consola. Sin él, un CHR de fábrica no es
 #              alcanzable ni por REST ni por serie.
 # VER:         labs/05_research/05_research.md (el experimento y lo que se mida)
@@ -17,22 +17,22 @@
 lab:
   nombre: 05_research
 
-  # Un escalón: el puesto de control y el CHR caben juntos (el CHR pide DHCP sin parar
+  # Un etapa: el bastión y el CHR caben juntos (el CHR pide DHCP sin parar
   # hasta que le contestan, así que no hay carrera que perder).
-  escalones: [1]
+  stages: [1]
 
   # Espacio propio, sin pisar el de los otros labs (lo vigila `check colisiones`).
-  supernet: 10.41.0.0/16
+  address_space: 10.41.0.0/16
 
   # El bridge del lab. Si ya existiera en el nodo, no se tocaría.
   bridges:
     - nombre: vmb_research
-      direccion: 10.41.0.1/24
+      address: 10.41.0.1/24
 
-  # El camino lo construye el motor: un invitado con `config.linux.camino` sale hacia casa
+  # El túnel lo construye el motor: un invitado con `config.linux.túnel` sale hacia casa
   # por su cuenta y hace de bastión del lab. Por dónde sale (host y puerto) es ENTORNO --
   # la casa es una y los labs son muchos -- así que vive en secrets.yml y no aquí.
-  camino: {tipo: puesto_control}
+  tunnel: {tipo: bastion}
 
 vms:
   # LA VM QUE SE INVESTIGA. Se declara como RouterOS porque de ahí --de lo que el invitado
@@ -42,44 +42,44 @@ vms:
   - rol: chr-agente
     tipo: rt          # es un router CHR -> el nombre empieza por 'rt-'
     nombre: agente    # y se llama 'rt-agente' en Proxmox
-    escalon: 1
+    stage: 1
     cores: 1
-    memoria: 512
-    disco: 1
+    memory: 512
+    disk: 1
     # La misma imagen de fábrica que usa el lab de aceptación: si el agente no está aquí,
     # no está en ningún CHR de esta versión.
-    imagen: chr-7.25.1.raw
+    image: chr-7.25.1.raw
     bridges: [vmb_research]
-    direccion: 10.41.0.11/24
+    address: 10.41.0.11/24
     config:
       routeros:
-        identidad: rt-agente
-        # `www` (que es donde vive REST) NO se toca: es el camino de vuelta del motor.
-        servicios: {deshabilitar: [telnet, ftp, api, api-ssl]}
+        identity: rt-agente
+        # `www` (que es donde vive REST) NO se toca: es el túnel de vuelta del motor.
+        ip_services: {deshabilitar: [telnet, ftp, api, api-ssl]}
         # El cliente DHCP de fábrica se apaga DESPUÉS de tener la dirección: mientras el
         # motor no haya entrado, es la única forma de que el equipo sea alcanzable.
-        cliente_dhcp: {deshabilitar: true}
+        dhcp_client: {deshabilitar: true}
 
 containers:
-  # El puesto de control: la única pata que el motor necesita para ENTRAR en el lab. Corre
+  # El bastión: la única interfaz que el motor necesita para ENTRAR en el lab. Corre
   # el DHCP que le da al CHR su primera dirección y por él sale el túnel que el motor lee.
   - rol: control
-    tipo: ctl         # un puesto de control (el bastión del lab) -> el nombre empieza por 'ctl-'
+    tipo: ctl         # un bastión (el bastión del lab) -> el nombre empieza por 'ctl-'
     nombre: 1         # -> 'ctl-1'
-    escalon: 1
+    stage: 1
     cores: 1
-    memoria: 512
-    disco: 4
+    memory: 512
+    disk: 4
     bridge: vmb_research
-    direccion: 10.41.0.10/24
+    address: 10.41.0.10/24
     config:
       linux:
-        # Vacío a propósito: que hay camino lo dice la clave, no su contenido.
-        camino: {}
+        # Vacío a propósito: que hay túnel lo dice la clave, no su contenido.
+        tunnel: {}
         # El que da la PRIMERA dirección: reserva, por la MAC derivada del CHR, la
         # dirección que ese CHR declara. Es lo que cierra el círculo del arranque en frío.
-        dhcp_servidor:
-          interfaz: eth0
+        dhcp_server:
+          interface: eth0
           rango: 10.41.0.50-10.41.0.99
-          reservas: derivadas
-        reenvio: true
+          static_leases: derived
+        ip_forward: true

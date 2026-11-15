@@ -1,171 +1,171 @@
 {
   "AGENTS.md": {
     "citados": {
-      "deployment_engine/tasks/camino_consola.yml": "b57884ee2ec84f1f4183b732a6abf43b49b99a8b714aa544619cef16fee32e91",
-      "deployment_engine/tasks/interior_ssh.yml": "546e433693a00c6aa4da798c5a829bac70316cbb1e5b637b4f758ae2d49ef826",
-      "deployment_engine/tasks/pve_api.yml": "4628a91b351f10d2f28bf99a40973ae6fa8255e1ed79827d8a8174ff323df6d7",
-      "deployment_engine/tasks/ros_api.yml": "e6feb51074fb7178407251918147b903d535d544b9fae204797bc5252d966360",
-      "deployment_engine/templates/lab-region.md.j2": "a6eda0de17352330b74a905cbb626cd8b6a990668b5ff6319133a1b135e00de2",
-      "deployment_engine/tools/documentos.py": "e2570908b54f9b60bcede738376125b2f43b1f25afad9a6bc17b25133137479c"
+      "deployment_engine/tasks/console.yml": "0ad0b90da3f9d016f6600dbe902df120fb18a03cb131090746461b173f1b90ca",
+      "deployment_engine/tasks/interior_ssh.yml": "e030ed1a90209e3c470c8a27084e8545d8ad9c6b51f3fb25dc7ce7bbdb14a49b",
+      "deployment_engine/tasks/pve_api.yml": "c0c8c72456cf611df87135aca13297d40023adfc99fbb44d090f204545223aca",
+      "deployment_engine/tasks/ros_api.yml": "9a6fd6a59c68be9d155181582df80fbea03ef570393469791e97238a7d410b2b",
+      "deployment_engine/templates/lab-region.md.j2": "8c79cb0f0109fc41ee6263a12ada377b67a5d98b3924386118af1ebed729f86d",
+      "deployment_engine/tools/documentos.py": "46f20133cb903f23b6317c01136a41dfaf9d9edfcac92c9dc9176b77f0c5a14c"
     }
   },
   "GOAL-capa-de-configuracion.md": {
     "citados": {
-      "deployment_engine/tasks/pve_api.yml": "4628a91b351f10d2f28bf99a40973ae6fa8255e1ed79827d8a8174ff323df6d7",
-      "deployment_engine/tools/framework_check.py": "3a98804c73bc932a9ab6cc57aa222322062de7cb71918fdd78aab7d2d1dbfcc4",
-      "deployment_engine/tools/plan.py": "86b1e59b16f1b60499162da589ddc45862eb198310cc6053b4a86c3cb87231c8"
+      "deployment_engine/tasks/pve_api.yml": "c0c8c72456cf611df87135aca13297d40023adfc99fbb44d090f204545223aca",
+      "deployment_engine/tools/framework_check.py": "2fc5fcfd7c844a04d249db4a743bd84efc3dabfe75a17013ad6333ee482285a7",
+      "deployment_engine/tools/plan.py": "db69d21106918f31cb008584318c7815267491196a8cfa5cbdb4d5d0b54a7749"
     }
   },
   "README.md": {
     "citados": {
-      "deployment_engine/filter_plugins/estado.py": "eba22149806a75c3114d36b7edd0063d4b9948ff2cfb3c39f8e00ce14ce2bc7d",
-      "deployment_engine/filter_plugins/identidad.py": "c10565745a0cff8f203624893ccaca45e4d1aea186c8c534430a3f887fbe1d3b",
-      "deployment_engine/filter_plugins/interior.py": "d02bbdfca568539c059998020b86d4d1829a4bb2abbfa2d6671218e8c82bda00",
-      "deployment_engine/playbooks/plan.yml": "107e7eaec53eb46a5b8e4ece25fd85f63ff97111d301023b7b1dced05f8a840f",
-      "deployment_engine/tasks/pve_api.yml": "0de4b967d7ace2e526b5f25a4593c07ea837754284b227f38a29113c7e270127",
-      "deployment_engine/tasks/pve_api_y_esperar.yml": "23072f383630d6bc98600bbecc5336121f7f6577fd597c322eb5a45dd058150c",
-      "deployment_engine/tools/documentos.py": "e2570908b54f9b60bcede738376125b2f43b1f25afad9a6bc17b25133137479c",
-      "deployment_engine/tools/framework_check.py": "5d65582d5b1c868aea0229bdd79aedf1a70ba8b9f65396e3e05c90936b35b977",
-      "deployment_engine/tools/plan.py": "c8269ef6890a93d94a715adee3b0b102f955cff4050c248afa7223d26ca6b719",
-      "deployment_engine/vars/engine.yml": "727e13a766d2b18b923099b2fe7e5e748c23b02f375ebe6a0a88550c8f865c32"
-    }
-  },
-  "docs/camino-del-puesto-de-control.md": {
-    "citados": {
-      "deployment_engine/tasks/camino.yml": "4b435fa39951bca4f4c7e1eb806a3054bd35f99d3f2077c28b7f55bc55f9e92b",
-      "deployment_engine/tasks/camino_consola.yml": "b57884ee2ec84f1f4183b732a6abf43b49b99a8b714aa544619cef16fee32e91",
-      "deployment_engine/tasks/camino_mundo.yml": "754aded381f391844ea5b7154217d6b3cb79580f4b529ab16108b4932e175a08",
-      "deployment_engine/tools/consola.py": "0b4a81b1bc9f9e08090382fba4125b3325f3f42511572beb882c2831218afc65"
+      "deployment_engine/filter_plugins/estado.py": "ac6d56e5c71dc04107a9819f336f3cbaab6ca134aaef5eb4aceac2570b92230d",
+      "deployment_engine/filter_plugins/identidad.py": "1daf2bfcbd4ac438ec19bc2ba999c519c73bc2b333b0e2ea4fbbc2c313f11a5c",
+      "deployment_engine/filter_plugins/interior.py": "ed47d36b3eb62601fc7376b42b5fe18bad3522427143466fda2f09e88d44bb24",
+      "deployment_engine/playbooks/plan.yml": "87478e7a33d5db1b8a55fdc3739aa82fcc5dc6c69cc2189c7324cc2e9e5335af",
+      "deployment_engine/tasks/pve_api.yml": "c0c8c72456cf611df87135aca13297d40023adfc99fbb44d090f204545223aca",
+      "deployment_engine/tasks/pve_api_y_esperar.yml": "5ba30a017fed75fe9e0f494db7491de3606a1e418bce0dd084db691d277099e8",
+      "deployment_engine/tools/documentos.py": "46f20133cb903f23b6317c01136a41dfaf9d9edfcac92c9dc9176b77f0c5a14c",
+      "deployment_engine/tools/framework_check.py": "2fc5fcfd7c844a04d249db4a743bd84efc3dabfe75a17013ad6333ee482285a7",
+      "deployment_engine/tools/plan.py": "db69d21106918f31cb008584318c7815267491196a8cfa5cbdb4d5d0b54a7749",
+      "deployment_engine/vars/engine.yml": "1d9230a0fb358acd9283872d8d868846e600c8055bbaece7e6dccd8dbaaf4d02"
     }
   },
   "docs/crear-un-lab.md": {
     "citados": {
-      "deployment_engine/filter_plugins/declaracion.py": "5951439359350f3cbf5a420154b56cc8164bb3bd89fd3a3f9e4b61ca16cdf958"
+      "deployment_engine/filter_plugins/declaracion.py": "cdeba06859afc1f022fdc5018a4768ea4261e021f3a798c4d40f3a467e581b28"
     }
   },
   "docs/decisiones/0001-solo-api-de-proxmox.md": {
     "citados": {
-      "deployment_engine/tasks/pve_api.yml": "4628a91b351f10d2f28bf99a40973ae6fa8255e1ed79827d8a8174ff323df6d7"
+      "deployment_engine/tasks/pve_api.yml": "c0c8c72456cf611df87135aca13297d40023adfc99fbb44d090f204545223aca"
     }
   },
   "docs/decisiones/0002-el-pool-como-frontera-de-propiedad.md": {
     "citados": {
-      "deployment_engine/filter_plugins/estado.py": "eba22149806a75c3114d36b7edd0063d4b9948ff2cfb3c39f8e00ce14ce2bc7d",
-      "deployment_engine/filter_plugins/identidad.py": "c10565745a0cff8f203624893ccaca45e4d1aea186c8c534430a3f887fbe1d3b"
+      "deployment_engine/filter_plugins/estado.py": "ac6d56e5c71dc04107a9819f336f3cbaab6ca134aaef5eb4aceac2570b92230d",
+      "deployment_engine/filter_plugins/identidad.py": "1daf2bfcbd4ac438ec19bc2ba999c519c73bc2b333b0e2ea4fbbc2c313f11a5c"
     }
   },
   "docs/decisiones/0003-documento-con-dos-regiones.md": {
     "citados": {
-      "deployment_engine/tools/documentos.py": "e2570908b54f9b60bcede738376125b2f43b1f25afad9a6bc17b25133137479c"
+      "deployment_engine/tools/documentos.py": "46f20133cb903f23b6317c01136a41dfaf9d9edfcac92c9dc9176b77f0c5a14c"
     }
   },
-  "docs/decisiones/0004-el-camino-y-el-token.md": {
+  "docs/decisiones/0004-el-tunnel-y-el-token.md": {
     "citados": {
-      "deployment_engine/tasks/camino.yml": "4b435fa39951bca4f4c7e1eb806a3054bd35f99d3f2077c28b7f55bc55f9e92b",
-      "deployment_engine/tools/consola.py": "0b4a81b1bc9f9e08090382fba4125b3325f3f42511572beb882c2831218afc65",
-      "deployment_engine/vars/engine.yml": "0aeff8e4d16b6c0372001966476c6824c16c1b1421fc5949d1995abba4512a87"
+      "deployment_engine/tasks/tunnel.yml": "6990a6ae122ee3bb359277fe5d91f2fbd7017cc8a284e18cc2f0658c15fde250",
+      "deployment_engine/tools/console.py": "5eb6065a0af95050e86386ffb385cd6f2c512e3f9e4c18800e53571dfed68212",
+      "deployment_engine/vars/engine.yml": "1d9230a0fb358acd9283872d8d868846e600c8055bbaece7e6dccd8dbaaf4d02"
     }
   },
   "docs/decisiones/0005-el-driver-del-interior.md": {
     "citados": {
-      "deployment_engine/filter_plugins/interior.py": "d02bbdfca568539c059998020b86d4d1829a4bb2abbfa2d6671218e8c82bda00"
+      "deployment_engine/filter_plugins/interior.py": "ed47d36b3eb62601fc7376b42b5fe18bad3522427143466fda2f09e88d44bb24"
     }
   },
   "docs/decisiones/0006-escribir-en-routeros.md": {
     "citados": {
-      "deployment_engine/filter_plugins/interior.py": "d02bbdfca568539c059998020b86d4d1829a4bb2abbfa2d6671218e8c82bda00",
-      "deployment_engine/tasks/ros_api.yml": "e6feb51074fb7178407251918147b903d535d544b9fae204797bc5252d966360"
+      "deployment_engine/filter_plugins/interior.py": "ed47d36b3eb62601fc7376b42b5fe18bad3522427143466fda2f09e88d44bb24",
+      "deployment_engine/tasks/ros_api.yml": "9a6fd6a59c68be9d155181582df80fbea03ef570393469791e97238a7d410b2b"
     }
   },
-  "docs/decisiones/0008-una-direccion-por-pata.md": {
+  "docs/decisiones/0008-una-direccion-por-interface.md": {
     "citados": {
-      "deployment_engine/filter_plugins/interior.py": "d02bbdfca568539c059998020b86d4d1829a4bb2abbfa2d6671218e8c82bda00",
-      "deployment_engine/tools/plan.py": "c8269ef6890a93d94a715adee3b0b102f955cff4050c248afa7223d26ca6b719"
+      "deployment_engine/filter_plugins/interior.py": "ed47d36b3eb62601fc7376b42b5fe18bad3522427143466fda2f09e88d44bb24",
+      "deployment_engine/tools/plan.py": "db69d21106918f31cb008584318c7815267491196a8cfa5cbdb4d5d0b54a7749"
     }
   },
   "docs/decisiones/0009-verify-mira-dentro.md": {
     "citados": {
-      "deployment_engine/filter_plugins/estado.py": "eba22149806a75c3114d36b7edd0063d4b9948ff2cfb3c39f8e00ce14ce2bc7d",
-      "deployment_engine/filter_plugins/interior.py": "d02bbdfca568539c059998020b86d4d1829a4bb2abbfa2d6671218e8c82bda00",
-      "deployment_engine/playbooks/verify.yml": "e41dd8f5ab67657ae20266c3767e325538772b20a12266ba20fbd6453c10b121",
-      "deployment_engine/tasks/configurar_linux.yml": "6b184fd397eaf29263444c0e81965d16930733a3cac19e9236f588ea502d9b5d",
-      "deployment_engine/tasks/configurar_routeros.yml": "a971ae25fc36a58d0b4c25231a982db2e5af61e682bacfcfbe511fd362dbdcc2",
-      "deployment_engine/tasks/interior_verificar.yml": "85321430dd6167de698a9c882a8416370cee70f7bba477632dadf5f3c913dc8f",
-      "deployment_engine/tasks/ros_api.yml": "e6feb51074fb7178407251918147b903d535d544b9fae204797bc5252d966360"
+      "deployment_engine/filter_plugins/estado.py": "ac6d56e5c71dc04107a9819f336f3cbaab6ca134aaef5eb4aceac2570b92230d",
+      "deployment_engine/filter_plugins/interior.py": "ed47d36b3eb62601fc7376b42b5fe18bad3522427143466fda2f09e88d44bb24",
+      "deployment_engine/playbooks/verify.yml": "6a653eca5ef7498845658c825aea07761bc5ca377c360cf79435f7456f43b9b2",
+      "deployment_engine/tasks/configurar_linux.yml": "46b219af623f4e1c845dff1f71cdc5bc89a4d7ff3a83fee436e88c1f1bb47e66",
+      "deployment_engine/tasks/configurar_routeros.yml": "107b6a7beabec692dd8cfa511df7fd7f5745e34b5d6a5e0e11cb6e1d878b3ff4",
+      "deployment_engine/tasks/interior_verificar.yml": "e6bde50eaef550627ee58f032c71be0cfc2d71a07a96808e5d49dc2f44a485da",
+      "deployment_engine/tasks/ros_api.yml": "9a6fd6a59c68be9d155181582df80fbea03ef570393469791e97238a7d410b2b"
     }
   },
-  "docs/decisiones/0010-el-rest-por-el-camino.md": {
+  "docs/decisiones/0010-el-rest-por-el-tunnel.md": {
     "citados": {
-      "deployment_engine/filter_plugins/interior.py": "d02bbdfca568539c059998020b86d4d1829a4bb2abbfa2d6671218e8c82bda00",
-      "deployment_engine/tasks/camino.yml": "4b435fa39951bca4f4c7e1eb806a3054bd35f99d3f2077c28b7f55bc55f9e92b",
-      "deployment_engine/tasks/camino_mundo.yml": "754aded381f391844ea5b7154217d6b3cb79580f4b529ab16108b4932e175a08",
-      "deployment_engine/tasks/configurar_routeros.yml": "a971ae25fc36a58d0b4c25231a982db2e5af61e682bacfcfbe511fd362dbdcc2",
-      "deployment_engine/tasks/ros_api.yml": "e6feb51074fb7178407251918147b903d535d544b9fae204797bc5252d966360"
+      "deployment_engine/filter_plugins/interior.py": "ed47d36b3eb62601fc7376b42b5fe18bad3522427143466fda2f09e88d44bb24",
+      "deployment_engine/tasks/configurar_routeros.yml": "107b6a7beabec692dd8cfa511df7fd7f5745e34b5d6a5e0e11cb6e1d878b3ff4",
+      "deployment_engine/tasks/ros_api.yml": "9a6fd6a59c68be9d155181582df80fbea03ef570393469791e97238a7d410b2b",
+      "deployment_engine/tasks/tunnel.yml": "6990a6ae122ee3bb359277fe5d91f2fbd7017cc8a284e18cc2f0658c15fde250",
+      "deployment_engine/tasks/tunnel_probe.yml": "de1723edb56bdf1cfdc0f538837f4f5ebc0c9406b25707e29fbfe0b0eae5dfe1"
     }
   },
   "docs/decisiones/0011-el-agente-de-invitado.md": {
     "citados": {
-      "deployment_engine/filter_plugins/estado.py": "eba22149806a75c3114d36b7edd0063d4b9948ff2cfb3c39f8e00ce14ce2bc7d",
-      "deployment_engine/tasks/direcciones.yml": "38b393854895d6ee7f59a2f2eff45583333c6c1985e9fd40877a8ecbf761844e",
-      "deployment_engine/tools/plan.py": "c8269ef6890a93d94a715adee3b0b102f955cff4050c248afa7223d26ca6b719",
-      "deployment_engine/vars/engine.yml": "727e13a766d2b18b923099b2fe7e5e748c23b02f375ebe6a0a88550c8f865c32"
+      "deployment_engine/filter_plugins/estado.py": "ac6d56e5c71dc04107a9819f336f3cbaab6ca134aaef5eb4aceac2570b92230d",
+      "deployment_engine/tasks/addresses.yml": "b9012a3c4a9b78f1bb37bd43a4a9781f285ac1e3d12f7dc92e6227f4f4e6889e",
+      "deployment_engine/tools/plan.py": "db69d21106918f31cb008584318c7815267491196a8cfa5cbdb4d5d0b54a7749",
+      "deployment_engine/vars/engine.yml": "1d9230a0fb358acd9283872d8d868846e600c8055bbaece7e6dccd8dbaaf4d02"
     }
   },
   "docs/decisiones/0012-la-salida-del-lab.md": {
     "citados": {
-      "deployment_engine/filter_plugins/declaracion.py": "8f8b9b47cee9c8b3e1d787a32de1072eb63f464d645143a5fda2507d08952411",
-      "deployment_engine/filter_plugins/interior.py": "d02bbdfca568539c059998020b86d4d1829a4bb2abbfa2d6671218e8c82bda00",
-      "deployment_engine/tools/plan.py": "c8269ef6890a93d94a715adee3b0b102f955cff4050c248afa7223d26ca6b719"
+      "deployment_engine/filter_plugins/declaracion.py": "cdeba06859afc1f022fdc5018a4768ea4261e021f3a798c4d40f3a467e581b28",
+      "deployment_engine/filter_plugins/interior.py": "ed47d36b3eb62601fc7376b42b5fe18bad3522427143466fda2f09e88d44bb24",
+      "deployment_engine/tools/plan.py": "db69d21106918f31cb008584318c7815267491196a8cfa5cbdb4d5d0b54a7749"
     }
   },
   "docs/decisiones/0013-una-estacion-pregunta-un-servidor-dice.md": {
     "citados": {
-      "deployment_engine/filter_plugins/declaracion.py": "42f48145a603709ee50748eee231a5975598212887e5b8aa70767bfdb00485c1",
-      "deployment_engine/tools/plan.py": "4ce21cecf655f12d836769ea8398aea4174e4fb9ddfc48c59b06c3399ff0e076"
+      "deployment_engine/filter_plugins/declaracion.py": "cdeba06859afc1f022fdc5018a4768ea4261e021f3a798c4d40f3a467e581b28",
+      "deployment_engine/tools/plan.py": "db69d21106918f31cb008584318c7815267491196a8cfa5cbdb4d5d0b54a7749"
     }
   },
   "docs/decisiones/0014-los-diarios-callan-lo-que-no-pasa.md": {
     "citados": {
-      "deployment_engine/tools/resumen.py": "3a8571589b6061430935c694e7843a82b5a9c5fa58748964fb2aed4bdf5c44b4"
+      "deployment_engine/tools/resumen.py": "a5643b99dcbfce2249604be887d19736ec816c212fd09bf035af5275dbf81b2a"
     }
   },
   "docs/decisiones/0015-el-nombre-dice-que-es-el-equipo.md": {
     "citados": {
-      "deployment_engine/filter_plugins/identidad.py": "c10565745a0cff8f203624893ccaca45e4d1aea186c8c534430a3f887fbe1d3b"
+      "deployment_engine/filter_plugins/identidad.py": "1daf2bfcbd4ac438ec19bc2ba999c519c73bc2b333b0e2ea4fbbc2c313f11a5c"
+    }
+  },
+  "docs/tunnel-del-bastion.md": {
+    "citados": {
+      "deployment_engine/tasks/console.yml": "0ad0b90da3f9d016f6600dbe902df120fb18a03cb131090746461b173f1b90ca",
+      "deployment_engine/tasks/tunnel.yml": "6990a6ae122ee3bb359277fe5d91f2fbd7017cc8a284e18cc2f0658c15fde250",
+      "deployment_engine/tasks/tunnel_probe.yml": "de1723edb56bdf1cfdc0f538837f4f5ebc0c9406b25707e29fbfe0b0eae5dfe1",
+      "deployment_engine/tools/console.py": "5eb6065a0af95050e86386ffb385cd6f2c512e3f9e4c18800e53571dfed68212"
     }
   },
   "labs/01_ejemplo-topologia/01_ejemplo-topologia.md": {
     "citados": {
-      "deployment_engine/filter_plugins/identidad.py": "c10565745a0cff8f203624893ccaca45e4d1aea186c8c534430a3f887fbe1d3b",
-      "deployment_engine/tasks/pve_api.yml": "0de4b967d7ace2e526b5f25a4593c07ea837754284b227f38a29113c7e270127",
-      "deployment_engine/tools/framework_check.py": "5d65582d5b1c868aea0229bdd79aedf1a70ba8b9f65396e3e05c90936b35b977",
-      "deployment_engine/tools/plan.py": "c8269ef6890a93d94a715adee3b0b102f955cff4050c248afa7223d26ca6b719"
+      "deployment_engine/filter_plugins/identidad.py": "1daf2bfcbd4ac438ec19bc2ba999c519c73bc2b333b0e2ea4fbbc2c313f11a5c",
+      "deployment_engine/tasks/pve_api.yml": "c0c8c72456cf611df87135aca13297d40023adfc99fbb44d090f204545223aca",
+      "deployment_engine/tools/framework_check.py": "2fc5fcfd7c844a04d249db4a743bd84efc3dabfe75a17013ad6333ee482285a7",
+      "deployment_engine/tools/plan.py": "db69d21106918f31cb008584318c7815267491196a8cfa5cbdb4d5d0b54a7749"
     }
   },
   "labs/02_lab-minimo/02_lab-minimo.md": {
     "citados": {
-      "deployment_engine/filter_plugins/identidad.py": "c10565745a0cff8f203624893ccaca45e4d1aea186c8c534430a3f887fbe1d3b",
-      "deployment_engine/tasks/pve_api.yml": "0de4b967d7ace2e526b5f25a4593c07ea837754284b227f38a29113c7e270127",
-      "deployment_engine/tools/framework_check.py": "5d65582d5b1c868aea0229bdd79aedf1a70ba8b9f65396e3e05c90936b35b977"
+      "deployment_engine/filter_plugins/identidad.py": "1daf2bfcbd4ac438ec19bc2ba999c519c73bc2b333b0e2ea4fbbc2c313f11a5c",
+      "deployment_engine/tasks/pve_api.yml": "c0c8c72456cf611df87135aca13297d40023adfc99fbb44d090f204545223aca",
+      "deployment_engine/tools/framework_check.py": "2fc5fcfd7c844a04d249db4a743bd84efc3dabfe75a17013ad6333ee482285a7"
     }
   },
   "labs/03_lab-dos-redes/03_lab-dos-redes.md": {
     "citados": {
-      "deployment_engine/filter_plugins/identidad.py": "c10565745a0cff8f203624893ccaca45e4d1aea186c8c534430a3f887fbe1d3b",
-      "deployment_engine/tasks/pve_api.yml": "0de4b967d7ace2e526b5f25a4593c07ea837754284b227f38a29113c7e270127",
-      "deployment_engine/tools/framework_check.py": "5d65582d5b1c868aea0229bdd79aedf1a70ba8b9f65396e3e05c90936b35b977",
-      "deployment_engine/tools/plan.py": "c8269ef6890a93d94a715adee3b0b102f955cff4050c248afa7223d26ca6b719"
+      "deployment_engine/filter_plugins/identidad.py": "1daf2bfcbd4ac438ec19bc2ba999c519c73bc2b333b0e2ea4fbbc2c313f11a5c",
+      "deployment_engine/tasks/pve_api.yml": "c0c8c72456cf611df87135aca13297d40023adfc99fbb44d090f204545223aca",
+      "deployment_engine/tools/framework_check.py": "2fc5fcfd7c844a04d249db4a743bd84efc3dabfe75a17013ad6333ee482285a7",
+      "deployment_engine/tools/plan.py": "db69d21106918f31cb008584318c7815267491196a8cfa5cbdb4d5d0b54a7749"
     }
   },
   "labs/05_research/05_research.md": {
     "citados": {
-      "deployment_engine/filter_plugins/estado.py": "eba22149806a75c3114d36b7edd0063d4b9948ff2cfb3c39f8e00ce14ce2bc7d",
-      "deployment_engine/tasks/direcciones.yml": "38b393854895d6ee7f59a2f2eff45583333c6c1985e9fd40877a8ecbf761844e"
+      "deployment_engine/filter_plugins/estado.py": "ac6d56e5c71dc04107a9819f336f3cbaab6ca134aaef5eb4aceac2570b92230d",
+      "deployment_engine/tasks/addresses.yml": "b9012a3c4a9b78f1bb37bd43a4a9781f285ac1e3d12f7dc92e6227f4f4e6889e"
     }
   },
   "labs/07_dunder-mifflin/07_dunder-mifflin.md": {
     "citados": {
-      "deployment_engine/filter_plugins/interior.py": "d02bbdfca568539c059998020b86d4d1829a4bb2abbfa2d6671218e8c82bda00"
+      "deployment_engine/filter_plugins/interior.py": "ed47d36b3eb62601fc7376b42b5fe18bad3522427143466fda2f09e88d44bb24"
     }
   },
   "labs/ejemplo-topologia/ejemplo-topologia.md": {
@@ -194,7 +194,7 @@
   "labs/research/research.md": {
     "citados": {
       "deployment_engine/filter_plugins/estado.py": "6d4126c2eb6428f6715cf916ec14e48be9264ab57bcca0450c5566cf3e6a9a4e",
-      "deployment_engine/tasks/direcciones.yml": "38b393854895d6ee7f59a2f2eff45583333c6c1985e9fd40877a8ecbf761844e"
+      "deployment_engine/tasks/addresses.yml": "38b393854895d6ee7f59a2f2eff45583333c6c1985e9fd40877a8ecbf761844e"
     }
   }
 }

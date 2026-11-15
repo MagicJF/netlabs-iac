@@ -13,7 +13,7 @@
 #
 # Uso (lo normal es a través de `./lab check [nombre]`):
 #     python3 deployment_engine/tools/framework_check.py all
-#     python3 deployment_engine/tools/framework_check.py links|docs|refs|puerta|...
+#     python3 deployment_engine/tools/framework_check.py links|docs|refs|vía de acceso|...
 #     python3 deployment_engine/tools/framework_check.py refs <ruta-del-repo>
 #     python3 deployment_engine/tools/framework_check.py docs --actualizar
 #     python3 deployment_engine/tools/framework_check.py docs --sellar <doc.md>
@@ -46,8 +46,8 @@ DOCUMENTOS_DEL_MOTOR = (
     "AGENTS.md",
 )
 # Los únicos sitios donde puede aparecer la ruta base de la API de Proxmox: la
-# puerta (que la usa) y los documentos (que hablan de ella).
-UNICA_PUERTA = "deployment_engine/tasks/pve_api.yml"
+# vía de acceso (que la usa) y los documentos (que hablan de ella).
+UNICO_ACCESO = "deployment_engine/tasks/pve_api.yml"
 # La ruta base, partida en dos trozos A PROPÓSITO: así este fichero no contiene el
 # literal que él mismo persigue, y el check puede seguir siendo estricto (sin
 # excluirse a sí mismo de la comprobación).
@@ -320,71 +320,71 @@ def _documentos_con_citas_al_motor():
 
 
 # ---------------------------------------------------------------------------
-# check puerta — nadie llama a la API fuera de la puerta común
+# check access — nadie llama a la API fuera de la vía de acceso común
 # ---------------------------------------------------------------------------
 
-def check_puerta():
-    """Cada puerta tiene UN fichero, y el protocolo de cada puerta sólo vive en él.
+def check_access():
+    """Cada vía de acceso tiene UN fichero, y el protocolo de cada vía de acceso sólo vive en él.
 
     Se revisa el CÓDIGO (los .yml y .py del motor, y el wrapper): los documentos
     pueden hablar de la ruta de la API todo lo que quieran -- de hecho es su trabajo.
 
-    Desde la fase 2 hay CUATRO puertas (regla 12) y cada una habla su protocolo:
+    Desde la fase 2 hay CUATRO vías de acceso (regla 12) y cada una habla su protocolo:
 
       * la REST de Proxmox (`ansible.builtin.uri`, la ruta base de la API) -> tasks/pve_api.yml;
       * la REST de RouterOS (su propia ruta base)                          -> tasks/ros_api.yml;
       * el interior de un Linux (SSH a invitados)                           -> tasks/interior_ssh.yml
-                                                                               y tasks/inventario_invitados.yml;
-      * la consola de la API (el protocolo del navegador)                   -> tasks/camino_consola.yml
-                                                                               y su cliente tools/consola.py.
+                                                                               y tasks/guest_inventory.yml;
+      * la consola de la API (el protocolo del navegador)                   -> tasks/console.yml
+                                                                               y su cliente tools/console.py.
 
     Dos de esos literales tienen MÁS DE UN dueño, y cada uno lleva su razón escrita
-    aquí al lado: la consola NO es una puerta nueva --viaja por el mismo host, el
-    mismo puerto y el mismo token que la REST--, y el guion del camino (que pone el
-    motor dentro del puesto de control) también usa SSH, porque es el invitado el
+    aquí al lado: la consola NO es una vía de acceso nueva --viaja por el mismo host, el
+    mismo puerto y el mismo token que la REST--, y el guion del túnel (que pone el
+    motor dentro del bastión) también usa SSH, porque es el invitado el
     que llama a casa.
     """
     fallos = []
 
-    # Ruta base de la API de Proxmox: la puerta REST y el cliente de consola. Nadie más.
+    # Ruta base de la API de Proxmox: la vía de acceso REST y el cliente de consola. Nadie más.
     dueno_de_ruta_base = {
-        UNICA_PUERTA: "la puerta REST",
-        "deployment_engine/tools/" + "consola.py": (
-            "el cliente de la puerta de consola: mismo host, mismo puerto y mismo "
+        UNICO_ACCESO: "la vía de acceso REST",
+        "deployment_engine/tools/" + "console.py": (
+            "el cliente de la vía de consola: mismo host, mismo puerto y mismo "
             "token que la REST, protocolo distinto (regla 1, intacta)"
         ),
     }
 
-    rutas = list(_ficheros_con_extension(".yml", os.path.join(RAIZ, "deployment_engine")))
-    rutas += list(_ficheros_con_extension(".py", os.path.join(RAIZ, "deployment_engine")))
-    rutas += [os.path.join(RAIZ, "lab"), os.path.join(RAIZ, ".githooks", "pre-commit")]
+    routes = list(_ficheros_con_extension(".yml", os.path.join(RAIZ, "deployment_engine")))
+    routes += list(_ficheros_con_extension(".py", os.path.join(RAIZ, "deployment_engine")))
+    routes += [os.path.join(RAIZ, "lab"), os.path.join(RAIZ, ".githooks", "pre-commit")]
 
     # Y ahora, los literales de cada protocolo, con sus dueños. Se arman por PIEZAS
     # a propósito, igual que RUTA_BASE_API: así este fichero NO los contiene y el
     # check puede ser estricto sin excluirse a sí mismo.
-    puerta_ros = "deployment_engine/tasks/" + "ros_api.yml"
-    puerta_interior = "deployment_engine/tasks/" + "interior_ssh.yml"
-    inventario = "deployment_engine/tasks/" + "inventario_invitados.yml"
-    puerta_consola = "deployment_engine/tasks/" + "camino_consola.yml"
-    cliente_consola = "deployment_engine/tools/" + "consola.py"
-    guion_camino = "deployment_engine/filter_plugins/" + "interior.py"
+    acceso_ros = "deployment_engine/tasks/" + "ros_api.yml"
+    acceso_interior = "deployment_engine/tasks/" + "interior_ssh.yml"
+    inventario = "deployment_engine/tasks/" + "guest_inventory.yml"
+    acceso_consola = "deployment_engine/tasks/" + "console.yml"
+    console_client = "deployment_engine/tools/" + "console.py"
+    guion_tunnel = "deployment_engine/filter_plugins/" + "interior.py"
 
     # literal -> (dueño principal, otros dueños con su motivo)
     literales = {
         # La ruta base de la REST de RouterOS. El HTTP en claro es deliberado y
         # temporal (el CHR de fábrica no tiene certificado): va al ADR 0006.
-        "/" + "rest": (puerta_ros, ()),
-        # Parámetros de conexión SSH: la puerta del interior los declara, el
-        # inventario los construye, y el guion del camino lleva los suyos porque en
-        # el camino es el INVITADO el que llama a casa.
-        "StrictHostKey" + "Checking": (puerta_interior, (inventario, guion_camino)),
-        "Proxy" + "Jump": (inventario, (puerta_interior,)),
-        # El protocolo de consola: la puerta que lo usa y el cliente que lo habla.
-        "term" + "proxy": (puerta_consola, (cliente_consola,)),
-        "vnc" + "websocket": (puerta_consola, (cliente_consola,)),
+        "/" + "rest": (acceso_ros, ()),
+        # Parámetros de conexión SSH: la vía de acceso del interior los declara, el
+        # inventario los construye, y el guion del túnel lleva los suyos porque en
+        # el túnel es el INVITADO el que llama a casa.
+        "StrictHostKey" + "Checking": (acceso_interior, (inventario, guion_tunnel)),
+        "Proxy" + "Jump": (inventario, (acceso_interior,)),
+        # El protocolo de consola: la vía de acceso que lo usa y el cliente que lo habla.
+        "term" + "proxy": (acceso_consola, (console_client,)),
+        "vnc" + "websocket": (acceso_consola, (console_client,)),
     }
 
-    for ruta in rutas:
+    for ruta in routes:
         if not os.path.exists(ruta):
             continue
         relativo = _relativo(ruta)
@@ -392,7 +392,7 @@ def check_puerta():
         if RUTA_BASE_API in texto and relativo not in dueno_de_ruta_base:
             fallos.append(
                 f"{relativo}: llama a la API de Proxmox y no es "
-                f"{UNICA_PUERTA} ni el cliente de consola"
+                f"{UNICO_ACCESO} ni el cliente de consola"
             )
         for literal, (dueno, otros) in literales.items():
             permitidos = (dueno,) + otros
@@ -403,18 +403,18 @@ def check_puerta():
                 )
 
     if fallos:
-        print("FALLA puerta: alguien habla por una puerta que no es la suya:")
+        print("FALLA gateway: alguien habla por una vía de acceso que no es la suya:")
         for fallo in sorted(set(fallos)):
             print(f"  - {fallo}")
-        print("      (cada puerta tiene un fichero, y su protocolo no sale de ahí)")
+        print("      (cada vía de acceso tiene un fichero, y su protocolo no sale de ahí)")
         return 1
     print(
-        "OK    puerta: la REST de Proxmox sólo en "
-        + UNICA_PUERTA
-        + " (+ el cliente de consola, que usa la misma puerta), la de RouterOS sólo en "
-        + puerta_ros
-        + ", el SSH a invitados sólo en la puerta del interior, y el protocolo de "
-        "consola sólo en la puerta de consola"
+        "OK    access: la REST de Proxmox sólo en "
+        + UNICO_ACCESO
+        + " (+ el cliente de consola, que usa la misma vía de acceso), la de RouterOS sólo en "
+        + acceso_ros
+        + ", el SSH a invitados sólo en la vía de acceso del interior, y el protocolo de "
+        "consola sólo en la vía de consola"
     )
     return 0
 
@@ -466,9 +466,9 @@ CLAVES_PROHIBIDAS = tuple(_CRUDO + sufijo for sufijo in (
 
 
 def _ficheros_del_motor():
-    rutas = list(_ficheros_con_extension(".yml", os.path.join(RAIZ, "deployment_engine")))
-    rutas += list(_ficheros_con_extension(".py", os.path.join(RAIZ, "deployment_engine")))
-    return rutas
+    routes = list(_ficheros_con_extension(".yml", os.path.join(RAIZ, "deployment_engine")))
+    routes += list(_ficheros_con_extension(".py", os.path.join(RAIZ, "deployment_engine")))
+    return routes
 
 
 def _incluye_la_guarda(texto):
@@ -537,11 +537,11 @@ def check_privilegios():
     # privilegiado, y el motor tiene que verlo.
     import estado as modulo_estado  # noqa: E402  (la ruta se ajusta arriba)
 
-    estado_malo = {"invitados": {
+    estado_malo = {"guests": {
         "200": {"vmid": 200, "nombre": "lab-x-puesto", "tipo": "lxc", "privilegiado": True},
         "201": {"vmid": 201, "nombre": "lab-x-servidor", "tipo": "lxc", "privilegiado": False},
     }}
-    detectados = modulo_estado.estado_invitados_privilegiados(estado_malo)
+    detectados = modulo_estado.estado_guests_privilegiados(estado_malo)
     if [d["vmid"] for d in detectados] != [200]:
         fallos.append(
             "el motor NO detecta un contenedor privilegiado: con un invitado "
@@ -588,7 +588,7 @@ def check_declaracion():
             print(f"  - {fallo}")
         return 1
     # Un consejo no bloquea: el lab es coherente y el plan sale igual. Se enseña
-    # porque es legal y silencioso (el escalón antes de quien da la dirección, la
+    # porque es legal y silencioso (la etapa antes de quien da la dirección, la
     # dirección estática dentro del rango del DHCP, la pasarela que no es nadie...).
     for lab, consejo in avisos:
         print(f"AVISO declaracion: labs/{lab}/{lab}.yml: {consejo['donde']}: {consejo['mensaje']}")
@@ -616,7 +616,7 @@ def _conjuntos_declarados(lab):
     direcciones = set()
     nombres = set()
     for seccion in ("vms", "containers"):
-        for invitado in declaracion.get(seccion) or []:
+        for guest in declaracion.get(seccion) or []:
             # Sólo las direcciones ESTÁTICAS pueden chocar entre labs. `dhcp` no es una
             # dirección: es la MARCA de que la reparte el router de su bridge, y dos
             # invitados dinámicos de labs distintos no pueden coincidir por construcción
@@ -624,19 +624,19 @@ def _conjuntos_declarados(lab):
             # Un invitado sin dirección (un conmutador puro) no declara ninguna, así que
             # tampoco hay nada que comparar. Meter la marca aquí convertía dos labs con
             # invitados dinámicos --que conviven sin problema-- en una colisión falsa.
-            direccion = str(invitado.get("direccion") or "")
+            direccion = str(guest.get("address") or "")
             if direccion == "dhcp" or "/" not in direccion:
                 continue
             direcciones.add(direccion.split("/", 1)[0])
-            nombres.add(f"{lab}-{invitado['rol']}")
-    return {"bridges": bridges, "direcciones": direcciones, "nombres": nombres}
+            nombres.add(f"{lab}-{guest['rol']}")
+    return {"bridges": bridges, "addresses": direcciones, "nombres": nombres}
 
 
 # Cómo se nombra cada conjunto al informar de una colisión (no `clave[:-1]`: eso
 # escribiría "direccione").
 ETIQUETA_DE_CONJUNTO = {
     "bridges": "el bridge",
-    "direcciones": "la dirección",
+    "addresses": "la dirección",
     "nombres": "el nombre canónico",
 }
 
@@ -675,8 +675,8 @@ def check_pureza_lab():
         for bridge in declaracion["lab"]["bridges"]:
             tokens.add(bridge["nombre"])
         for seccion in ("vms", "containers"):
-            for invitado in declaracion.get(seccion) or []:
-                tokens.add(f"{lab}-{invitado['rol']}")
+            for guest in declaracion.get(seccion) or []:
+                tokens.add(f"{lab}-{guest['rol']}")
         valores[lab] = sorted(tokens)
 
     fallos = []
@@ -722,7 +722,7 @@ def check_readme():
     # que el README afirma por su cuenta.
     texto = _fuera_de_bloques_de_codigo(_leer(ruta))
     fallos = []
-    # `dhcp` es la PALABRA del vocabulario (una forma de `direccion`), no un valor de un
+    # `dhcp` es la PALABRA del vocabulario (una forma de `address`), no un valor de un
     # lab: el README, que describe el motor, puede nombrarla sin filtrar la topología de
     # nadie. Se excluye del conjunto de tokens, igual que se excluirían `linux`/`routeros`.
     vocabulario_reservado = {"dhcp"}
@@ -732,11 +732,11 @@ def check_readme():
         for bridge in declaracion["lab"]["bridges"]:
             tokens.add(bridge["nombre"])
         for seccion in ("vms", "containers"):
-            for invitado in declaracion.get(seccion) or []:
-                direccion = str(invitado["direccion"])
+            for guest in declaracion.get(seccion) or []:
+                direccion = str(guest["address"])
                 if direccion not in vocabulario_reservado:
                     tokens.add(direccion)
-                tokens.add(f"{lab}-{invitado['rol']}")
+                tokens.add(f"{lab}-{guest['rol']}")
         for token in sorted(tokens):
             if token in texto:
                 fallos.append(f"README.md contiene el valor del lab '{token}'")
@@ -750,19 +750,19 @@ def check_readme():
 
 
 # ---------------------------------------------------------------------------
-# check supernet — todo lo del lab vive dentro de su supernet, y los supernets de
+# check address-space — todo lo del lab vive dentro de su espacio de direcciones, y los espacio de direccioness de
 #                 dos labs no se solapan
 # ---------------------------------------------------------------------------
 
-# Una red con máscara, para el supernet. Se escribe aquí (y no se importa de
+# Una red con máscara, para el espacio de direcciones. Se escribe aquí (y no se importa de
 # `declaracion.py`) porque este fichero comprueba sin cargar los filtros: un check
 # que dependiera del código que vigila no podría verlo roto.
 _IP_PATRON_FUERTE = re.compile(r"^\d{1,3}(\.\d{1,3}){3}/\d{1,2}$")
 
 
-def _red_de(supernet):
+def _red_de(address_space):
     """(octetos de red, prefijo) de una red con máscara, para comparar prefijos."""
-    base, _, prefijo = str(supernet).partition("/")
+    base, _, prefijo = str(address_space).partition("/")
     octetos = [int(o) for o in base.split(".")]
     bits = int(prefijo)
     return octetos, bits
@@ -777,8 +777,8 @@ def _se_solapan(una, otra):
     return octetos_una[:cuantos] == octetos_otra[:cuantos]
 
 
-def check_supernet():
-    """La supernet es lo que hace IMPOSIBLE que dos labs se pisen por accidente.
+def check_address_space():
+    """La espacio de direcciones es lo que hace IMPOSIBLE que dos labs se pisen por accidente.
 
     Es opcional (un lab de la fase 1 no la declara y no se le exige), pero cuando
     un lab la declara, se comprueban las dos cosas que promete: que todo lo suyo
@@ -795,44 +795,44 @@ def check_supernet():
             continue
         with open(ruta, encoding="utf-8") as fichero:
             datos = yaml.safe_load(fichero)
-        supernet = (datos.get("lab") or {}).get("supernet")
-        declaraciones.append((carpeta, supernet))
+        address_space = (datos.get("lab") or {}).get("address_space")
+        declaraciones.append((carpeta, address_space))
 
-    con_supernet = [(lab, red) for lab, red in declaraciones if red]
+    con_address_space = [(lab, red) for lab, red in declaraciones if red]
     mal_formadas = [
         lab
-        for lab, red in con_supernet
+        for lab, red in con_address_space
         if "/" not in str(red) or not _IP_PATRON_FUERTE.match(str(red))
     ]
     if mal_formadas:
-        print("FALLA supernet: hay supernets que no son una red con máscara:")
+        print("FALLA address_space: hay espacio de direccioness que no son una red con máscara:")
         for lab in mal_formadas:
             print(f"  - {lab}")
         return 1
 
     fallos = []
-    for indice, (lab, red) in enumerate(con_supernet):
-        for otro_lab, otra_red in con_supernet[indice + 1:]:
+    for indice, (lab, red) in enumerate(con_address_space):
+        for otro_lab, otra_red in con_address_space[indice + 1:]:
             if _se_solapan(red, otra_red):
                 fallos.append((lab, red, otro_lab, otra_red))
     if fallos:
-        print("FALLA supernet: dos labs se pisan el espacio de direcciones:")
+        print("FALLA address_space: dos labs se pisan el espacio de addresses:")
         for lab, red, otro_lab, otra_red in fallos:
             print(f"  - '{lab}' ({red}) y '{otro_lab}' ({otra_red})")
         print(
-            "      (el supernet no es decorativo: es lo que hace imposible que dos "
+            "      (el espacio de direcciones no es decorativo: es lo que hace imposible que dos "
             "labs se pisen por accidente)"
         )
         return 1
 
-    sin_supernet = [lab for lab, red in declaraciones if not red]
+    sin_address_space = [lab for lab, red in declaraciones if not red]
     print(
-        f"OK    supernet: {len(con_supernet)} lab(s) declaran supernet y no se solapan "
+        f"OK    address_space: {len(con_address_space)} lab(s) declaran espacio de direcciones y no se solapan "
         "dos a dos; todo lo declarado cae dentro (lo vigila `declaracion`)"
     )
-    if sin_supernet:
+    if sin_address_space:
         print(
-            f"      (sin supernet: {', '.join(sin_supernet)} -- labs de la fase 1, sin "
+            f"      (sin address_space: {', '.join(sin_address_space)} -- labs de la fase 1, sin "
             "interior: no se les exige)"
         )
     return 0
@@ -846,10 +846,10 @@ CHECKS = {
     "links": check_links,
     "docs": check_docs,
     "refs": check_refs,
-    "puerta": check_puerta,
+    "access": check_access,
     "privilegios": check_privilegios,
     "declaracion": check_declaracion,
-    "supernet": check_supernet,
+    "address_space": check_address_space,
     "colisiones": check_colisiones,
     "pureza-lab": check_pureza_lab,
     "readme": check_readme,

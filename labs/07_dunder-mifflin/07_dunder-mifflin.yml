@@ -1,22 +1,22 @@
 ---
 # PROPÓSITO:   declarar la topología del lab `07_dunder-mifflin`: la red de una empresa
-#              pequeña -- una sola puerta a internet, dos áreas (la oficina y el
+#              pequeña -- una sola vía de acceso a internet, dos áreas (la oficina y el
 #              almacén), un servidor de ficheros con la dirección puesta a mano y tres
 #              puestos que piden la suya -- para demostrar que un solo router sirve DOS
 #              redes a la vez (dos ámbitos DHCP, uno por área) y que todo lo que cuelga de
-#              ellas sale, cada uno con la puerta de su red.
+#              ellas sale, cada uno con la vía de acceso de su red.
 # INVARIANTES: esta es la FUENTE DE VERDAD del lab. Aquí NO hay ningún vmid, ninguna MAC
 #              y NINGUNA dirección de la red de casa: la identidad la deriva el motor
 #              (regla 11), la MAC de cada reserva DHCP se deriva del vmid del invitado que
-#              la declara (regla 14), y la pata de fuera del router de salida toma su
-#              dirección, su puerta y sus DNS del estado del nodo, no de este fichero
-#              (ADR 0012: por eso `exterior` es una marca y no lleva opciones).
+#              la declara (regla 14), y la interfaz de fuera del router de salida toma su
+#              dirección, su pasarela y sus DNS del estado del nodo, no de este fichero
+#              (ADR 0012: por eso `uplink` es una marca y no lleva opciones).
 #              El nombre tiene que coincidir con el de la carpeta (el pool de Proxmox se
 #              llama como la carpeta y es la frontera de propiedad), y todo lo declarado
-#              cae dentro de `lab.supernet`.
+#              cae dentro de `lab.espacio de direcciones`.
 # LÍMITES:     el interior que este lab declara está en el vocabulario CERRADO del motor:
 #              para RouterOS, identidad, servicios, cliente del DHCP de fábrica,
-#              direcciones, rutas, servidor DHCP y exterior; para Linux, el camino, la
+#              direcciones, rutas, servidor DHCP y exterior; para Linux, el túnel, la
 #              dirección, el reenvío y el servidor DHCP. Las áreas que el encargo nombra y
 #              el motor todavía no converge (puentes y cortafuegos de RouterOS; pasarela,
 #              rutas, dns y claves de Linux) están DECLARADAS como pendientes en
@@ -26,7 +26,7 @@
 #              que corre encima.
 # VER:         labs/07_dunder-mifflin/07_dunder-mifflin.md (por qué así, y qué se midió);
 #              docs/crear-un-lab.md (las decisiones, en orden);
-#              docs/decisiones/0012-la-salida-del-lab.md (qué compra `exterior`),
+#              docs/decisiones/0012-la-salida-del-lab.md (qué compra `uplink`),
 #              0013-una-estacion-pregunta-un-servidor-dice.md (quién lleva dirección)
 #
 # EL NOMBRE de cada invitado dice QUÉ ES, no de qué lab es (ADR 0015): aquí se leen
@@ -41,24 +41,24 @@
 lab:
   nombre: 07_dunder-mifflin
 
-  # Tres escalones, y el orden es la mitad del diseño: primero el puesto de control con el
+  # Tres etapas, y el orden es la mitad del diseño: primero el bastión con el
   # router (el que da y el que pide la primera dirección), después el servidor --que no
-  # pregunta nada, pero necesita la puerta ya sirviendo para salir--, y sólo entonces los
-  # puestos dinámicos. Nunca se arranca un escalón antes de que el anterior esté convergido
+  # pregunta nada, pero necesita la vía de acceso ya sirviendo para salir--, y sólo entonces los
+  # puestos dinámicos. Nunca se arranca un etapa antes de que el anterior esté convergido
   # y sirviendo (regla 18).
-  escalones: [1, 2, 3]
+  stages: [1, 2, 3]
 
-  # Todo lo del lab vive aquí. Lo vigila `./lab check supernet`: dentro, todo lo declarado
+  # Todo lo del lab vive aquí. Lo vigila `./lab check address-space`: dentro, todo lo declarado
   # cae dentro; fuera, dos labs no pueden declarar el mismo espacio (los tres labs con
   # interior que ya existen usan 10.40, 10.41 y 10.42).
-  supernet: 10.43.0.0/16
+  address_space: 10.43.0.0/16
 
   # Los bridges son del NODO, no del lab (Proxmox no mete interfaces en pools): el motor
   # crea los que falten, los marca al crearlos y `destroy` sólo borra los que llevan su
   # marca. Tres: el de gestión y uno por área.
   #
   # EL CONMUTADOR DE LA OFICINA NO ES UN INVITADO: es el bridge. Un bridge de Linux es un
-  # conmutador --aprende MACs y conmuta entre sus patas--, así que declarar una caja que
+  # conmutador --aprende MACs y conmuta entre sus interfaces--, así que declarar una caja que
   # "conmuta" sería declarar un contenedor que no hace nada: el vocabulario del interior no
   # tiene `puentes` y el validador lo rechaza. El switch está donde tiene que estar, en el
   # nodo, y por eso lo crea el motor.
@@ -67,115 +67,115 @@ lab:
   # (IFNAMSIZ) y el nombre del lab, entero, no cabe.
   bridges:
     - nombre: vmb_dm_gestion
-      direccion: 10.43.0.1/24
+      address: 10.43.0.1/24
     - nombre: vmb_dm_oficina
-      direccion: 10.43.1.1/24
+      address: 10.43.1.1/24
     - nombre: vmb_dm_almacen
-      direccion: 10.43.2.1/24
+      address: 10.43.2.1/24
 
-  # El camino lo construye el motor: un invitado con `config.linux.camino` sale hacia casa
+  # El túnel lo construye el motor: un invitado con `config.linux.túnel` sale hacia casa
   # por su cuenta y hace de bastión del lab. Por dónde sale (host y puerto) es ENTORNO --
   # la casa es una y los labs son muchos -- así que vive en secrets.yml, no aquí.
-  camino: {tipo: puesto_control}
+  tunnel: {tipo: bastion}
 
 vms:
   # LA PUERTA: el único router de la sede, y su salida a internet.
   #
-  # Tres patas, y la cuarta no se declara: `exterior` la pide al motor, que la tiende al
+  # Tres interfaces, y la cuarta no se declara: `uplink` la pide al motor, que la tiende al
   # nacer sobre el bridge del nodo que tiene salida (valor de ENTORNO, `pve_bridge_gestion`
   # en secrets.yml, nunca de este lab). Por eso las declaradas son las tres de dentro, y la
-  # de fuera nace sin dirección: su dirección, su puerta y su DNS los DERIVA el motor del
-  # estado del nodo, con la misma regla que la pata del puesto de control en ese bridge
+  # de fuera nace sin dirección: su dirección, su pasarela y su DNS los DERIVA el motor del
+  # estado del nodo, con la misma regla que la interfaz del bastión en ese bridge
   # (ADR 0012).
   #
-  # Y por eso este router NO declara ruta por defecto: la pone el motor por la puerta de
+  # Y por eso este router NO declara ruta por defecto: la pone el motor por la vía de acceso de
   # fuera. Declararla además serían dos rutas compitiendo por el mismo destino (lo avisa el
   # consejo `exterior-con-ruta`), y obligaría al lab a saberse la pasarela de casa, que es
-  # justo lo que `exterior` evita.
+  # justo lo que `uplink` evita.
   - rol: borde
     tipo: rt          # es un router CHR -> 'rt-borde' (el alias es su rol)
-    escalon: 1
+    stage: 1
     cores: 2
-    memoria: 512
-    disco: 1
-    imagen: chr-7.25.1.raw
-    # TRES patas, en este orden: la de gestión (por donde pide su primera dirección al
-    # puesto de control y por donde el motor entra a configurarlo), la oficina y el
+    memory: 512
+    disk: 1
+    image: chr-7.25.1.raw
+    # TRES interfaces, en este orden: la de gestión (por donde pide su primera dirección al
+    # bastión y por donde el motor entra a configurarlo), la oficina y el
     # almacén. El orden ES la numeración de las interfaces: `vmb_dm_gestion` -> ether1,
     # `vmb_dm_oficina` -> ether2, `vmb_dm_almacen` -> ether3 (y la de fuera, que añade el
     # motor, -> ether4).
     bridges: [vmb_dm_gestion, vmb_dm_oficina, vmb_dm_almacen]
-    direccion: 10.43.0.11/24
+    address: 10.43.0.11/24
     config:
       routeros:
-        identidad: rt-borde
-        # `www` (que es donde vive REST) NO se toca: es el camino de vuelta del motor.
-        servicios: {deshabilitar: [telnet, ftp, api, api-ssl]}
+        identity: rt-borde
+        # `www` (que es donde vive REST) NO se toca: es el túnel de vuelta del motor.
+        ip_services: {deshabilitar: [telnet, ftp, api, api-ssl]}
         # El cliente DHCP de fábrica (ether1) se apaga DESPUÉS de tener la dirección:
         # mientras el motor no haya entrado, es la única forma de que el equipo sea
         # alcanzable.
-        cliente_dhcp: {deshabilitar: true}
+        dhcp_client: {deshabilitar: true}
         # Las direcciones de las dos áreas que sirve. La de gestión (ether1) no se declara
-        # aquí: la deriva el motor del `direccion:` de arriba, porque es la que el router
+        # aquí: la deriva el motor del `address:` de arriba, porque es la que el router
         # se pone justo antes de apagar su cliente de fábrica.
-        direcciones:
-          - {interfaz: ether2, direccion: 10.43.1.1/24}
-          - {interfaz: ether3, direccion: 10.43.2.1/24}
+        addresses:
+          - {interface: ether2, address: 10.43.1.1/24}
+          - {interface: ether3, address: 10.43.2.1/24}
         # DOS ámbitos DHCP en un router, uno por área. Cada uno declara SU red, y por eso
         # sus reservas derivadas saben de quién son: las de la oficina llevan al servidor
         # de ficheros; las del almacén, hoy, no llevan a nadie (allí no hay nada con
         # dirección fija). El DNS que anuncian los dos es este mismo router, que es quien
-        # resuelve porque `exterior` le enciende el resolutor: un solo resolutor en el lab,
-        # en la puerta.
-        dhcp:
-          - interfaz: ether2
+        # resuelve porque `uplink` le enciende el resolutor: un solo resolutor en el lab,
+        # en la vía de acceso.
+        dhcp_server:
+          - interface: ether2
             pool: {rango: 10.43.1.100-10.43.1.200}
-            red: {prefijo: 10.43.1.0/24, pasarela: 10.43.1.1, dns: [10.43.1.1]}
-            reservas: derivadas
-          - interfaz: ether3
+            network: {address: 10.43.1.0/24, gateway: 10.43.1.1, dns: [10.43.1.1]}
+            static_leases: derived
+          - interface: ether3
             pool: {rango: 10.43.2.100-10.43.2.200}
-            red: {prefijo: 10.43.2.0/24, pasarela: 10.43.2.1, dns: [10.43.2.1]}
-            reservas: derivadas
+            network: {address: 10.43.2.0/24, gateway: 10.43.2.1, dns: [10.43.2.1]}
+            static_leases: derived
         # LA SALIDA: una marca, sin opciones. Lo que esto significa, en tres cosas y
         # ninguna más: un cliente DHCP en la interfaz de fuera, MASQUERADE por ella, y el
         # resolutor DNS encendido.
-        exterior: {}
+        uplink: {}
 
 containers:
-  # El puesto de control: la única pata que el motor necesita para ENTRAR en el lab. Nace
-  # con una pata en el bridge de gestión del NODO (valor de entorno, no del lab) y una por
-  # cada bridge del lab, todas al nacer (cambiarle las patas a un invitado en marcha obliga
+  # El bastión: la única interfaz que el motor necesita para ENTRAR en el lab. Nace
+  # con una interfaz en el bridge de gestión del NODO (valor de entorno, no del lab) y una por
+  # cada bridge del lab, todas al nacer (cambiarle las interfaces a un invitado en marcha obliga
   # a reiniciarlo, y aquí no se reinicia la máquina que trabaja).
   #
-  # No declara ninguna pata extra CON dirección, y es una decisión, no un olvido: el único
+  # No declara ninguna interfaz extra CON dirección, y es una decisión, no un olvido: el único
   # invitado en el que el motor entra es el router, y el router está en el bridge de
   # gestión, que es donde este puesto ya tiene su dirección.
   - rol: control
-    tipo: ctl         # un puesto de control (el bastión del lab) -> 'ctl-1'
+    tipo: ctl         # un bastión (el bastión del lab) -> 'ctl-1'
     nombre: 1
-    escalon: 1
+    stage: 1
     cores: 1
-    memoria: 512
-    disco: 4
+    memory: 512
+    disk: 4
     bridge: vmb_dm_gestion
-    direccion: 10.43.0.10/24
+    address: 10.43.0.10/24
     config:
       linux:
-        # Vacío a propósito: que hay camino lo dice la clave, no su contenido.
-        camino: {}
+        # Vacío a propósito: que hay túnel lo dice la clave, no su contenido.
+        tunnel: {}
         # El que da la PRIMERA dirección: reserva, por la MAC derivada del router, la
         # dirección que ese router declara. Es lo que cierra el círculo del arranque en
         # frío.
-        dhcp_servidor:
-          interfaz: eth0
+        dhcp_server:
+          interface: eth0
           rango: 10.43.0.50-10.43.0.99
-          reservas: derivadas
-        # Reenvía: es el bastión del lab y tiene una pata en cada red de dentro. No es un
-        # router de la empresa (no traduce nada ni sale): es la puerta por la que el motor
+          static_leases: derived
+        # Reenvía: es el bastión del lab y tiene una interfaz en cada red de dentro. No es un
+        # router de la empresa (no traduce nada ni sale): es la vía de acceso por la que el motor
         # entra y por la que mira.
-        reenvio: true
+        ip_forward: true
 
-  # EL SERVIDOR DE FICHEROS: lleva su dirección puesta a mano y su puerta declarada, así
+  # EL SERVIDOR DE FICHEROS: lleva su dirección puesta a mano y su pasarela declarada, así
   # que no pregunta nada por DHCP y sale igual, porque sabe por dónde. Así se ve que la
   # sede no depende de que el DHCP funcione para todo -- igual que en un rack de verdad.
   #
@@ -186,13 +186,13 @@ containers:
   - rol: ficheros
     tipo: srv         # un servidor -> 'srv-1'
     nombre: 1
-    escalon: 2
+    stage: 2
     cores: 1
-    memoria: 512
-    disco: 8
+    memory: 512
+    disk: 8
     bridge: vmb_dm_oficina
-    direccion: 10.43.1.10/24
-    puerta: 10.43.1.1
+    address: 10.43.1.10/24
+    gateway: 10.43.1.1
 
   # LOS PUESTOS DE LA OFICINA: son estaciones, así que al conectar PIDEN su dirección y el
   # router les devuelve dirección, pasarela y DNS en la misma respuesta -- eso, y nada
@@ -201,34 +201,34 @@ containers:
   - rol: puesto-1
     tipo: ws          # un puesto de trabajo -> 'ws-1'
     nombre: 1
-    escalon: 3
+    stage: 3
     cores: 1
-    memoria: 512
-    disco: 4
+    memory: 512
+    disk: 4
     bridge: vmb_dm_oficina
-    direccion: dhcp
+    address: dhcp
 
   - rol: puesto-2
     tipo: ws          # y el segundo -> 'ws-2'
     nombre: 2
-    escalon: 3
+    stage: 3
     cores: 1
-    memoria: 512
-    disco: 4
+    memory: 512
+    disk: 4
     bridge: vmb_dm_oficina
-    direccion: dhcp
+    address: dhcp
 
   # ÉSTE CUELGA DEL ALMACÉN: su dirección se la da el segundo ámbito del MISMO router, y
-  # sale por la misma puerta que los de la oficina. Es lo que prueba que un router con dos
+  # sale por la misma vía de acceso que los de la oficina. Es lo que prueba que un router con dos
   # ámbitos no se confunde de red -- y lo que un lab con un router por red no podía
   # enseñar.
   - rol: puesto-3
     tipo: ws          # y el del almacén -> 'ws-3'
     nombre: 3
-    escalon: 3
+    stage: 3
     cores: 1
-    memoria: 512
-    disco: 4
+    memory: 512
+    disk: 4
     bridge: vmb_dm_almacen
-    direccion: dhcp
+    address: dhcp
 #     ↑ sin `vmid` ni `mac`: los deriva el motor leyendo el estado del clúster.

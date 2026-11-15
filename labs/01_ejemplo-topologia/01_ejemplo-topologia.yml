@@ -6,14 +6,14 @@
 #              coincidir con el de la carpeta, porque el pool de Proxmox se llama
 #              como la carpeta y es la frontera de propiedad.
 # LÍMITES:     este lab no declara `config:` (el motor SÍ sabe configurar el interior
-#              --vocabulario de la fase 2, `config:` e `imagen:`--, y lo ejerce el lab
+#              --vocabulario de la fase 2, `config:` e `image:`--, y lo ejerce el lab
 #              de aceptación). El interior del conmutador no se toca.
 # VER:         labs/01_ejemplo-topologia/01_ejemplo-topologia.md; README.md §Identidad
 
 # ---------------------------------------------------------------------------
 # QUÉ HAY QUE SUSTITUIR PARA LLEVARLO A UN PROXMOX REAL
 #
-#   1. `direccion` de `lab.bridges` y de cada invitado: están en 192.0.2.0/24,
+#   1. `address` de `lab.bridges` y de cada invitado: están en 192.0.2.0/24,
 #      que es un rango reservado para documentación (RFC 5737) y NO existe en
 #      ninguna red real. Sustitúyelas por direcciones de tu red de laboratorio.
 #   2. `bridge` (el nombre): el motor creará el bridge en el nodo si no existe.
@@ -33,15 +33,15 @@ lab:
   nombre: 01_ejemplo-topologia
 
   # El orden de arranque es parte de la topología: primero el conmutador, después
-  # los puestos. El plan y `apply` arrancan escalón a escalón, nunca todo a la vez.
-  escalones: [1, 2]
+  # los puestos. El plan y `apply` arrancan etapa a etapa, nunca todo a la vez.
+  stages: [1, 2]
 
   # Los bridges son del NODO, no del lab (Proxmox no los mete en pools). El motor
   # sólo crea los que falten, y se los declara aquí para saber cuáles necesita y
   # para que `check colisiones` pueda exigir que dos labs no compartan nombre.
   bridges:
     - nombre: vmb_ejemplo
-      direccion: 192.0.2.1/24
+      address: 192.0.2.1/24
 
 vms:
   # Una VM que hace de conmutador: tiene su interfaz en el bridge del lab. Su
@@ -49,32 +49,32 @@ vms:
   - rol: switch
     tipo: sw          # conmuta -> el nombre empieza por 'sw-'
     nombre: 1         # el primer conmutador del lab -> 'sw-1'
-    escalon: 1
+    stage: 1
     cores: 2
-    memoria: 512
-    disco: 8
+    memory: 512
+    disk: 8
     bridge: vmb_ejemplo
-    direccion: 192.0.2.2/24
+    address: 192.0.2.2/24
 #     ↑ sin `vmid` y sin `mac`: eso lo deriva el motor del estado del clúster.
 
 containers:
-  # Dos puestos de trabajo. Comparten escalón: no dependen el uno del otro.
+  # Dos puestos de trabajo. Comparten etapa: no dependen el uno del otro.
   - rol: workstation-1
     tipo: ws          # un puesto de trabajo -> 'ws-1'
     nombre: 1
-    escalon: 2
+    stage: 2
     cores: 1
-    memoria: 256
-    disco: 4
+    memory: 256
+    disk: 4
     bridge: vmb_ejemplo
-    direccion: 192.0.2.11/24
+    address: 192.0.2.11/24
 
   - rol: workstation-2
     tipo: ws          # y el segundo -> 'ws-2'
     nombre: 2
-    escalon: 2
+    stage: 2
     cores: 1
-    memoria: 256
-    disco: 4
+    memory: 256
+    disk: 4
     bridge: vmb_ejemplo
-    direccion: 192.0.2.12/24
+    address: 192.0.2.12/24

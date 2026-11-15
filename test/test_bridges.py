@@ -67,7 +67,7 @@ def declaracion_alfa(bridges_extra=()):
     """
     normalizada = modulo_declaracion.declaracion_normalizar(fixture_yaml("declaracion-alfa.yml"))
     for nombre in bridges_extra:
-        normalizada["bridges"].append({"nombre": nombre, "direccion": None})
+        normalizada["bridges"].append({"nombre": nombre, "address": None})
     return normalizada
 
 
@@ -193,7 +193,7 @@ def caso_3_un_bridge_sin_marca_se_conserva():
     )
 
 
-def caso_4_lo_usa_un_invitado_ajeno():
+def caso_4_lo_usa_un_guest_ajeno():
     print("\ncaso 4 — un bridge del lab que usa un invitado ajeno NO se borra")
     declaracion = declaracion_alfa()
     estado = estado_del_mundo({"vmb_alfa": PLANTILLA_COMENTARIO_BRIDGE.format(lab="alfa")})
@@ -216,7 +216,7 @@ def caso_4_lo_usa_un_invitado_ajeno():
     )
 
 
-def caso_5_se_miran_todas_las_patas():
+def caso_5_se_miran_todas_las_interfaces():
     print("\ncaso 5 — se miran TODAS las interfaces, no sólo net0")
     declaracion = declaracion_alfa()
     estado = estado_del_mundo({"vmb_alfa": PLANTILLA_COMENTARIO_BRIDGE.format(lab="alfa")})
@@ -231,7 +231,7 @@ def caso_5_se_miran_todas_las_patas():
     decision = modulo_estado.estado_bridges_a_borrar(declaracion, estado, configs_ajenas)
     comprobar(
         decision["borrar"] == [],
-        "la segunda pata del invitado cuenta igual: borrarlo lo dejaría sin esa red",
+        "la segunda interfaz del invitado cuenta igual: borrarlo lo dejaría sin esa red",
     )
 
 
@@ -326,8 +326,8 @@ def main():
     caso_1_el_plan_marca_y_destroy_reconoce()
     caso_2_sin_plantilla_no_se_marca_y_por_tanto_no_se_borra()
     caso_3_un_bridge_sin_marca_se_conserva()
-    caso_4_lo_usa_un_invitado_ajeno()
-    caso_5_se_miran_todas_las_patas()
+    caso_4_lo_usa_un_guest_ajeno()
+    caso_5_se_miran_todas_las_interfaces()
     caso_6_si_no_se_pudo_leer_una_config_no_se_borra()
     caso_7_la_marca_de_otro_lab_no_se_toca()
     caso_8_de_dos_declarados_cae_solo_el_marcado()

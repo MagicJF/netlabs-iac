@@ -78,9 +78,9 @@ def caso_1_dos_labs_disjuntos():
     con_alfa = fixture_json("cluster-vacio.json")
     con_alfa["pools"]["lab_alfa"] = {"comment": "alfa"}
     con_alfa["vmids_usados"] = sorted(alfa["mapa_rol_vmid"].values())
-    for invitado in alfa["invitados"]:
+    for guest in alfa["guests"]:
         # `pool` es lo que ata el invitado a su lab; el estado real siempre lo trae.
-        con_alfa["invitados"][str(invitado["vmid"])] = {**invitado, "pool": "lab_alfa"}
+        con_alfa["guests"][str(guest["vmid"])] = {**guest, "pool": "lab_alfa"}
 
     beta = asignar("declaracion-beta.yml", con_alfa)
     comprobar(not beta["errores"], "el asignador no da errores para beta")
@@ -94,8 +94,8 @@ def caso_1_dos_labs_disjuntos():
         min(vmids_beta) > max(vmids_alfa),
         "beta empieza a asignar por encima del mayor vmid que usó alfa",
     )
-    nombres_alfa = {i["nombre"] for i in alfa["invitados"]}
-    nombres_beta = {i["nombre"] for i in beta["invitados"]}
+    nombres_alfa = {i["nombre"] for i in alfa["guests"]}
+    nombres_beta = {i["nombre"] for i in beta["guests"]}
     # DESDE EL ADR 0015 los nombres SÍ pueden coincidir: dicen qué es el equipo, no de qué
     # lab es. Los dos labs tienen un `nucleo` de tipo `rt`, así que los dos se llaman
     # `rt-nucleo` -- y no pasa nada, porque lo que dice de quién es cada uno es el pool y
@@ -104,8 +104,8 @@ def caso_1_dos_labs_disjuntos():
         "rt-nucleo" in nombres_alfa and "rt-nucleo" in nombres_beta,
         "el nombre canónico es <tipo>-<alias>, y se repite entre labs a propósito",
     )
-    descripciones_alfa = {i["descripcion"] for i in alfa["invitados"]}
-    descripciones_beta = {i["descripcion"] for i in beta["invitados"]}
+    descripciones_alfa = {i["descripcion"] for i in alfa["guests"]}
+    descripciones_beta = {i["descripcion"] for i in beta["guests"]}
     comprobar(
         descripciones_alfa & descripciones_beta == set(),
         "lo que NO se repite es la descripción: `lab=…` dice de quién es cada invitado",
@@ -114,33 +114,33 @@ def caso_1_dos_labs_disjuntos():
         modulo_identidad.identidad_mac(100, PREFIJO_MAC) == "BC:24:11:00:00:64",
         "la MAC es función pura del vmid (100 -> BC:24:11:00:00:64)",
     )
-    # Un invitado del interior tiene VARIAS patas (una por bridge más la de gestión), y
+    # Un invitado del interior tiene VARIAS interfaces (una por bridge más la de gestión), y
     # cada una lleva su MAC derivada: la 0 es exactamente la de siempre, para que los
     # invitados de una sola interfaz no cambien ni un bit.
     comprobar(
-        modulo_identidad.identidad_mac_de_pata(100, 0, PREFIJO_MAC)
+        modulo_identidad.identidad_mac_de_interface(100, 0, PREFIJO_MAC)
         == modulo_identidad.identidad_mac(100, PREFIJO_MAC)
         == "BC:24:11:00:00:64",
-        "la pata 0 de un invitado conserva la MAC de siempre",
+        "la interfaz 0 de un invitado conserva la MAC de siempre",
     )
-    macs_patas = [modulo_identidad.identidad_mac_de_pata(100, i, PREFIJO_MAC) for i in range(4)]
-    comprobar(len(set(macs_patas)) == 4, f"cada pata tiene su MAC, y ninguna se repite: {macs_patas}")
+    macs_interfaces = [modulo_identidad.identidad_mac_de_interface(100, i, PREFIJO_MAC) for i in range(4)]
+    comprobar(len(set(macs_interfaces)) == 4, f"cada interfaz tiene su MAC, y ninguna se repite: {macs_interfaces}")
     comprobar(
-        all(maca.startswith(PREFIJO_MAC + ":") for maca in macs_patas),
-        "todas las patas salen del mismo prefijo (el OUI del motor)",
+        all(maca.startswith(PREFIJO_MAC + ":") for maca in macs_interfaces),
+        "todas las interfaces salen del mismo prefijo (el OUI del motor)",
     )
-    # Y la pata 1 de un invitado no puede chocar con la pata 0 de otro: los vmids de
-    # Proxmox no pasan de 999.999 y las patas se separan 2**20.
+    # Y la interfaz 1 de un invitado no puede chocar con la interfaz 0 de otro: los vmids de
+    # Proxmox no pasan de 999.999 y las interfaces se separan 2**20.
     comprobar(
-        modulo_identidad.identidad_mac_de_pata(100, 1, PREFIJO_MAC)
-        != modulo_identidad.identidad_mac(100 + modulo_identidad.ESPACIO_DE_PATAS - 1, PREFIJO_MAC),
-        "la pata 1 no choca con la pata 0 del vmid de al lado",
+        modulo_identidad.identidad_mac_de_interface(100, 1, PREFIJO_MAC)
+        != modulo_identidad.identidad_mac(100 + modulo_identidad.ESPACIO_DE_INTERFACES - 1, PREFIJO_MAC),
+        "la interfaz 1 no choca con la interfaz 0 del vmid de al lado",
     )
     try:
-        modulo_identidad.identidad_mac_de_pata(100, -1, PREFIJO_MAC)
-        comprobar(False, "una pata negativa es un error, no una MAC inventada")
+        modulo_identidad.identidad_mac_de_interface(100, -1, PREFIJO_MAC)
+        comprobar(False, "una interfaz negativa es un error, no una MAC inventada")
     except Exception as error:
-        comprobar("pata negativa" in str(error), "una pata negativa se dice, no se deriva")
+        comprobar("interfaz negativa" in str(error), "una interfaz negativa se dice, no se deriva")
 
 
 def caso_2_vmid_ocupado():
@@ -159,13 +159,13 @@ def caso_2_vmid_ocupado():
     # invitado propio (vmid 200) y otro de beta con el MISMO rol declarado.
     estado2 = fixture_json("cluster-vacio.json")
     estado2["pools"] = {"lab_alfa": {}, "lab_beta": {}}
-    estado2["invitados"] = {
+    estado2["guests"] = {
         "200": {
             "vmid": 200,
             "nombre": "alfa-nucleo",
             "tipo": "qemu",
             "descripcion": "lab=alfa rol=nucleo gestionado por netlabs_v4_b",
-            "cores": 2, "memoria": 512, "bridge": "vmb-alfa",
+            "cores": 2, "memory": 512, "bridge": "vmb-alfa",
             "mac": modulo_identidad.identidad_mac(200, PREFIJO_MAC),
             "arrancado": True, "pool": "lab_alfa", "nodo": "pve-simulado",
         },
@@ -174,13 +174,13 @@ def caso_2_vmid_ocupado():
             "nombre": "beta-nucleo",
             "tipo": "lxc",
             "descripcion": "lab=beta rol=nucleo gestionado por netlabs_v4_b",
-            "cores": 1, "memoria": 256, "bridge": "vmb_beta",
+            "cores": 1, "memory": 256, "bridge": "vmb_beta",
             "mac": modulo_identidad.identidad_mac(300, PREFIJO_MAC),
             "arrancado": True, "pool": "lab_beta", "nodo": "pve-simulado",
         },
     }
     resultado2 = asignar("declaracion-alfa.yml", estado2)
-    nucleo = [i for i in resultado2["invitados"] if i["rol"] == "nucleo"][0]
+    nucleo = [i for i in resultado2["guests"] if i["rol"] == "nucleo"][0]
     comprobar(nucleo["vmid"] == 200, "adopta el invitado propio que ya tiene ese rol (vmid 200)")
     comprobar(nucleo["origen"] == "existente", "y lo marca como existente, no como nuevo")
     comprobar(300 not in resultado2["mapa_rol_vmid"].values(), "NO adopta el invitado homónimo que está en el pool de beta")
@@ -205,7 +205,7 @@ def caso_4_declaracion_incoherente():
     for fragmento, descripcion in (
         ("roles repetidos", "detecta el rol en dos listas"),
         ("vmb-que-no-existe", "detecta el bridge citado que no existe"),
-        ("escalón 9", "detecta el escalón no declarado"),
+        ("etapa 9", "detecta la etapa no declarado"),
         ("comparten la dirección", "detecta dos roles con la misma dirección"),
         ("vmid", "detecta el vmid declarado a mano"),
         ("carpeta", "detecta que el nombre no coincide con la carpeta"),
@@ -225,14 +225,14 @@ def caso_5_rol_ya_desplegado_conserva_vmid():
     estado = fixture_json("cluster-vacio.json")
     estado["pools"]["lab_alfa"] = {"comment": "alfa"}
     estado["vmids_usados"] = [100]
-    estado["invitados"] = {
+    estado["guests"] = {
         "100": {
             "vmid": 100,
             "nombre": "alfa-nucleo",
             "tipo": "qemu",
             "descripcion": "lab=alfa rol=nucleo gestionado por netlabs_v4_b",
             "cores": 2,
-            "memoria": 512,
+            "memory": 512,
             "bridge": "vmb_alfa",
             "mac": "BC:24:11:00:00:64",
             "arrancado": True,
@@ -241,7 +241,7 @@ def caso_5_rol_ya_desplegado_conserva_vmid():
         }
     }
     resultado = asignar("declaracion-alfa.yml", estado)
-    nucleo = [i for i in resultado["invitados"] if i["rol"] == "nucleo"][0]
+    nucleo = [i for i in resultado["guests"] if i["rol"] == "nucleo"][0]
     comprobar(nucleo["vmid"] == 100, "el rol ya desplegado mantiene el vmid 100")
     comprobar(nucleo["origen"] == "existente", "y se marca como existente, no como nuevo")
 
@@ -261,13 +261,13 @@ def caso_6_verificacion_en_los_dos_sentidos():
     # Ahora al revés: todo existe... y ADEMÁS sobra un invitado en el pool del lab.
     estado2 = fixture_json("cluster-con-vecino.json")
     estado2["pools"]["lab_alfa"] = {"comment": "alfa"}
-    estado2["invitados"]["777"] = {
+    estado2["guests"]["777"] = {
         "vmid": 777,
         "nombre": "copia-a-mano",
         "tipo": "lxc",
         "descripcion": "hecho a mano, sin descripción del motor",
         "cores": 1,
-        "memoria": 256,
+        "memory": 256,
         "bridge": "vmb_alfa",
         "mac": None,
         "arrancado": True,
@@ -277,13 +277,13 @@ def caso_6_verificacion_en_los_dos_sentidos():
     estado2["vmids_usados"] = sorted(set(estado2["vmids_usados"] + [777]))
     # Los 3 roles de alfa existen y coinciden...
     for rol, vmid in (("nucleo", 100), ("puesto-1", 101), ("puesto-2", 102)):
-        estado2["invitados"][str(vmid)] = {
+        estado2["guests"][str(vmid)] = {
             "vmid": vmid,
             "nombre": f"alfa-{rol}",
             "tipo": "qemu" if rol == "nucleo" else "lxc",
             "descripcion": f"lab=alfa rol={rol} gestionado por netlabs_v4_b",
             "cores": 2 if rol == "nucleo" else 1,
-            "memoria": 512 if rol == "nucleo" else 256,
+            "memory": 512 if rol == "nucleo" else 256,
             "bridge": "vmb_alfa",
             "mac": modulo_identidad.identidad_mac(vmid, PREFIJO_MAC),
             "arrancado": True,
@@ -320,7 +320,7 @@ def caso_8_la_frontera_es_el_pool_del_lab():
     # CRUDA de /cluster/resources, con el `pool` de cada invitado) -> estado -> identidad.
     # El pool de un lab se llama `lab_<lab>` (prefijo del motor, porque Proxmox exige que
     # un poolid empiece por letra y la carpeta de un lab empieza por su número). Cuando
-    # `estado`/`identidad` comparaban el pool con el nombre de la CARPETA, ningún invitado
+    # `estado`/`identity` comparaban el pool con el nombre de la CARPETA, ningún invitado
     # propio se reconocía: el plan los veía como de nadie y volvía a crear la topología
     # entera con vmids nuevos en cada pasada.
     estado = modulo_estado.estado_desde_api(
@@ -350,19 +350,19 @@ def caso_8_la_frontera_es_el_pool_del_lab():
             },
         }
     )
-    comprobar("200" in estado["invitados"], "el invitado del pool del lab entra como PROPIO")
+    comprobar("200" in estado["guests"], "el invitado del pool del lab entra como PROPIO")
     comprobar(
-        estado["invitados"]["200"]["pool"] == modulo_identidad.identidad_pool("alfa"),
+        estado["guests"]["200"]["pool"] == modulo_identidad.identidad_pool("alfa"),
         "y guarda el nombre del pool tal cual lo da la API (con el prefijo)",
     )
     # `invitados_otros` va por NOMBRE (es el informe el que lo agrupa así), no por vmid.
-    otros_vmids = {i["vmid"] for i in estado["invitados_otros"].values()}
+    otros_vmids = {i["vmid"] for i in estado["guests_otros"].values()}
     comprobar(200 not in otros_vmids, "el propio no se cuela entre los ajenos")
     comprobar(300 in otros_vmids, "el del pool de otro lab NO se adopta")
     comprobar(400 in otros_vmids, "ni uno sin pool: no es de nadie")
 
     resultado = asignar("declaracion-alfa.yml", estado)
-    nucleo = [i for i in resultado["invitados"] if i["rol"] == "nucleo"][0]
+    nucleo = [i for i in resultado["guests"] if i["rol"] == "nucleo"][0]
     comprobar(nucleo["vmid"] == 200, "y la identidad ADOPTA el invitado propio: conserva su vmid")
     comprobar(nucleo["origen"] == "existente", "lo marca como existente, no como nuevo")
     comprobar(

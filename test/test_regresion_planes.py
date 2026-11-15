@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # PROPÓSITO:   demostrar que la fase 2 NO cambió el plan de un lab de la fase 1. Un
-#              lab que no declara `config:` ni `imagen:` tiene que producir
+#              lab que no declara `config:` ni `image:` tiene que producir
 #              EXACTAMENTE el mismo plan que producía antes de que existiera la
 #              configuración del interior: ni un paso más, ni uno menos, ni con otros
 #              parámetros.
@@ -24,6 +24,12 @@
 # de cada invitado--, y ese cambio es la decisión, no una regresión. El resto del plan (qué
 # pasos, en qué orden, con qué parámetros) no cambió ni un paso: es lo que este test vigila.
 
+# 15-nov-2026: las referencias se actualizaron A MANO otra vez, por el mismo tipo de motivo:
+# el vocabulario del motor pasó a la nomenclatura internacional (`guest` -> `guest` en los
+# nombres de paso, `tunnel` -> `tunnel`, `address` -> `address`...). Lo único que cambia en
+# el plan es el NOMBRE de dos pasos (`arrancar_invitado` -> `arrancar_guest`, `crear_invitado`
+# -> `crear_guest`): ningún paso de más, de menos, ni en otro orden.
+
 # Uso:  python3 test/test_regresion_planes.py     (código de salida != 0 si algo falla)
 
 import difflib
@@ -35,7 +41,7 @@ import sys
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FIXTURES = os.path.join(RAIZ, "test", "fixtures", "planes-fase1")
 
-# Los labs de la fase 1 del repositorio: ni `config:` ni `imagen:` en ninguno.
+# Los labs de la fase 1 del repositorio: ni `config:` ni `image:` en ninguno.
 # Se listan a mano y el test comprueba que de verdad no declaran config (si algún
 # día uno la declara, el test lo dice: ya no es un lab de la fase 1 y su plan PUEDE
 # cambiar, pero eso tiene que ser una decisión, no un silencio).
@@ -73,7 +79,7 @@ def leer(ruta):
 
 
 def declara_config(lab):
-    """¿El lab DECLARA ya `config:` o `imagen:`? Se mira el YAML sin comentarios: una
+    """¿El lab DECLARA ya `config:` o `image:`? Se mira el YAML sin comentarios: una
     mención en un comentario (los `# LÍMITES` hablan del vocabulario) no es una
     declaración, y el test vigila declaraciones, no prosa."""
     texto = leer(os.path.join(RAIZ, "labs", lab, f"{lab}.yml"))
@@ -104,7 +110,7 @@ for lab in LABS_FASE_1:
     print(f"{lab}:")
     if not comprobar(
         not declara_config(lab),
-        f"{lab} sigue siendo un lab de la fase 1 (no declara `config:` ni `imagen:`)",
+        f"{lab} sigue siendo un lab de la fase 1 (no declara `config:` ni `image:`)",
     ):
         continue
     referencia = normalizar_nodo(leer(os.path.join(FIXTURES, f"{lab}.plan.txt")))

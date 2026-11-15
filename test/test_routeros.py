@@ -12,7 +12,7 @@
 #                 su dirección dinámica y su ruta por defecto del DHCP;
 #              3. lo decidido se traduce a las rutas REST correctas, con los cuerpos
 #                 correctos, y `www` NO aparece en ninguna: es donde vive el REST (el
-#                 camino de vuelta del motor);
+#                 túnel de vuelta del motor);
 #              4. la credencial del motor va la ÚLTIMA (identidad al final del plan);
 #              5. la contraseña NO se escribe en el diario: `sin_secretos` la tapa;
 #              6. con un router ya convergido, CERO operaciones (idempotencia por
@@ -60,12 +60,12 @@ _CRUDA = _yaml.safe_load(
     open(os.path.join(RAIZ, "labs", "04_lab-red-routeros", "04_lab-red-routeros.yml"))
 )
 DECLARACION = _validador.declaracion_normalizar(_CRUDA)
-BORDE = [i for i in DECLARACION["invitados"] if i["rol"] == "borde"][0]
+BORDE = [i for i in DECLARACION["guests"] if i["rol"] == "borde"][0]
 
 # Los vmids son los del pool real cuando esto se escribió; lo que importa es que la MAC
 # se DERIVA de ellos (nadie la escribe a mano, regla 14).
 IDENTIDAD = {
-    "invitados": [
+    "guests": [
         {"rol": "control", "vmid": 109, "tipo": "lxc", "mac": "BC:24:11:00:00:6D"},
         {"rol": "borde", "vmid": 108, "tipo": "qemu", "mac": "BC:24:11:00:00:6C"},
         {"rol": "nucleo", "vmid": 110, "tipo": "qemu", "mac": "BC:24:11:00:00:6E"},
@@ -74,8 +74,8 @@ IDENTIDAD = {
         {"rol": "puesto-2", "vmid": 113, "tipo": "lxc", "mac": "BC:24:11:00:00:71"},
     ]
 }
-PARAMETROS = {"bridge_gestion": "vmbr1", "camino_puerto_base": 20000, "nodo": "nodo-de-prueba"}
-CLAVE_PUBLICA = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINetlabsCaminoDePrueba netlabs_v4_b"
+PARAMETROS = {"bridge_gestion": "vmbr1", "tunnel_puerto_base": 20000, "nodo": "nodo-de-prueba"}
+CLAVE_PUBLICA = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINetlabsTúnelDePrueba netlabs_v4_b"
 PARAMETROS_ROUTEROS = {
     "usuario": "admin",
     "clave": "la-contraseña-del-motor",
@@ -144,11 +144,11 @@ CRUDO_RECIEN_NACIDO = {
 print("\nLECTURAS: se pregunta SÓLO por lo que el lab declara\n")
 
 for area, rutas_esperadas, en_lab in (
-    ("identidad", ["/system/identity", "/user", "/user/ssh-keys"], True),
-    ("servicios", ["/ip/service"], True),
-    ("cliente_dhcp", ["/ip/dhcp-client"], True),
-    ("direcciones", ["/ip/address"], True),
-    ("rutas", ["/ip/route"], True),
+    ("identity", ["/system/identity", "/user", "/user/ssh-keys"], True),
+    ("ip_services", ["/ip/service"], True),
+    ("dhcp_client", ["/ip/dhcp-client"], True),
+    ("addresses", ["/ip/address"], True),
+    ("routes", ["/ip/route"], True),
     ("dhcp", ["/ip/dhcp-server", "/ip/pool", "/ip/dhcp-server/network", "/ip/dhcp-server/lease"], True),
 ):
     obtenidas = [lectura["ruta"] for lectura in motor.lecturas_routeros(BORDE)]
@@ -158,17 +158,17 @@ for area, rutas_esperadas, en_lab in (
     )
 
 # Un router SIN áreas declaradas sigue teniendo una cosa que leer: su propia dirección de
-# gestión. No es un área que el lab declare -- la deriva el motor del `direccion:` del
-# invitado -- , y es justo lo que impide dejarlo sin camino de vuelta al apagarle el
+# gestión. No es un área que el lab declare -- la deriva el motor del `address:` del
+# invitado -- , y es justo lo que impide dejarlo sin túnel de vuelta al apagarle el
 # cliente DHCP de fábrica.
-SIN_AREAS = dict(BORDE, config={"routeros": {"identidad": "rt-borde"}})
+SIN_AREAS = dict(BORDE, config={"routeros": {"identity": "rt-borde"}})
 igual(
-    motor.areas_a_leer(SIN_AREAS), ["identidad", "direcciones"],
-    "un router que sólo declara su identidad lee, además, la dirección de su pata de gestión",
+    motor.areas_a_leer(SIN_AREAS), ["identity", "addresses"],
+    "un router que sólo declara su identidad lee, además, la dirección de su interfaz de gestión",
 )
 igual(
-    sorted(motor.areas_a_leer(dict(BORDE, direccion="dhcp"))), sorted(motor.areas_a_leer(BORDE)),
-    "y con `direccion: dhcp` esa dirección NO se deriva: no hay nada estático que poner",
+    sorted(motor.areas_a_leer(dict(BORDE, address="dhcp"))), sorted(motor.areas_a_leer(BORDE)),
+    "y con `address: dhcp` esa dirección NO se deriva: no hay nada estático que poner",
 )
 igual(
     [l["metodo"] for l in motor.lecturas_routeros(BORDE)], ["GET"] * 11,
@@ -181,38 +181,38 @@ LEIDO = motor.leido_routeros(CRUDO_RECIEN_NACIDO, BORDE, "admin", CLAVE_PUBLICA,
 
 igual(LEIDO["alcanzable"], True, "se le pudo preguntar (llegó y contestó)")
 igual(
-    LEIDO["areas"]["identidad"],
+    LEIDO["areas"]["identity"],
     {"nombre": "CHR", "usuario_motor": True, "credencial_motor": False, "clave_motor": False,
      "usuarios": {"admin": "*1"}},
     "el equipo se llama CHR, su usuario del motor existe y NO tiene todavía ni la credencial ni la clave del motor",
 )
 igual(
-    LEIDO["areas"]["servicios"]["deshabilitados"], ["www-ssl"],
+    LEIDO["areas"]["ip_services"]["deshabilitados"], ["www-ssl"],
     "sólo las entradas ESTÁTICAS cuentan como configuración: la conexión viva del motor no es un servicio que se apague",
 )
 igual(
-    LEIDO["areas"]["servicios"]["ids"]["www"], "*2",
+    LEIDO["areas"]["ip_services"]["ids"]["www"], "*2",
     "y el `.id` de `www` es el ESTÁTICO, no el de la conexión dinámica (`*E`)",
 )
 igual(
-    LEIDO["areas"]["cliente_dhcp"]["habilitado"], True,
+    LEIDO["areas"]["dhcp_client"]["habilitado"], True,
     "el cliente DHCP de fábrica está vivo (es la única forma de que el equipo sea alcanzable)",
 )
 igual(
-    LEIDO["areas"]["direcciones"]["estaticas"], [],
+    LEIDO["areas"]["addresses"]["estaticas"], [],
     "su dirección de gestión es DINÁMICA: no cuenta como estática",
 )
 igual(
-    LEIDO["areas"]["direcciones"]["dinamicas"],
-    [{"interfaz": "ether1", "direccion": "10.40.0.11/24"}],
+    LEIDO["areas"]["addresses"]["dinamicas"],
+    [{"interface": "ether1", "address": "10.40.0.11/24"}],
     "y se ve como dinámica, que es lo que el motor necesita distinguir",
 )
 igual(
-    LEIDO["areas"]["rutas"]["estaticas"], [],
+    LEIDO["areas"]["routes"]["estaticas"], [],
     "la ruta por defecto que puso el DHCP NO es estática: no la declara el lab",
 )
 igual(
-    LEIDO["areas"]["dhcp"]["servidores"], [],
+    LEIDO["areas"]["dhcp_server"]["servidores"], [],
     "y el router todavía no sirve ninguna red",
 )
 igual(
@@ -228,11 +228,11 @@ OPS = [op["op"] for op in OPERACIONES]
 
 igual(
     OPS,
-    ["poner_direccion", "poner_direccion",
-     "deshabilitar_servicio", "deshabilitar_servicio", "deshabilitar_servicio",
-     "deshabilitar_servicio", "deshabilitar_cliente_dhcp", "poner_ruta",
-     "poner_servidor_dhcp", "poner_red_dhcp", "poner_reserva",
-     "poner_identidad", "importar_clave_motor", "poner_credencial_motor"],
+    ["add_address", "add_address",
+     "disable_service", "disable_service", "disable_service",
+     "disable_service", "disable_dhcp_client", "add_route",
+     "add_dhcp_server", "add_dhcp_network", "add_static_lease",
+     "set_identity", "import_engine_key", "set_engine_credential"],
     "las áreas van en el orden del MOTOR, no en el que las escriba el lab: la dirección "
     "de gestión ANTES de apagar el cliente de fábrica (si no, el router se queda sin "
     "dirección y la escritura sin respuesta: medido), la identidad AL FINAL, y dentro de "
@@ -240,17 +240,17 @@ igual(
     "clave se queda sin credencial y contesta 401)",
 )
 igual(
-    [(op["interfaz"], op["direccion"]) for op in OPERACIONES if op["op"] == "poner_direccion"],
+    [(op["interface"], op["address"]) for op in OPERACIONES if op["op"] == "add_address"],
     [("ether1", "10.40.0.11/24"), ("ether2", "10.40.1.1/24")],
-    "la primera es la de GESTIÓN (derivada del `direccion:` del invitado): sin ella, apagar el cliente de fábrica dejaría al router sin camino de vuelta",
+    "la primera es la de GESTIÓN (derivada del `address:` del invitado): sin ella, apagar el cliente de fábrica dejaría al router sin túnel de vuelta",
 )
 igual(
-    [op.get("servicio") for op in OPERACIONES if op["op"] == "deshabilitar_servicio"],
+    [op.get("servicio") for op in OPERACIONES if op["op"] == "disable_service"],
     ["api", "api-ssl", "ftp", "telnet"],
     "se apagan los cuatro servicios declarados (en orden alfabético), y `www` NO está entre ellos",
 )
 igual(
-    OPERACIONES[-1]["op"], "poner_credencial_motor",
+    OPERACIONES[-1]["op"], "set_engine_credential",
     "lo último de todo es la CREDENCIAL del motor: la clave se importa antes y la "
     "contraseña de fábrica se cambia al final, porque cambiarla invalida la credencial con "
     "la que se estaba hablando (medido: un 401 en la escritura siguiente, la de la clave)",
@@ -291,12 +291,12 @@ comprobar(
     == ["/system/identity/set", "/user/ssh-keys/add", "/execute"],
     "la credencial es lo ÚLTIMO del lab, y por delante van el nombre, la clave y el guion del "
     "intercambio de la dirección: el guion es la escritura que puede dejar al equipo sin "
-    "camino un instante, y cambiando la credencial ninguna escritura posterior encuentra "
+    "túnel un instante, y cambiando la credencial ninguna escritura posterior encuentra "
     "credencial (medido: un 401 tolerado que deja la pasada a medias, con el equipo ya bueno)",
 )
 comprobar(
     all("www" not in str(l.get("cuerpo")) for l in LLAMADAS),
-    "`www` no aparece en ningún cuerpo: es donde vive REST, o sea el camino de vuelta",
+    "`www` no aparece en ningún cuerpo: es donde vive REST, o sea el túnel de vuelta",
 )
 igual(
     [l.get("tolerar_sin_respuesta") for l in LLAMADAS if l["ruta"] == "/user/set"], [True],
@@ -316,7 +316,7 @@ igual(
     [
         {"address": "10.40.1.1/24", "interface": "ether2"},
     ],
-    "por fuera sólo se pone la pata que NO es la boca de gestión (la LAN del lab en ether2): "
+    "por fuera sólo se pone la interfaz que NO es la boca de gestión (la LAN del lab en ether2): "
     "la de gestión la pone el router dentro del guion del intercambio, porque su cliente de "
     "fábrica la tiene cogida (ver la sección 4)",
 )
@@ -422,7 +422,7 @@ igual(
     "cero operaciones: no hay nada que escribir en un router al día",
 )
 igual(
-    [(p["accion"], p["via"]) for p in PASOS_AL_DIA], [("reiniciar_invitado", "api")],
+    [(p["accion"], p["via"]) for p in PASOS_AL_DIA], [("reiniciar_guest", "api")],
     "y lo único que queda es el REINICIO declarado por el residuo del cliente de fábrica (por la API, no escondido)",
 )
 igual(
@@ -467,7 +467,7 @@ OPERACIONES_DE_MAS = motor.operaciones_de_pasos(
 )
 igual(
     [op["op"] for op in OPERACIONES_DE_MAS],
-    ["quitar_direccion", "quitar_reserva"],
+    ["remove_address", "remove_static_lease"],
     "una dirección y una reserva que el lab no declara se QUITAN (no se dejan por ahí)",
 )
 LLAMADAS_DE_MAS = motor.escrituras_routeros(
@@ -488,29 +488,29 @@ igual(
 # Medido con `07_dunder-mifflin`, el primer lab con dos LANs en un mismo router: el
 # ámbito de la segunda red pedía QUITAR la reserva de la primera -- que no es suya, y
 # que el otro ámbito está declarando en la misma pasada -- así que el router no
-# convergía nunca (la pasada moría con `[dhcp] quitar_reserva` pendiente). Un router de
+# convergía nunca (la pasada moría con `[dhcp] remove_static_lease` pendiente). Un router de
 # una empresa pequeña con dos áreas es un caso legítimo, no un lab raro: lo que estaba
 # mal era comparar las concesiones de todas las redes contra las de una.
 print("\nDOS ÁMBITOS EN UN ROUTER: las reservas de una LAN no son de la otra\n")
 
 BORDE_DOS_AMBITOS = copy.deepcopy(BORDE)
 BORDE_DOS_AMBITOS["bridges"] = ["vmb_gestion", "vmb_lan1", "vmb_lan2"]
-BORDE_DOS_AMBITOS["config"]["routeros"]["direcciones"] = [
-    {"interfaz": "ether2", "direccion": "10.40.1.1/24"},
-    {"interfaz": "ether3", "direccion": "10.40.2.1/24"},
+BORDE_DOS_AMBITOS["config"]["routeros"]["addresses"] = [
+    {"interface": "ether2", "address": "10.40.1.1/24"},
+    {"interface": "ether3", "address": "10.40.2.1/24"},
 ]
-BORDE_DOS_AMBITOS["config"]["routeros"]["dhcp"] = [
+BORDE_DOS_AMBITOS["config"]["routeros"]["dhcp_server"] = [
     {
-        "interfaz": "ether2",
+        "interface": "ether2",
         "pool": {"rango": "10.40.1.100-10.40.1.200"},
-        "red": {"prefijo": "10.40.1.0/24", "pasarela": "10.40.1.1", "dns": ["10.40.1.1"]},
-        "reservas": "derivadas",
+        "network": {"address": "10.40.1.0/24", "gateway": "10.40.1.1", "dns": ["10.40.1.1"]},
+        "static_leases": "derived",
     },
     {
-        "interfaz": "ether3",
+        "interface": "ether3",
         "pool": {"rango": "10.40.2.100-10.40.2.200"},
-        "red": {"prefijo": "10.40.2.0/24", "pasarela": "10.40.2.1", "dns": ["10.40.2.1"]},
-        "reservas": "derivadas",
+        "network": {"address": "10.40.2.0/24", "gateway": "10.40.2.1", "dns": ["10.40.2.1"]},
+        "static_leases": "derived",
     },
 ]
 igual(
@@ -569,7 +569,7 @@ igual(
 )
 igual(
     [
-        (s["interfaz"], s["nombre"]) for s in LEIDO_DOS_AMBITOS["areas"]["dhcp"]["servidores"]
+        (s["interface"], s["nombre"]) for s in LEIDO_DOS_AMBITOS["areas"]["dhcp_server"]["servidores"]
     ],
     [("ether2", "netlabs-ether2"), ("ether3", "netlabs-ether3")],
     "y se leen los DOS servidores, cada uno con su nombre derivado de su interfaz",
@@ -594,7 +594,7 @@ OPERACIONES_DE_MAS_DOS_AMBITOS = motor.operaciones_de_pasos(
 )
 igual(
     [(op["op"], op.get("mac")) for op in OPERACIONES_DE_MAS_DOS_AMBITOS],
-    [("quitar_reserva", "AA:BB:CC:DD:EE:FF")],
+    [("remove_static_lease", "AA:BB:CC:DD:EE:FF")],
     "una reserva del segundo ámbito que el lab no declara SÍ se quita: se compara por "
     "servidor, no se ignora lo que hay en él",
 )
@@ -619,7 +619,7 @@ igual(
             )
         )
     ],
-    [("quitar_reserva", "AA:BB:CC:DD:EE:FF")],
+    [("remove_static_lease", "AA:BB:CC:DD:EE:FF")],
     "la que cae en la red del ámbito declarado se respeta, y la que cae en la otra se "
     "quita: el ámbito se decide por dónde cae la dirección cuando la concesión no lo dice",
 )
@@ -651,7 +651,7 @@ igual(
 )
 
 # ---------------------------------------------------------------------------
-# 4. El choque de direcciones: el intercambio va DENTRO del router, en un guion
+# 4. El choque de addresses: el intercambio va DENTRO del router, en un guion
 # ---------------------------------------------------------------------------
 print("\nEL CHOQUE DE DIRECCIONES: el intercambio lo hace el router, entero y de una vez\n")
 
@@ -663,12 +663,12 @@ print("\nEL CHOQUE DE DIRECCIONES: el intercambio lo hace el router, entero y de
 # en UNA llamada, el trabajo que tiene que hacer él solo y de una vez.
 LEIDO_CON_CHOQUE = dict(LEIDO)
 LEIDO_CON_CHOQUE["areas"] = dict(LEIDO["areas"])
-LEIDO_CON_CHOQUE["areas"]["direcciones"] = {
+LEIDO_CON_CHOQUE["areas"]["addresses"] = {
     "estaticas": [],
-    "dinamicas": [{"interfaz": "ether1", "direccion": "10.40.0.11/24"}],
+    "dinamicas": [{"interface": "ether1", "address": "10.40.0.11/24"}],
 }
-LEIDO_CON_CHOQUE["areas"]["cliente_dhcp"] = {
-    "habilitado": True, "interfaz": "ether1", "ids": {"ether1": "*1"},
+LEIDO_CON_CHOQUE["areas"]["dhcp_client"] = {
+    "habilitado": True, "interface": "ether1", "ids": {"ether1": "*1"},
 }
 
 OPERACIONES_CHOQUE = motor.operaciones_de_pasos(
@@ -692,7 +692,7 @@ igual(
     [l["metodo"] for l in GUIONES], ["POST"],
     "el intercambio es UNA llamada (`POST /execute`) con el guion dentro: no hay baile de "
     "pasos desde fuera, que es lo que se rompía (medido: un `POST /ip/address/add` de la "
-    "prestada se quedó sin respuesta en el CHR del segundo escalón, con el mismo cuerpo que "
+    "prestada se quedó sin respuesta en el CHR del segundo etapa, con el mismo cuerpo que "
     "en el primero contesta 200)",
 )
 GUION = GUIONES[0]["cuerpo"]["script"] if GUIONES else ""
@@ -722,10 +722,10 @@ igual(
 igual(
     GUIONES[0].get("tolerar_sin_respuesta") if GUIONES else None, True,
     "el guion DECLARA que puede quedarse sin respuesta: es la llamada que puede dejar al "
-    "equipo sin camino un instante, y quien prueba el efecto es la relectura",
+    "equipo sin túnel un instante, y quien prueba el efecto es la relectura",
 )
 igual(
-    GUIONES[0].get("direccion") if GUIONES else "x", None,
+    GUIONES[0].get("address") if GUIONES else "x", None,
     "y va por la dirección declarada (no estampa ninguna otra): la convergencia no cambia de "
     "dirección a media convergencia -- la cambia el router, él solo y de una vez",
 )
@@ -738,19 +738,19 @@ comprobar(
     "queda sin hacer)",
 )
 igual(
-    sorted({l["area"] for l in LLAMADAS_CHOQUE[_POS_GUION + 1:]}), ["identidad"],
-    "y detrás del guion sólo queda la identidad: es la ÚLTIMA escritura que puede dejar al "
-    "equipo sin camino, así que lo que se pueda dar hecho antes, hecho está",
+    sorted({l["area"] for l in LLAMADAS_CHOQUE[_POS_GUION + 1:]}), ["identity"],
+    "y detrás del guion sólo queda la identity: es la ÚLTIMA escritura que puede dejar al "
+    "equipo sin túnel, así que lo que se pueda dar hecho antes, hecho está",
 )
 igual(
     [l for l in LLAMADAS_CHOQUE if "www" in str(l["cuerpo"])], [],
-    "en ningún momento se toca `www`: es el REST, o sea el camino de vuelta",
+    "en ningún momento se toca `www`: es el REST, o sea el túnel de vuelta",
 )
 igual(
-    [l.get("direccion") for l in LLAMADAS_CHOQUE
+    [l.get("address") for l in LLAMADAS_CHOQUE
      if l["ruta"] == "/ip/address/add" and l["cuerpo"].get("address") == "10.40.1.1/24"],
     [None],
-    "la otra pata del router (ether2) se pone por fuera y por la dirección declarada: del "
+    "la otra interfaz del router (ether2) se pone por fuera y por la dirección declarada: del "
     "intercambio sólo se ocupa la boca por la que entra la convergencia",
 )
 
@@ -759,7 +759,7 @@ igual(
 # soltar es la entrada, y por eso el guion la suelta y espera antes de poner la estática.
 LEIDO_CON_RESIDUO = dict(LEIDO_CON_CHOQUE)
 LEIDO_CON_RESIDUO["areas"] = dict(LEIDO_CON_CHOQUE["areas"])
-LEIDO_CON_RESIDUO["areas"]["cliente_dhcp"] = {"habilitado": False}
+LEIDO_CON_RESIDUO["areas"]["dhcp_client"] = {"habilitado": False}
 LLAMADAS_RESIDUO = motor.escrituras_routeros(
     motor.operaciones_de_pasos(
         motor.pasos_de_convergencia(BORDE, IDENTIDAD, DECLARACION, LEIDO_CON_RESIDUO, PARAMETROS)
@@ -797,10 +797,10 @@ igual(
 
 
 # ---------------------------------------------------------------------------
-# 5. La SALIDA del lab: un router que declara `exterior`
+# 5. La SALIDA del lab: un router que declara `uplink`
 # ---------------------------------------------------------------------------
-# Un router con `exterior` es la puerta del lab hacia fuera. Su pata de fuera la añade el
-# PLAN (una más, sobre el bridge del nodo que tiene salida), y el número y la puerta los
+# Un router con `uplink` es la pasarela del lab hacia fuera. Su interfaz de fuera la añade el
+# PLAN (una más, sobre el bridge del nodo que tiene salida), y el número y la vía de acceso los
 # DERIVA el motor del estado: el lab declara la salida, no la red de casa. Aquí se prueba la
 # mitad del driver: que la interfaz y la numeración se derivan, que lo que falta se pide, que
 # lo que está no se vuelve a pedir, y que la dirección/ruta de fuera NO se confunden con los
@@ -809,19 +809,19 @@ igual(
 print("\nLA SALIDA DEL LAB: dirección derivada, masquerade y resolutor\n")
 
 BORDE_SALIDA = copy.deepcopy(BORDE)
-BORDE_SALIDA["config"]["routeros"]["exterior"] = {}
-# Y NO declara ruta por defecto: la pone el motor por la puerta de fuera. Declararla además
+BORDE_SALIDA["config"]["routeros"]["uplink"] = {}
+# Y NO declara ruta por defecto: la pone el motor por la pasarela de fuera. Declararla además
 # son dos compitiendo por el mismo destino (para eso está el consejo `exterior-con-ruta`), y
-# obligaría al lab a saberse la pasarela de la red de casa -- justo lo que `exterior` evita.
-BORDE_SALIDA["config"]["routeros"].pop("rutas", None)
+# obligaría al lab a saberse la pasarela de la red de casa -- justo lo que `uplink` evita.
+BORDE_SALIDA["config"]["routeros"].pop("routes", None)
 igual(
     motor.interfaz_exterior(BORDE_SALIDA), "ether3",
     "la interfaz de fuera se DERIVA: es la siguiente a las dos que declaró (el lab no la "
-    "nombra, porque no está entre sus patas y la validación la rechazaría)",
+    "nombra, porque no está entre sus interfaces y la validación la rechazaría)",
 )
-igual(motor.interfaz_exterior(BORDE), "", "un router sin `exterior` no tiene pata de fuera")
+igual(motor.interfaz_exterior(BORDE), "", "un router sin `uplink` no tiene interfaz de fuera")
 
-# Y la NUMERACIÓN también se deriva del estado: la puerta es la dirección del bridge por el
+# Y la NUMERACIÓN también se deriva del estado: la vía de acceso es la dirección del bridge por el
 # que sale el nodo, y la dirección del invitado se cuenta por ARRIBA entre las libres (así no
 # cae dentro de un pool que reparta un router del lab). Sin nada declarado en el lab.
 ESTADO_SALIDA = {
@@ -833,9 +833,9 @@ PARAMETROS_SALIDA = {
     **motor.salida_derivada(ESTADO_SALIDA, {**PARAMETROS, "bridge_gestion": "vmbr1"}),
 }
 igual(
-    {clave: PARAMETROS_SALIDA[clave] for clave in ("salida_puerta", "salida_direccion")},
-    {"salida_puerta": "192.0.2.1", "salida_direccion": "192.0.2.254/24"},
-    "la puerta es la dirección del bridge y la dirección es la libre de más arriba: las dos "
+    {clave: PARAMETROS_SALIDA[clave] for clave in ("salida_acceso", "salida_direccion")},
+    {"salida_acceso": "192.0.2.1", "salida_direccion": "192.0.2.254/24"},
+    "la vía de acceso es la dirección del bridge y la dirección es la libre de más arriba: las dos "
     "DERIVADAS del estado, ninguna declarada por el lab",
 )
 igual(
@@ -848,8 +848,8 @@ igual(
     "y la que ya está en uso se esquiva: cuenta hacia abajo hasta la primera libre",
 )
 
-# a) La pata de fuera recién tendida: no tiene dirección, ni ruta por defecto, ni NAT, ni
-#    resolutor. Sólo las dos patas del lab tienen dirección.
+# a) La interfaz de fuera recién tendida: no tiene dirección, ni ruta por defecto, ni NAT, ni
+#    resolutor. Sólo las dos interfaces del lab tienen dirección.
 CRUDO_SALIDA = copy.deepcopy(CRUDO_RECIEN_NACIDO)
 CRUDO_SALIDA["/ip/address"] = respuesta([
     {".id": "*1", "address": "10.40.0.1/24", "interface": "ether1", "dynamic": "false"},
@@ -863,36 +863,36 @@ CRUDO_SALIDA["/ip/firewall/nat"] = respuesta([])
 CRUDO_SALIDA["/ip/dns"] = respuesta({"allow-remote-requests": "false", "servers": ""})
 LEIDO_SALIDA = motor.leido_routeros(CRUDO_SALIDA, BORDE_SALIDA, "admin", CLAVE_PUBLICA, "motor")
 igual(
-    {clave: LEIDO_SALIDA["areas"]["exterior"][clave]
-     for clave in ("interfaz", "direccion", "por_defecto", "masquerade", "resolutor")},
-    {"interfaz": "ether3", "direccion": "", "por_defecto": "", "masquerade": False,
+    {clave: LEIDO_SALIDA["areas"]["uplink"][clave]
+     for clave in ("interface", "address", "por_defecto", "masquerade", "resolutor")},
+    {"interface": "ether3", "address": "", "por_defecto": "", "masquerade": False,
      "resolutor": False},
-    "se lee que a la pata de fuera le falta todo (y la interfaz, derivada, es ether3)",
+    "se lee que a la interfaz de fuera le falta todo (y la interfaz, derivada, es ether3)",
 )
 OPERACIONES_SALIDA = motor.operaciones_de_pasos(
     motor.pasos_de_convergencia(
         BORDE_SALIDA, IDENTIDAD, DECLARACION, LEIDO_SALIDA, PARAMETROS_SALIDA
     )
 )
-DE_FUERA = [op for op in OPERACIONES_SALIDA if op.get("area") == "exterior"]
+DE_FUERA = [op for op in OPERACIONES_SALIDA if op.get("area") == "uplink"]
 igual(
-    [(op["op"], op.get("direccion") or op.get("pasarela") or op.get("servidores")) for op in DE_FUERA],
+    [(op["op"], op.get("address") or op.get("gateway") or op.get("servidores")) for op in DE_FUERA],
     [
-        ("poner_direccion", "192.0.2.254/24"),
-        ("poner_ruta", "192.0.2.1"),
-        ("poner_masquerade", None),
-        ("activar_resolutor", ["192.0.2.1"]),
+        ("add_address", "192.0.2.254/24"),
+        ("add_route", "192.0.2.1"),
+        ("add_masquerade", None),
+        ("enable_dns_resolver", ["192.0.2.1"]),
     ],
-    "y se decide lo mínimo: numerar la pata (con la dirección DERIVADA), mandar lo que no es "
-    "suyo por la puerta de fuera, traducir lo que sale y encender el resolutor apuntando a esa "
-    "misma puerta",
+    "y se decide lo mínimo: numerar la interfaz (con la dirección DERIVADA), mandar lo que no es "
+    "suyo por la pasarela de fuera, traducir lo que sale y encender el resolutor apuntando a esa "
+    "misma vía de acceso",
 )
 LLAMADAS_SALIDA = motor.escrituras_routeros(
     OPERACIONES_SALIDA, BORDE_SALIDA, DECLARACION, IDENTIDAD, PARAMETROS_ROUTEROS, LEIDO_SALIDA
 )
 igual(
     [(l["metodo"], l["ruta"], l["cuerpo"]) for l in LLAMADAS_SALIDA
-     if l.get("area") == "exterior"],
+     if l.get("area") == "uplink"],
     [
         ("POST", "/ip/address/add",
          {"address": "192.0.2.254/24", "interface": "ether3"}),
@@ -903,17 +903,17 @@ igual(
           "comment": motor.MARCA_EXTERIOR}),
         ("POST", "/ip/dns/set", {"allow-remote-requests": "yes", "servers": "192.0.2.1"}),
     ],
-    "y se escribe por la puerta del REST: dirección, ruta por defecto por la puerta de fuera, "
-    "masquerade y resolutor apuntando a esa puerta -- el motor no necesita conocer ninguna "
+    "y se escribe por la vía de acceso del REST: dirección, ruta por defecto por la pasarela de fuera, "
+    "masquerade y resolutor apuntando a esa pasarela -- el motor no necesita conocer ninguna "
     "dirección de casa porque las DERIVA del estado",
 )
 comprobar(
     all("www" not in str(l.get("cuerpo")) for l in LLAMADAS_SALIDA),
-    "y por la pata de fuera tampoco se toca `www`: es donde vive REST, o sea la vuelta",
+    "y por la interfaz de fuera tampoco se toca `www`: es donde vive REST, o sea la vuelta",
 )
 
 # b) Al día: la dirección derivada está puesta, la ruta por defecto está, la regla está, el
-#    resolutor está apuntando a la puerta. CERO pasos.
+#    resolutor está apuntando a la vía de acceso. CERO pasos.
 AL_DIA_SALIDA = copy.deepcopy(SIN_RESIDUO)
 AL_DIA_SALIDA["/ip/address"] = respuesta([
     {".id": "*3", "address": "192.0.2.254/24", "interface": "ether3", "dynamic": "false"},
@@ -933,17 +933,17 @@ LEIDO_AL_DIA_SALIDA = motor.leido_routeros(
     AL_DIA_SALIDA, BORDE_SALIDA, "admin", CLAVE_PUBLICA, "motor"
 )
 igual(
-    {clave: LEIDO_AL_DIA_SALIDA["areas"]["exterior"][clave]
-     for clave in ("direccion", "por_defecto", "masquerade", "resolutor", "servidores")},
-    {"direccion": "192.0.2.254/24", "por_defecto": "192.0.2.1", "masquerade": True,
+    {clave: LEIDO_AL_DIA_SALIDA["areas"]["uplink"][clave]
+     for clave in ("address", "por_defecto", "masquerade", "resolutor", "servidores")},
+    {"address": "192.0.2.254/24", "por_defecto": "192.0.2.1", "masquerade": True,
      "resolutor": True, "servidores": "192.0.2.1"},
     "se lee la dirección, la ruta y el resolutor tal cual están: la salida no se supone, "
     "se comprueba",
 )
 igual(
-    LEIDO_AL_DIA_SALIDA["areas"]["cliente_dhcp"]["habilitado"], False,
-    "y la pata de FUERA no cuenta como cliente de fábrica: el de fábrica es el que coge "
-    "dirección en una pata DEL LAB, y esta es la salida",
+    LEIDO_AL_DIA_SALIDA["areas"]["dhcp_client"]["habilitado"], False,
+    "y la interfaz de FUERA no cuenta como cliente de fábrica: el de fábrica es el que coge "
+    "dirección en una interfaz DEL LAB, y esta es la salida",
 )
 OPERACIONES_AL_DIA_SALIDA = motor.operaciones_de_pasos(
     motor.pasos_de_convergencia(
@@ -951,9 +951,9 @@ OPERACIONES_AL_DIA_SALIDA = motor.operaciones_de_pasos(
     )
 )
 igual(
-    [op for op in OPERACIONES_AL_DIA_SALIDA if op.get("area") == "exterior"],
+    [op for op in OPERACIONES_AL_DIA_SALIDA if op.get("area") == "uplink"],
     [],
-    "cero operaciones en la salida: ni renumera la pata, ni añade otra ruta, ni vuelve a tocar "
+    "cero operaciones en la salida: ni renumera la interfaz, ni añade otra ruta, ni vuelve a tocar "
     "el NAT o el resolutor (idempotencia por construcción: se compara contra lo que el motor "
     "DERIVA)",
 )
@@ -967,20 +967,20 @@ igual(
     "y una ruta por defecto que no declaró el lab no se toma por un residuo del cliente de "
     "fábrica: en un router que es la salida es justo lo que tiene que haber",
 )
-# Y la pelea que se vio de verdad al aplicarlo: el área `direcciones` quitaba la dirección
-# que el área `exterior` acababa de poner (regla 17: "lo no declarado, fuera"), y `rutas`
-# hacía lo propio con la ruta por defecto. La pata de fuera no es una pata del lab.
+# Y la pelea que se vio de verdad al aplicarlo: el área `addresses` quitaba la dirección
+# que el área `uplink` acababa de poner (regla 17: "lo no declarado, fuera"), y `rutas`
+# hacía lo propio con la ruta por defecto. La interfaz de fuera no es una interfaz del lab.
 igual(
-    LEIDO_AL_DIA_SALIDA["areas"]["direcciones"]["estaticas"], [],
-    "la dirección de la pata de fuera NO se lee como una dirección del lab: si se leyera, "
+    LEIDO_AL_DIA_SALIDA["areas"]["addresses"]["estaticas"], [],
+    "la dirección de la interfaz de fuera NO se lee como una dirección del lab: si se leyera, "
     "esta área la quitaría en cada pasada",
 )
 igual(
-    LEIDO_AL_DIA_SALIDA["areas"]["rutas"]["estaticas"], [],
-    "ni la ruta por defecto se lee como una ruta declarada del lab: la manda `exterior`",
+    LEIDO_AL_DIA_SALIDA["areas"]["routes"]["estaticas"], [],
+    "ni la ruta por defecto se lee como una ruta declarada del lab: la manda `uplink`",
 )
 
-# c) La pasada que se vio de verdad: la pata con DOS direcciones (una por pasada, cuando el
+# c) La pasada que se vio de verdad: la interfaz con DOS direcciones (una por pasada, cuando el
 #    motor la renumeraba). Se adopta la primera y se quita la otra: una sola, y estable.
 DOS_SALIDA = copy.deepcopy(AL_DIA_SALIDA)
 DOS_SALIDA["/ip/address"] = respuesta([
@@ -989,23 +989,23 @@ DOS_SALIDA["/ip/address"] = respuesta([
 ])
 LEIDO_DOS_SALIDA = motor.leido_routeros(DOS_SALIDA, BORDE_SALIDA, "admin", CLAVE_PUBLICA, "motor")
 igual(
-    {clave: LEIDO_DOS_SALIDA["areas"]["exterior"][clave]
-     for clave in ("direccion", "de_la_red", "todas")},
-    {"direccion": "192.0.2.250/24", "de_la_red": "192.0.2.250",
+    {clave: LEIDO_DOS_SALIDA["areas"]["uplink"][clave]
+     for clave in ("address", "de_la_red", "todas")},
+    {"address": "192.0.2.250/24", "de_la_red": "192.0.2.250",
      "todas": ["192.0.2.250/24", "192.0.2.253/24"]},
-    "se leen TODAS las de la pata, con su `.id` (es lo único con lo que se puede quitar una)",
+    "se leen TODAS las de la interfaz, con su `.id` (es lo único con lo que se puede quitar una)",
 )
 OPERACIONES_DOS = [
     op for op in motor.operaciones_de_pasos(
         motor.pasos_de_convergencia(
             BORDE_SALIDA, IDENTIDAD, DECLARACION, LEIDO_DOS_SALIDA, PARAMETROS_SALIDA
         )
-    ) if op.get("area") == "exterior"
+    ) if op.get("area") == "uplink"
 ]
 igual(
-    [(op["op"], op.get("direccion"), op.get("id")) for op in OPERACIONES_DOS],
-    [("quitar_direccion", "192.0.2.253/24", "*6")],
-    "y la que sobra se quita, con su identificador: la pata se queda con UNA -- la que ya "
+    [(op["op"], op.get("address"), op.get("id")) for op in OPERACIONES_DOS],
+    [("remove_address", "192.0.2.253/24", "*6")],
+    "y la que sobra se quita, con su identificador: la interfaz se queda con UNA -- la que ya "
     "tenía -- en vez de ir dejando una nueva por pasada",
 )
 

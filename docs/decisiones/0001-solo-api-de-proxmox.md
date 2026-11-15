@@ -3,7 +3,7 @@
 <!-- PROPÓSITO: la decisión que no se quiere volver a discutir.
      INVARIANTES: ninguna vía de acceso al hipervisor que no sea la API.
      LÍMITES: no decide qué desplegar, sólo por dónde se le pide.
-     VER: README.md §Las cuatro puertas, y un diario de cada una; AGENTS.md §Reglas duras -->
+     VER: README.md §Las cuatro vías de acceso, y un diario de cada una; AGENTS.md §Reglas duras -->
 
 **Estado:** aceptada.
 
@@ -11,14 +11,14 @@
 SSH al nodo y `qm`/`pct`, `snippets` y `hookscripts` en el almacenamiento, o su API
 REST. Las tres funcionan; sólo una es un contrato.
 
-**Decisión.** Todo se hace con `https://<nodo>:<puerto>/api2/json`. La única puerta
+**Decisión.** Todo se hace con `https://<nodo>:<puerto>/api2/json`. La única vía de acceso
 es `deployment_engine/tasks/pve_api.yml`, con `ansible.builtin.uri`, y es a la vez
 la que escribe el diario. El wrapper `./lab` no llama a la API: sólo lanza Ansible.
 
 **Por qué.** SSH y los guiones de arranque son código que corre *dentro* del
-hipervisor, con la versión de Proxmox como única interfaz: cambian sin avisar y no
+hipervisor, con la versión de Proxmox como única interface: cambian sin avisar y no
 dejan rastro consultable. La API es una interfaz estable, y cada llamada se puede
-registrar. Y una sola puerta es lo que hace posible el check `puerta`: si hubiera
+registrar. Y una sola vía de acceso es lo que hace posible el check `gateway`: si hubiera
 cinco sitios desde los que llamar, no habría ninguno del que fiarse.
 
 **Consecuencia.** Lo que no se pueda hacer por API, se dice y se para; no se rodea.

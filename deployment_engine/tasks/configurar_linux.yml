@@ -10,29 +10,29 @@
 #              `filter_plugins/interior.py` a partir de lo declarado y lo leído; este
 #              fichero sólo pide, ejecuta y comprueba.
 #
-# INVARIANTES: abre la conexión SÓLO por la puerta (`interior_ssh.yml`), que es quien
+# INVARIANTES: abre la conexión SÓLO por la vía de acceso (`interior_ssh.yml`), que es quien
 #              deja el diario. No escribe en ningún invitado por su cuenta. Si algo no
 #              se pudo leer, PARA con el nombre del área en vez de escribir a ciegas.
 #              Al final RELEE: un paso que escribe y no comprueba es una promesa.
 # LÍMITES:     no instala aplicaciones que un lab haya declarado -- el vocabulario no
 #              tiene paquetes (regla 15, §16) --. Lo que sí hace es poner en SU APARATO
-#              (el puesto de control, que es del motor) lo que el área `dhcp_servidor`
+#              (el bastión, que es del motor) lo que el área `dhcp_server`
 #              necesita para existir: hoy `dnsmasq` y `ethtool`, porque se ha MEDIDO
 #              que la imagen base no los trae y que `ip link` no sabe apagar los
 #              offloads (ver docs/decisiones/0005 y la prosa del lab).
 # VER:         docs/decisiones/0005-*.md; filter_plugins/interior.py;
-#              tasks/interior_ssh.yml; tasks/inventario_invitados.yml
+#              tasks/interior_ssh.yml; tasks/guest_inventory.yml
 
 # --- 0. POR DÓNDE SE ENTRA, y qué declara este invitado ------------------------------
-# Se construye aquí (y la puerta lo vuelve a construir antes de tocar la red: es
+# Se construye aquí (y la vía de acceso lo vuelve a construir antes de tocar la red: es
 # barato y no abre nada). Sin esto no se sabe ni qué leer ni por dónde.
 - name: "DRIVER LINUX · por dónde se entra a '{{ interior_rol }}' y qué declara"
-  ansible.builtin.include_tasks: inventario_invitados.yml
+  ansible.builtin.include_tasks: guest_inventory.yml
 
 # --- 1. LO QUE EL LAB DECLARA, y por tanto lo que hay que preguntar -----------------
 - name: "DRIVER LINUX · qué áreas hay que leer en '{{ interior_rol }}'"
   ansible.builtin.set_fact:
-    interior_areas_declaradas: "{{ interior_declarado_invitado | interior_areas }}"
+    interior_areas_declaradas: "{{ interior_declarado_guest | interior_areas }}"
   changed_when: false
 
 # --- 2. LEER -------------------------------------------------------------------------
@@ -40,11 +40,11 @@
   ansible.builtin.include_tasks: interior_ssh.yml
   vars:
     interior_tipo: "linux"
-    interior_comandos: "{{ interior_declarado_invitado | interior_lecturas_linux }}"
+    interior_comandos: "{{ interior_declarado_guest | interior_lecturas_linux }}"
 
 - name: "DRIVER LINUX · qué se encontró dentro de '{{ interior_rol }}'"
   ansible.builtin.set_fact:
-    interior_leido: "{{ interior_resultados | interior_leido(interior_declarado_invitado) }}"
+    interior_leido: "{{ interior_resultados | interior_leido(interior_declarado_guest) }}"
   changed_when: false
 
 # ¿Se sigue adelante? En `solo_leer` (lo usa `verify` para mirar dentro sin tocar nada),
@@ -60,12 +60,12 @@
 - name: "DRIVER LINUX · parar si al invitado no se le pudo PREGUNTAR"
   ansible.builtin.fail:
     msg: |-
-      No se ha podido entrar en '{{ interior_rol }}' ({{ interior_declarado_invitado.bridge }})
+      No se ha podido entrar en '{{ interior_rol }}' ({{ interior_declarado_guest.bridge }})
       para configurarlo: {{ interior_leido.motivo }}
 
-      El motor no sigue a ciegas (regla 16). Si el invitado es el puesto de control, el
-      camino es lo primero: `./lab --lab {{ pve_lab }} apply` reconstruye el camino si
-      falta. Si no lo es, el que tiene que estar en pie es el puesto de control -- y por
+      El motor no sigue a ciegas (regla 16). Si el invitado es el bastión, el
+      túnel es lo primero: `./lab --lab {{ pve_lab }} apply` reconstruye el túnel si
+      falta. Si no lo es, el que tiene que estar en pie es el bastión -- y por
       eso se entra a los invitados POR ÉL y no directamente.
   # En `solo_leer` NO se para: no poder leer es un RESULTADO que `verify` reporta como
   # «no comprobable» (regla 16: nunca a ciegas).
@@ -75,13 +75,13 @@
 - name: "DRIVER LINUX · (declarado, leído) -> lo que hay que cambiar"
   ansible.builtin.set_fact:
     interior_pasos: >-
-      {{ interior_declarado_invitado
+      {{ interior_declarado_guest
          | interior_pasos(identidad, declaracion, interior_leido, parametros_motor) }}
     interior_escrituras: >-
-      {{ (interior_declarado_invitado
+      {{ (interior_declarado_guest
           | interior_pasos(identidad, declaracion, interior_leido, parametros_motor)
           | interior_operaciones)
-         | interior_escrituras_linux(interior_declarado_invitado, declaracion, identidad, parametros_motor) }}
+         | interior_escrituras_linux(interior_declarado_guest, declaracion, identidad, parametros_motor) }}
   when: interior_seguir
   changed_when: false
 
@@ -98,9 +98,9 @@
         {% for operacion in interior_sin_traducir %}- {{ operacion }}
         {% endfor %}
 
-      {% if 'mandar_linea_consola' in interior_sin_traducir %}
-      `mandar_linea_consola` quiere decir que el camino de este lab NO está en pie, y eso
-      no se arregla desde dentro de un invitado: lo pone la puerta del camino, por la
+      {% if 'send_console_line' in interior_sin_traducir %}
+      `send_console_line` quiere decir que el túnel de este lab NO está en pie, y eso
+      no se arregla desde dentro de un invitado: lo pone la vía de acceso del túnel, por la
       consola del hipervisor, cuando ejecutas `./lab --lab {{ pve_lab }} apply`.
       {% endif %}
       No se ignora en silencio: se implementa la traducción en
@@ -136,15 +136,15 @@
   ansible.builtin.include_tasks: interior_ssh.yml
   vars:
     interior_tipo: "linux"
-    interior_comandos: "{{ interior_declarado_invitado | interior_lecturas_linux }}"
+    interior_comandos: "{{ interior_declarado_guest | interior_lecturas_linux }}"
   when: (not (interior_solo_leer | default(false))) and interior_escrituras | length > 0
 
 - name: "DRIVER LINUX · comprobar que quedó como se declaró"
   ansible.builtin.set_fact:
     interior_pendiente: >-
-      {{ (interior_declarado_invitado
+      {{ (interior_declarado_guest
           | interior_pasos(identidad, declaracion,
-             (interior_resultados | interior_leido(interior_declarado_invitado)),
+             (interior_resultados | interior_leido(interior_declarado_guest)),
              parametros_motor)
           | interior_operaciones) }}
   when: (not (interior_solo_leer | default(false))) and interior_escrituras | length > 0

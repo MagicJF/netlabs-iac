@@ -10,9 +10,9 @@
 #                 operación concreta;
 #              4. un invitado declarado que no se puede alcanzar -> error, no un paso;
 #              5. lo que está dentro del área y no está declarado, se quita;
-#              6. en un RouterOS, la `identidad` va la ÚLTIMA en la primera
+#              6. en un RouterOS, la `identity` va la ÚLTIMA en la primera
 #                 convergencia (intercambio atómico: si no, un fallo a mitad deja al
-#                 equipo con las credenciales viejas y sin camino de vuelta);
+#                 equipo con las credenciales viejas y sin túnel de vuelta);
 #              7. el residuo del cliente DHCP de fábrica se declara como
 #                 `reiniciar_invitado` con su motivo, nunca se ignora;
 #              8. las reservas DHCP se DERIVAN (MAC del vmid) y del ámbito correcto;
@@ -70,18 +70,18 @@ def operaciones_de(pasos, area):
 CONTROL = {
     "rol": "control",
     "tipo": "lxc",
-    "escalon": 1,
+    "stage": 1,
     "bridge": "vmb_gen",
-    "direccion": "10.60.0.10/24",
+    "address": "10.60.0.10/24",
     "config": {
         "linux": {
-            "camino": {"salida": {"puerto": 443}},
-            "dhcp_servidor": {
-                "interfaz": "eth0",
+            "tunnel": {"salida": {"puerto": 443}},
+            "dhcp_server": {
+                "interface": "eth0",
                 "rango": "10.60.0.50-10.60.0.99",
-                "reservas": "derivadas",
+                "static_leases": "derived",
             },
-            "reenvio": True,
+            "ip_forward": True,
         }
     },
 }
@@ -89,23 +89,23 @@ CONTROL = {
 BORDE = {
     "rol": "borde",
     "tipo": "qemu",
-    "escalon": 1,
+    "stage": 1,
     "bridge": "vmb_gen",
-    "direccion": "10.60.0.11/24",
-    "imagen": "chr-7.25.1.raw",
+    "address": "10.60.0.11/24",
+    "image": "chr-7.25.1.raw",
     "config": {
         "routeros": {
-            "identidad": "rt-borde",
-            "servicios": {"deshabilitar": ["telnet", "ftp", "api", "api-ssl"]},
-            "cliente_dhcp": {"deshabilitar": True},
-            "direcciones": [{"interfaz": "ether2", "direccion": "10.60.1.1/24"}],
-            "rutas": [{"destino": "0.0.0.0/0", "pasarela": "10.60.0.1"}],
-            "dhcp": [
+            "identity": "rt-borde",
+            "ip_services": {"deshabilitar": ["telnet", "ftp", "api", "api-ssl"]},
+            "dhcp_client": {"deshabilitar": True},
+            "addresses": [{"interface": "ether2", "address": "10.60.1.1/24"}],
+            "routes": [{"dst_address": "0.0.0.0/0", "gateway": "10.60.0.1"}],
+            "dhcp_server": [
                 {
-                    "interfaz": "ether2",
+                    "interface": "ether2",
                     "pool": {"rango": "10.60.1.100-10.60.1.200"},
-                    "red": {"prefijo": "10.60.1.0/24", "pasarela": "10.60.1.1", "dns": ["10.60.1.1"]},
-                    "reservas": "derivadas",
+                    "network": {"address": "10.60.1.0/24", "gateway": "10.60.1.1", "dns": ["10.60.1.1"]},
+                    "static_leases": "derived",
                 }
             ],
         }
@@ -117,9 +117,9 @@ BORDE = {
 SERVIDOR = {
     "rol": "servidor",
     "tipo": "lxc",
-    "escalon": 2,
+    "stage": 2,
     "bridge": "vmb_lan",
-    "direccion": "10.60.1.10/24",
+    "address": "10.60.1.10/24",
     "config": {"linux": {}},
 }
 
@@ -128,26 +128,26 @@ SERVIDOR = {
 PUESTO = {
     "rol": "puesto-1",
     "tipo": "lxc",
-    "escalon": 3,
+    "stage": 3,
     "bridge": "vmb_lan",
-    "direccion": "dhcp",
+    "address": "dhcp",
     "config": {"linux": {}},
 }
 
 DECLARACION = {
     "lab": "lab-de-prueba",
-    "supernet": "10.60.0.0/16",
+    "address_space": "10.60.0.0/16",
     "bridges": [
-        {"nombre": "vmb_gen", "direccion": "10.60.0.1/24"},
-        {"nombre": "vmb_lan", "direccion": "10.60.1.1/24"},
+        {"nombre": "vmb_gen", "address": "10.60.0.1/24"},
+        {"nombre": "vmb_lan", "address": "10.60.1.1/24"},
     ],
-    "camino": {"tipo": "puesto_control"},
-    "invitados": [CONTROL, BORDE, SERVIDOR, PUESTO],
+    "tunnel": {"tipo": "bastion"},
+    "guests": [CONTROL, BORDE, SERVIDOR, PUESTO],
 }
 
 IDENTIDAD = {
     "lab": "lab-de-prueba",
-    "invitados": [
+    "guests": [
         {"rol": "control", "vmid": 200, "mac": "BC:24:11:00:00:C8", "nombre": "lab-de-prueba-control"},
         {"rol": "borde", "vmid": 201, "mac": "BC:24:11:00:00:C9", "nombre": "lab-de-prueba-borde"},
         {"rol": "servidor", "vmid": 202, "mac": "BC:24:11:00:00:CA", "nombre": "lab-de-prueba-servidor"},
@@ -155,28 +155,28 @@ IDENTIDAD = {
     ],
 }
 
-PARAMETROS = {"bridge_gestion": "vmbr1", "camino_puerto_base": 20000, "nodo": "nodo-de-prueba"}
+PARAMETROS = {"bridge_gestion": "vmbr1", "tunnel_puerto_base": 20000, "nodo": "nodo-de-prueba"}
 
-# El estado del puesto de control LEÍDO dentro del equipo, con todas sus áreas al día.
+# El estado del bastión LEÍDO dentro del equipo, con todas sus áreas al día.
 # El driver lee SIEMPRE todas las áreas declaradas: una lectura recortada no es un
 # caso válido (el driver para y lo dice), así que los casos parciales se construyen
 # cambiando UNA área de este mapa.
 LECTURA_CONTROL_AL_DIA = {
-    "direccion": {"direccion": "10.60.0.10/24"},
-    "reenvio": {"activo": True},
-    "dhcp_servidor": {
-        "interfaz": "eth0",
+    "address": {"address": "10.60.0.10/24"},
+    "ip_forward": {"activo": True},
+    "dhcp_server": {
+        "interface": "eth0",
         "rango": "10.60.0.50-10.60.0.99",
         "servicio_activo": True,
         "offload_apagado": True,
-        "reservas": [{"mac": "BC:24:11:00:00:C9", "direccion": "10.60.0.11/24"}],
+        "static_leases": [{"mac": "BC:24:11:00:00:C9", "address": "10.60.0.11/24"}],
     },
-    "camino": {"salida": "puesta"},
+    "tunnel": {"salida": "puesta"},
 }
 
 
 def lectura(areas_cambiadas=None):
-    """La lectura del puesto de control, con las áreas que se quieran cambiar."""
+    """La lectura del bastión, con las áreas que se quieran cambiar."""
     return {
         "alcanzable": True,
         "areas": dict(LECTURA_CONTROL_AL_DIA, **(areas_cambiadas or {})),
@@ -199,8 +199,8 @@ igual(motor.tipo_de(BORDE), "routeros", "un invitado con `config.routeros` es un
 igual(motor.tipo_de(CONTROL), "linux", "un invitado con `config.linux` es un Linux")
 igual(motor.tipo_de({"rol": "switch"}), None, "un invitado sin `config` no tiene interior")
 igual(motor.declara_interior({"rol": "switch"}), False, "sin `config`, el motor no entra")
-igual(motor.tiene_camino(CONTROL), True, "el puesto de control declara el camino")
-igual(motor.tiene_camino(BORDE), False, "un router no es el puesto de control")
+igual(motor.tiene_tunnel(CONTROL), True, "el bastión declara el túnel")
+igual(motor.tiene_tunnel(BORDE), False, "un router no es el bastión")
 
 # Dos tipos a la vez: no se adivina, se dice.
 try:
@@ -212,21 +212,21 @@ except motor.ErrorMotor:
 areas_borde = motor.areas_de(BORDE)
 igual(
     sorted(areas_borde),
-    sorted(["identidad", "servicios", "cliente_dhcp", "direcciones", "rutas", "dhcp"]),
+    sorted(["identity", "ip_services", "dhcp_client", "addresses", "routes", "dhcp_server"]),
     "las áreas de un RouterOS son las que declara",
 )
 areas_control = motor.areas_de(CONTROL)
 igual(
     sorted(areas_control),
-    sorted(["camino", "dhcp_servidor", "reenvio", "direccion"]),
-    "las áreas de un Linux son las que declara (más la dirección de su pata)",
+    sorted(["tunnel", "dhcp_server", "ip_forward", "address"]),
+    "las áreas de un Linux son las que declara (más la dirección de su interfaz)",
 )
 igual(
     motor.areas_a_leer(CONTROL), list(areas_control.keys()), "se leen exactamente las áreas declaradas"
 )
 
 # ---------------------------------------------------------------------------
-# La dirección libre de la pata de gestión (derivada: nada se guarda)
+# La dirección libre de la interfaz de gestión (derivada: nada se guarda)
 # ---------------------------------------------------------------------------
 
 print("\nDIRECCIÓN LIBRE DE LA PATA DE GESTIÓN\n")
@@ -247,31 +247,31 @@ try:
 except motor.ErrorMotor:
     comprobar(True, "un prefijo que no sabe manejar da error en vez de adivinar")
 
-patas = motor.patas_del_puesto_control(CONTROL, DECLARACION, ESTADO_NODO, PARAMETROS)
-igual(len(patas), 3, "el puesto de control tiene una pata por bridge, más la de gestión del nodo")
+interfaces = motor.interfaces_del_bastion(CONTROL, DECLARACION, ESTADO_NODO, PARAMETROS)
+igual(len(interfaces), 3, "el bastión tiene una interfaz por bridge, más la de gestión del nodo")
 # El ORDEN es el orden de `eth0, eth1, ...` dentro del invitado: primero las del LAB (la
 # declarada la primera, porque es el `eth0` que citan las áreas del lab) y la de gestión
-# del nodo la ÚLTIMA, que es la única con puerta.
+# del nodo la ÚLTIMA, que es la única con vía de acceso.
 igual(
-    patas[0]["bridge"], "vmb_gen",
-    "la primera pata es la declarada: es el `eth0` que el lab cita en sus áreas",
+    interfaces[0]["bridge"], "vmb_gen",
+    "la primera interfaz es la declarada: es el `eth0` que el lab cita en sus áreas",
 )
 igual(
-    patas[0]["direccion"], "10.60.0.10/24", "la pata declarada del lab lleva su dirección declarada"
+    interfaces[0]["address"], "10.60.0.10/24", "la interfaz declarada del lab lleva su dirección declarada"
 )
-igual(patas[0]["puerta"], "", "una pata de un bridge del lab no lleva puerta")
+igual(interfaces[0]["gateway"], "", "una interfaz de un bridge del lab no lleva vía de acceso")
 igual(
-    patas[1]["direccion"], "10.60.1.254/24",
-    "la pata no declarada la deriva el motor por arriba, esquivando lo declarado",
+    interfaces[1]["address"], "10.60.1.254/24",
+    "la interfaz no declarada la deriva el motor por arriba, esquivando lo declarado",
 )
-igual(patas[2]["bridge"], "vmbr1", "la ÚLTIMA pata es la del bridge de gestión del nodo: la salida")
-igual(patas[2]["direccion"], "10.10.10.253/24", "su dirección en el nodo la DERIVA el motor")
-igual(patas[2]["puerta"], "10.10.10.1", "y es la única con puerta: la dirección del nodo")
+igual(interfaces[2]["bridge"], "vmbr1", "la ÚLTIMA interfaz es la del bridge de gestión del nodo: la salida")
+igual(interfaces[2]["address"], "10.10.10.253/24", "su dirección en el nodo la DERIVA el motor")
+igual(interfaces[2]["gateway"], "10.10.10.1", "y es la única con gateway: la dirección del nodo")
 # Y sin bridge de gestión no se inventa nada: un puesto sin salida no se puede converger,
 # así que se dice y se para (en vez de crear el invitado y descubrirlo tres pasos después).
 try:
-    motor.patas_del_puesto_control(
-        CONTROL, DECLARACION, ESTADO_NODO, {"camino_puerto_base": 20000}
+    motor.interfaces_del_bastion(
+        CONTROL, DECLARACION, ESTADO_NODO, {"tunnel_puerto_base": 20000}
     )
     comprobar(False, "sin bridge de gestión el motor falla en vez de crear un puesto sin salida")
 except motor.ErrorMotor as error:
@@ -279,41 +279,41 @@ except motor.ErrorMotor as error:
         "pve_bridge_gestion" in str(error),
         "sin bridge de gestión el motor falla diciendo la clave que falta",
     )
-# Y si ese bridge existe en el nodo pero NO tiene dirección, tampoco hay puerta por la que
-# salir: se dice, no se crea una pata muda.
+# Y si ese bridge existe en el nodo pero NO tiene dirección, tampoco hay vía de acceso por la que
+# salir: se dice, no se crea una interfaz muda.
 try:
-    motor.patas_del_puesto_control(
+    motor.interfaces_del_bastion(
         CONTROL, DECLARACION, {"bridges_direcciones": {}, "direcciones_usadas": []}, PARAMETROS
     )
-    comprobar(False, "un bridge de gestión sin dirección da error, no una pata sin puerta")
+    comprobar(False, "un bridge de gestión sin dirección da error, no una interfaz sin vía de acceso")
 except motor.ErrorMotor as error:
     comprobar(
         "vmbr1" in str(error), "el error dice QUÉ bridge de gestión no tiene dirección"
     )
 
 # ---------------------------------------------------------------------------
-# El puerto del camino y la línea que se manda por consola
+# El puerto del túnel y la línea que se manda por consola
 # ---------------------------------------------------------------------------
 
 print("\nEL CAMINO: PUERTO DERIVADO Y LÍNEA DE CONSOLA\n")
 
-igual(motor.puerto_camino(200, PARAMETROS), 20200, "el puerto del camino se deriva del vmid")
-igual(motor.puerto_camino(201, PARAMETROS), 20201, "y dos invitados no comparten puerto")
+igual(motor.puerto_tunnel(200, PARAMETROS), 20200, "el puerto del túnel se deriva del vmid")
+igual(motor.puerto_tunnel(201, PARAMETROS), 20201, "y dos invitados no comparten puerto")
 
-guion = motor.guion_camino("CLAVE-PRIVADA-DE-PRUEBA", "casa.example", 443, "camino", 20200)
+guion = motor.guion_tunnel("CLAVE-PRIVADA-DE-PRUEBA", "casa.example", 443, "tunnel", 20200)
 comprobar(
     "-R 20200:localhost:22" in guion,
     "el guion deja reenviado el puerto del lab hacia el sshd del invitado",
 )
 comprobar(
-    "-p 443 camino@casa.example" in guion,
+    "-p 443 tunnel@casa.example" in guion,
     "y sale hacia casa por el host y el puerto que declara el lab",
 )
 comprobar("/etc/systemd/system/" in guion, "el guion se deja como unidad de systemd")
 comprobar("Restart=always" in guion, "y con reinicio automático: el invitado que reinicia, vuelve")
-comprobar("CLAVE-PRIVADA-DE-PRUEBA" in guion, "la clave del camino viaja dentro del guion")
+comprobar("CLAVE-PRIVADA-DE-PRUEBA" in guion, "la clave del túnel viaja dentro del guion")
 comprobar(
-    motor.marca_camino() in guion,
+    motor.marca_tunnel() in guion,
     "el guion imprime su marca al final: la consola no devuelve código de salida, se lee el eco",
 )
 
@@ -336,7 +336,7 @@ print("\nRESERVAS DERIVADAS\n")
 
 reservas_borde = motor.reservas_derivadas(DECLARACION, IDENTIDAD, BORDE, en_red="10.60.1.0/24")
 igual(
-    [(r["rol"], r["direccion"], r["mac"]) for r in reservas_borde],
+    [(r["rol"], r["address"], r["mac"]) for r in reservas_borde],
     [("servidor", "10.60.1.10/24", "BC:24:11:00:00:CA")],
     "el router reserva la dirección estática del servidor de SU red, con su MAC derivada",
 )
@@ -346,13 +346,13 @@ comprobar(
 )
 comprobar(
     all(r["rol"] != "puesto-1" for r in reservas_borde),
-    "un cliente dinámico no se reserva: no declara dirección que proteger",
+    "un cliente dinámico no se static_lease: no declara dirección que proteger",
 )
 reservas_control = motor.reservas_derivadas(DECLARACION, IDENTIDAD, CONTROL)
 igual(
     [r["rol"] for r in reservas_control],
     ["borde"],
-    "el puesto de control reserva, en su bridge, la dirección del router (ámbito por bridge)",
+    "el bastión reserva, en su bridge, la dirección del router (ámbito por bridge)",
 )
 
 # ---------------------------------------------------------------------------
@@ -382,7 +382,7 @@ comprobar(
 igual(
     motor.pasos_de_convergencia(PUESTO, IDENTIDAD, DECLARACION, {}, PARAMETROS),
     [],
-    "un puesto con sólo `direccion: dhcp` no pide visita: su dirección se lee del HOST "
+    "un puesto con sólo `address: dhcp` no pide visita: su dirección se lee del HOST "
     "(§6.3) y no se sabe a dónde conectar para entrar, así que el motor no entra a ciegas",
 )
 igual(
@@ -397,7 +397,7 @@ comprobar(
 
 # Sin `config` no hay pasos: el motor despliega y se calla.
 igual(
-    motor.pasos_de_convergencia({"rol": "switch", "escalon": 1}, IDENTIDAD, DECLARACION, {}, PARAMETROS),
+    motor.pasos_de_convergencia({"rol": "switch", "stage": 1}, IDENTIDAD, DECLARACION, {}, PARAMETROS),
     [],
     "un invitado sin interior no genera ningún paso",
 )
@@ -412,23 +412,23 @@ print("\nFORMA EXACTA (con lectura dentro del equipo)\n")
 LEIDO_AL_DIA = {
     "alcanzable": True,
     "areas": {
-        "identidad": {"nombre": "rt-borde", "usuario_motor": True, "clave_motor": True, "credencial_motor": True},
-        "servicios": {"deshabilitados": ["api", "api-ssl", "ftp", "telnet"]},
-        "cliente_dhcp": {"habilitado": False},
-        "direcciones": {"estaticas": [{"interfaz": "ether1", "direccion": "10.60.0.11/24"}, {"interfaz": "ether2", "direccion": "10.60.1.1/24"}], "dinamicas": []},
-        "rutas": {
-            "estaticas": [{"destino": "0.0.0.0/0", "pasarela": "10.60.0.1"}],
+        "identity": {"nombre": "rt-borde", "usuario_motor": True, "clave_motor": True, "credencial_motor": True},
+        "ip_services": {"deshabilitados": ["api", "api-ssl", "ftp", "telnet"]},
+        "dhcp_client": {"habilitado": False},
+        "addresses": {"estaticas": [{"interface": "ether1", "address": "10.60.0.11/24"}, {"interface": "ether2", "address": "10.60.1.1/24"}], "dinamicas": []},
+        "routes": {
+            "estaticas": [{"dst_address": "0.0.0.0/0", "gateway": "10.60.0.1"}],
             "dinamicas": [],
         },
-        "dhcp": {
+        "dhcp_server": {
             "servidores": [
                 {
-                    "interfaz": "ether2",
+                    "interface": "ether2",
                     "rango": "10.60.1.100-10.60.1.200",
-                    "red": {"prefijo": "10.60.1.0/24", "pasarela": "10.60.1.1", "dns": ["10.60.1.1"]},
+                    "network": {"address": "10.60.1.0/24", "gateway": "10.60.1.1", "dns": ["10.60.1.1"]},
                 }
             ],
-            "reservas": [{"mac": "BC:24:11:00:00:CA", "direccion": "10.60.1.10"}],
+            "static_leases": [{"mac": "BC:24:11:00:00:CA", "address": "10.60.1.10"}],
         },
     },
 }
@@ -441,14 +441,14 @@ igual(
 # 2) Una sola cosa distinta: un área, con su operación concreta.
 LEIDO_FALTA_UNA_RUTA = {
     "alcanzable": True,
-    "areas": dict(LEIDO_AL_DIA["areas"], rutas={"estaticas": [], "dinamicas": []}),
+    "areas": dict(LEIDO_AL_DIA["areas"], routes={"estaticas": [], "dinamicas": []}),
 }
 pasos = motor.pasos_de_convergencia(BORDE, IDENTIDAD, DECLARACION, LEIDO_FALTA_UNA_RUTA, PARAMETROS)
 igual(len(pasos), 1, "lo que cambia es UNA cosa: un solo paso")
-igual(pasos[0]["parametros"]["area"], "rutas", "y es el área de rutas")
+igual(pasos[0]["parametros"]["area"], "routes", "y es el área de rutas")
 igual(
     pasos[0]["parametros"]["operaciones"],
-    [{"op": "poner_ruta", "destino": "0.0.0.0/0", "pasarela": "10.60.0.1"}],
+    [{"op": "add_route", "dst_address": "0.0.0.0/0", "gateway": "10.60.0.1"}],
     "con la operación concreta que falta",
 )
 
@@ -457,12 +457,12 @@ LEIDO_CON_SOBRA = {
     "alcanzable": True,
     "areas": dict(
         LEIDO_AL_DIA["areas"],
-        servicios={"deshabilitados": ["api", "api-ssl", "ftp", "telnet", "ssh"]},
-        direcciones={
+        ip_services={"deshabilitados": ["api", "api-ssl", "ftp", "telnet", "ssh"]},
+        addresses={
             "estaticas": [
-                {"interfaz": "ether1", "direccion": "10.60.0.11/24"},
-                {"interfaz": "ether2", "direccion": "10.60.1.1/24"},
-                {"interfaz": "ether3", "direccion": "10.60.2.1/24"},
+                {"interface": "ether1", "address": "10.60.0.11/24"},
+                {"interface": "ether2", "address": "10.60.1.1/24"},
+                {"interface": "ether3", "address": "10.60.2.1/24"},
             ],
             "dinamicas": [],
         },
@@ -471,13 +471,13 @@ LEIDO_CON_SOBRA = {
 pasos_sobra = motor.pasos_de_convergencia(BORDE, IDENTIDAD, DECLARACION, LEIDO_CON_SOBRA, PARAMETROS)
 areas_con_paso = {p["parametros"]["area"]: p["parametros"]["operaciones"] for p in pasos_sobra}
 igual(
-    areas_con_paso.get("servicios"),
-    [{"op": "habilitar_servicio", "servicio": "ssh"}],
+    areas_con_paso.get("ip_services"),
+    [{"op": "enable_service", "servicio": "ssh"}],
     "un servicio apagado que el motor gestiona y no está declarado, se vuelve a habilitar",
 )
 igual(
-    areas_con_paso.get("direcciones"),
-    [{"op": "quitar_direccion", "interfaz": "ether3", "direccion": "10.60.2.1/24"}],
+    areas_con_paso.get("addresses"),
+    [{"op": "remove_address", "interface": "ether3", "address": "10.60.2.1/24"}],
     "una dirección de más dentro del área, se quita",
 )
 
@@ -485,12 +485,12 @@ igual(
 LEIDO_SIN_IDENTIDAD = {
     "alcanzable": True,
     "areas": {
-        "identidad": {"nombre": "", "usuario_motor": False, "clave_motor": False, "credencial_motor": False},
-        "servicios": {"deshabilitados": []},
-        "cliente_dhcp": {"habilitado": True},
-        "direcciones": {"estaticas": [], "dinamicas": []},
-        "rutas": {"estaticas": [], "dinamicas": []},
-        "dhcp": {"servidores": [], "reservas": []},
+        "identity": {"nombre": "", "usuario_motor": False, "clave_motor": False, "credencial_motor": False},
+        "ip_services": {"deshabilitados": []},
+        "dhcp_client": {"habilitado": True},
+        "addresses": {"estaticas": [], "dinamicas": []},
+        "routes": {"estaticas": [], "dinamicas": []},
+        "dhcp_server": {"servidores": [], "static_leases": []},
     },
 }
 pasos_primera = motor.pasos_de_convergencia(
@@ -498,13 +498,13 @@ pasos_primera = motor.pasos_de_convergencia(
 )
 igual(
     pasos_primera[-1]["parametros"]["area"],
-    "identidad",
+    "identity",
     "la identidad del router va la ÚLTIMA (intercambio atómico)",
 )
 comprobar(
-    {"op": "deshabilitar_cliente_dhcp"}
+    {"op": "disable_dhcp_client"}
     in next(
-        p for p in pasos_primera if p["parametros"]["area"] == "cliente_dhcp"
+        p for p in pasos_primera if p["parametros"]["area"] == "dhcp_client"
     )["parametros"]["operaciones"],
     "y el cliente DHCP de fábrica se deshabilita antes que la identidad",
 )
@@ -529,7 +529,7 @@ pasos_residuo = motor.pasos_de_convergencia(
 )
 igual(
     [(p["accion"], p["via"]) for p in pasos_residuo],
-    [("reiniciar_invitado", "api")],
+    [("reiniciar_guest", "api")],
     "el residuo se arregla con un reinicio DECLARADO en el plan (por la API), no escondido",
 )
 comprobar(
@@ -543,14 +543,14 @@ try:
         BORDE,
         IDENTIDAD,
         DECLARACION,
-        {"alcanzable": False, "motivo": "el camino está caído"},
+        {"alcanzable": False, "motivo": "el túnel está caído"},
         PARAMETROS,
     )
-    comprobar(False, "sin camino, converger un interior da error")
+    comprobar(False, "sin túnel, converger un interior da error")
 except motor.ErrorMotor as error:
     comprobar(
-        "el camino está caído" in str(error),
-        "sin camino, converger un interior da error diciendo QUÉ falta",
+        "el túnel está caído" in str(error),
+        "sin túnel, converger un interior da error diciendo QUÉ falta",
     )
 
 # 7) Linux: la dirección dinámica no se escribe, se comprueba (§6.3).
@@ -559,11 +559,11 @@ igual(
         PUESTO,
         IDENTIDAD,
         DECLARACION,
-        {"alcanzable": True, "areas": {"direccion": {"direccion": "10.60.1.77/24"}}},
+        {"alcanzable": True, "areas": {"address": {"address": "10.60.1.77/24"}}},
         PARAMETROS,
     ),
     [],
-    "un `direccion: dhcp` no genera escritura: se comprueba, no se escribe",
+    "un `address: dhcp` no genera escritura: se comprueba, no se escribe",
 )
 igual(
     operaciones_de(
@@ -571,13 +571,13 @@ igual(
             CONTROL,
             IDENTIDAD,
             DECLARACION,
-            lectura({"direccion": {"direccion": ""}}),
+            lectura({"address": {"address": ""}}),
             PARAMETROS,
         ),
-        "direccion",
+        "address",
     ),
-    [{"op": "poner_direccion", "interfaz": "eth0", "direccion": "10.60.0.10/24"}],
-    "una dirección estática que falta, se escribe (y en eth0: la pata del contenedor)",
+    [{"op": "add_address", "interface": "eth0", "address": "10.60.0.10/24"}],
+    "una dirección estática que falta, se escribe (y en eth0: la interfaz del contenedor)",
 )
 
 # El servidor DHCP de un Linux: dnsmasq, offload y reservas derivadas.
@@ -592,14 +592,14 @@ try:
         CONTROL,
         IDENTIDAD,
         DECLARACION,
-        {"alcanzable": True, "areas": {"camino": {"salida": "puesta"}}},
+        {"alcanzable": True, "areas": {"tunnel": {"salida": "puesta"}}},
         PARAMETROS,
     )
     comprobar(False, "un área declarada que el driver NO leyó da error en vez de escribir a ciegas")
 except motor.ErrorMotor as error:
     comprobar(
         "no leyó el área" in str(error)
-        and any(area in str(error) for area in ("direccion", "reenvio", "dhcp_servidor")),
+        and any(area in str(error) for area in ("address", "ip_forward", "dhcp_server")),
         "un área declarada que el driver NO leyó da error diciendo CUÁL falta",
     )
 igual(
@@ -608,16 +608,16 @@ igual(
             CONTROL,
             IDENTIDAD,
             DECLARACION,
-            lectura({"dhcp_servidor": {}}),
+            lectura({"dhcp_server": {}}),
             PARAMETROS,
         ),
-        "dhcp_servidor",
+        "dhcp_server",
     ),
     [
-        {"op": "escribir_dnsmasq", "interfaz": "eth0", "rango": "10.60.0.50-10.60.0.99"},
-        {"op": "apagar_offload", "interfaz": "eth0"},
-        {"op": "poner_reserva", "mac": "BC:24:11:00:00:C9", "direccion": "10.60.0.11/24"},
-        {"op": "recargar_dnsmasq"},
+        {"op": "write_dnsmasq", "interface": "eth0", "rango": "10.60.0.50-10.60.0.99"},
+        {"op": "disable_offload", "interface": "eth0"},
+        {"op": "add_static_lease", "mac": "BC:24:11:00:00:C9", "address": "10.60.0.11/24"},
+        {"op": "reload_dnsmasq"},
     ],
     "y si se leyó y estaba vacío, el diff exacto escribe lo declarado (con sus reservas derivadas)",
 )
@@ -631,22 +631,22 @@ igual(
             DECLARACION,
             lectura(
                 {
-                    "dhcp_servidor": {
-                        "interfaz": "eth0",
+                    "dhcp_server": {
+                        "interface": "eth0",
                         "rango": "10.60.0.50-10.60.0.99",
                         "servicio_activo": True,
                         "offload_apagado": False,
-                        "reservas": [{"mac": "BC:24:11:00:00:C9", "direccion": "10.60.0.11/24"}],
+                        "static_leases": [{"mac": "BC:24:11:00:00:C9", "address": "10.60.0.11/24"}],
                     }
                 }
             ),
             PARAMETROS,
         ),
-        "dhcp_servidor",
+        "dhcp_server",
     ),
     [
-        {"op": "apagar_offload", "interfaz": "eth0"},
-        {"op": "recargar_dnsmasq"},
+        {"op": "disable_offload", "interface": "eth0"},
+        {"op": "reload_dnsmasq"},
     ],
     "el offload se apaga y dnsmasq recarga: sin eso las ofertas llegan rotas y el CHR las tira",
 )
@@ -660,22 +660,22 @@ igual(
             DECLARACION,
             lectura(
                 {
-                    "dhcp_servidor": {
-                        "interfaz": "eth0",
+                    "dhcp_server": {
+                        "interface": "eth0",
                         "rango": "10.60.0.50-10.60.0.99",
                         "servicio_activo": True,
                         "offload_apagado": True,
-                        "reservas": [],
+                        "static_leases": [],
                     }
                 }
             ),
             PARAMETROS,
         ),
-        "dhcp_servidor",
+        "dhcp_server",
     ),
     [
-        {"op": "poner_reserva", "mac": "BC:24:11:00:00:C9", "direccion": "10.60.0.11/24"},
-        {"op": "recargar_dnsmasq"},
+        {"op": "add_static_lease", "mac": "BC:24:11:00:00:C9", "address": "10.60.0.11/24"},
+        {"op": "reload_dnsmasq"},
     ],
     "una reserva nueva se pone y dnsmasq recarga, aunque el servicio ya esté vivo",
 )
@@ -687,20 +687,20 @@ igual(
             CONTROL,
             IDENTIDAD,
             DECLARACION,
-            lectura({"reenvio": {"activo": False}}),
+            lectura({"ip_forward": {"activo": False}}),
             PARAMETROS,
         ),
-        "reenvio",
+        "ip_forward",
     ),
-    [{"op": "activar_reenvio"}],
+    [{"op": "enable_ip_forward"}],
     "sin reenvío no hay servidor DHCP: se activa",
 )
 
-# El camino: lo pone la consola UNA vez; después sólo se comprueba.
+# El tunnel: lo pone la consola UNA vez; después sólo se comprueba.
 igual(
     motor.pasos_de_convergencia(CONTROL, IDENTIDAD, DECLARACION, lectura(), PARAMETROS),
     [],
-    "con la salida ya puesta, el camino no se vuelve a mandar por consola (ni nada más)",
+    "con la salida ya puesta, el túnel no se vuelve a mandar por consola (ni nada más)",
 )
 igual(
     operaciones_de(
@@ -708,17 +708,17 @@ igual(
             CONTROL,
             IDENTIDAD,
             DECLARACION,
-            lectura({"camino": {"salida": ""}}),
+            lectura({"tunnel": {"salida": ""}}),
             PARAMETROS,
         ),
-        "camino",
+        "tunnel",
     ),
-    [{"op": "mandar_linea_consola"}],
+    [{"op": "send_console_line"}],
     "sin salida, hay que volver a mandar la línea por consola",
 )
 
 # ---------------------------------------------------------------------------
-# La sonda de escalón (regla 18)
+# La sonda de etapa (regla 18)
 # ---------------------------------------------------------------------------
 
 print("\nLA SONDA DEL ESCALÓN\n")
@@ -727,65 +727,65 @@ sonda_borde = motor.espera_de_servicio(BORDE)
 igual(sonda_borde["via"], "sonda", "la sonda no es un `wait_for`: es una petición a lo prometido")
 igual(sonda_borde["parametros"]["puerto"], 80, "a un RouterOS se le pregunta por su REST")
 igual(
-    sonda_borde["parametros"]["direccion"], "10.60.0.11",
+    sonda_borde["parametros"]["address"], "10.60.0.11",
     "en la dirección que la declaración promete, sin máscara",
 )
 igual(motor.espera_de_servicio(CONTROL)["parametros"]["puerto"], 22, "a un Linux, por su sshd")
 igual(motor.espera_de_servicio({"rol": "switch"}), None, "un invitado sin interior no se sondea")
 comprobar(
-    "escalón" in sonda_borde["porque"] and "puerto 80" in sonda_borde["porque"],
-    "y el paso explica que el escalón siguiente no se toca hasta que este conteste",
+    "etapa" in sonda_borde["porque"] and "puerto 80" in sonda_borde["porque"],
+    "y el paso explica que la etapa siguiente no se toca hasta que este conteste",
 )
 
 # ---------------------------------------------------------------------------
-# Los pasos del camino (§5): el plan los emite, el ejecutor los hace
+# Los pasos del túnel (§5): el plan los emite, el ejecutor los hace
 # ---------------------------------------------------------------------------
 
 print("\nLOS PASOS DEL CAMINO\n")
 
-CONTROL_CON_VMID = dict(CONTROL, vmid=200, escalon=1)
-pasos_camino = motor.pasos_del_camino(CONTROL_CON_VMID, DECLARACION, ESTADO_NODO, PARAMETROS)
+CONTROL_CON_VMID = dict(CONTROL, vmid=200, stage=1)
+pasos_tunnel = motor.pasos_del_tunnel(CONTROL_CON_VMID, DECLARACION, ESTADO_NODO, PARAMETROS)
 igual(
-    [paso["accion"] for paso in pasos_camino],
-    ["construir_camino", "comprobar_camino"],
-    "sin camino en pie, se construye y se comprueba (en este orden)",
+    [paso["accion"] for paso in pasos_tunnel],
+    ["construir_tunnel", "comprobar_tunnel"],
+    "sin túnel en pie, se construye y se comprueba (en este orden)",
 )
-igual(pasos_camino[0]["via"], "camino", "los dos pasos del camino van por el camino, no por la API")
+igual(pasos_tunnel[0]["via"], "tunnel", "los dos pasos del túnel van por el túnel, no por la API")
 igual(
-    pasos_camino[0]["parametros"]["puerto"], 20200,
+    pasos_tunnel[0]["parametros"]["puerto"], 20200,
     "el puerto del túnel se DERIVA del vmid del puesto: nada que guardar",
 )
 comprobar(
-    len(pasos_camino[0].get("detalle") or []) >= 4,
-    "el paso del camino se explica por piezas (clave, authorized_keys, consola, marca)",
+    len(pasos_tunnel[0].get("detalle") or []) >= 4,
+    "el paso del túnel se explica por piezas (clave, authorized_keys, consola, marca)",
 )
 igual(
-    len(pasos_camino[0]["parametros"]["patas"]), 3,
-    "y lleva sus patas: el puesto nace completo, con todas",
+    len(pasos_tunnel[0]["parametros"]["interfaces"]), 3,
+    "y lleva sus interfaces: el puesto nace completo, con todas",
 )
 comprobar(
-    "CLAVE-PRIVADA" not in __import__("json").dumps(pasos_camino).upper(),
-    "el plan NO lleva secretos: la clave del camino se lee al ejecutar, no viaja en el paso",
+    "CLAVE-PRIVADA" not in __import__("json").dumps(pasos_tunnel).upper(),
+    "el plan NO lleva secretos: la clave del túnel se lee al ejecutar, no viaja en el paso",
 )
 igual(
     [
         paso["accion"]
-        for paso in motor.pasos_del_camino(
+        for paso in motor.pasos_del_tunnel(
             CONTROL_CON_VMID, DECLARACION,
-            dict(ESTADO_NODO, camino={"responde": True}), PARAMETROS
+            dict(ESTADO_NODO, tunnel={"responde": True}), PARAMETROS
         )
     ],
-    ["comprobar_camino"],
-    "si el camino YA responde no se reconstruye: sólo se comprueba (que es una lectura)",
+    ["comprobar_tunnel"],
+    "si el túnel YA responde no se reconstruye: sólo se comprueba (que es una lectura)",
 )
 igual(
-    motor.pasos_del_camino(BORDE, DECLARACION, {}, PARAMETROS), [],
-    "un invitado que no es el puesto de control no genera pasos de camino",
+    motor.pasos_del_tunnel(BORDE, DECLARACION, {}, PARAMETROS), [],
+    "un invitado que no es el bastión no genera pasos de túnel",
 )
 
 
 # ---------------------------------------------------------------------------
-# El driver de LINUX: el inventario, la puerta y lo que se midió al conectarlo
+# El driver de LINUX: el inventario, la vía de acceso y lo que se midió al conectarlo
 # (14-nov-2026). Todo lo de aquí salió de un fallo DE VERDAD al encenderlo.
 # ---------------------------------------------------------------------------
 
@@ -796,19 +796,19 @@ import yaml as _yaml  # noqa: E402
 import declaracion as _validador  # noqa: E402
 
 # La declaración que CIRCULA por el motor está normalizada: sus invitados son una lista
-# plana (`invitados`), no `containers`/`vms`. Si el motor la lee como el fichero del lab,
-# no encuentra el puesto de control, el inventario se queda sin puerto y el paso muere
+# plana (`guests`), no `containers`/`vms`. Si el motor la lee como el fichero del lab,
+# no encuentra el bastión, el inventario se queda sin puerto y el paso muere
 # con «No first item, sequence was empty». Pasó: por eso se prueba con esta forma.
 _CRUDA = _yaml.safe_load(open(os.path.join(RAIZ, "labs", "04_lab-red-routeros", "04_lab-red-routeros.yml")))
 _NORMALIZADA = _validador.declaracion_normalizar(_CRUDA)
 igual(
-    motor.puesto_control(_NORMALIZADA), "control",
-    "el puesto de control se saca de la declaración NORMALIZADA (la que circula de verdad)",
+    motor.bastion(_NORMALIZADA), "control",
+    "el bastión se saca de la declaración NORMALIZADA (la que circula de verdad)",
 )
 igual(
-    motor.puesto_control({"invitados": [{"rol": "puesto-1", "config": {"linux": {"direccion": "dhcp"}}}]}),
+    motor.bastion({"guests": [{"rol": "puesto-1", "config": {"linux": {"address": "dhcp"}}}]}),
     "",
-    "un lab que no declara camino no tiene puesto de control: '' y no un nombre inventado",
+    "un lab que no declara túnel no tiene bastión: '' y no un nombre inventado",
 )
 
 # Los drivers que el motor DICE que tiene y los ficheros que tiene que haber. Si alguien
@@ -829,7 +829,7 @@ igual(
 # otro código distinto de cero es el invitado CONTESTANDO que eso no está, y es un estado
 # legítimo del que sí se puede decidir.
 _leido_255 = motor.leido_de_lecturas(
-    [{"ansible_loop_var": "interior_comando", "interior_comando": {"area": "camino"},
+    [{"ansible_loop_var": "interior_comando", "interior_comando": {"area": "tunnel"},
       "stdout": "", "rc": 255, "stderr": "root@127.0.0.1: Permission denied (publickey,password)."}],
     {"rol": "control"},
 )
@@ -839,34 +839,34 @@ comprobar(
     "y lo que se enseña es el motivo que dijo ssh, no uno inventado",
 )
 igual(
-    motor.leido_de_lecturas([{"ansible_loop_var": "interior_comando", "interior_comando": {"area": "camino"}, "stdout": "", "rc": 1}], {"rol": "control"})["alcanzable"],
+    motor.leido_de_lecturas([{"ansible_loop_var": "interior_comando", "interior_comando": {"area": "tunnel"}, "stdout": "", "rc": 1}], {"rol": "control"})["alcanzable"],
     True,
     "rc 1 = el invitado contestó que eso no está: se llegó, y eso se puede decidir",
 )
 
 # --- El servidor DHCP: el sitio donde la idempotencia se pierde sin querer -----------
 CONTROL_CON_DHCP = {
-    "rol": "control", "escalon": 1, "tipo": "lxc", "bridge": "vmb_gestion",
-    "direccion": "10.40.0.10/24",
+    "rol": "control", "stage": 1, "tipo": "lxc", "bridge": "vmb_gestion",
+    "address": "10.40.0.10/24",
     "config": {"linux": {
-        "camino": {},
-        "reenvio": True,
-        "dhcp_servidor": {"interfaz": "eth0", "rango": "10.40.0.50-10.40.0.99", "reservas": "derivadas"},
+        "tunnel": {},
+        "ip_forward": True,
+        "dhcp_server": {"interface": "eth0", "rango": "10.40.0.50-10.40.0.99", "static_leases": "derived"},
     }},
 }
 PUESTO_CON_DHCP = {
-    "rol": "puesto-1", "escalon": 1, "tipo": "lxc", "bridge": "vmb_gestion",
-    "direccion": "10.40.0.20/24", "config": {"linux": {"camino": {}}},
+    "rol": "puesto-1", "stage": 1, "tipo": "lxc", "bridge": "vmb_gestion",
+    "address": "10.40.0.20/24", "config": {"linux": {"tunnel": {}}},
 }
 DECLARACION_DHCP = {
-    "lab": "prueba", "escalones": [1],
-    "bridges": [{"nombre": "vmb_gestion", "supernet": "10.40.0.0/24"}],
-    "invitados": [CONTROL_CON_DHCP, PUESTO_CON_DHCP],
-    "supernet": "10.40.0.0/24",
-    "camino": {"tipo": "puesto_control"},
+    "lab": "prueba", "stages": [1],
+    "bridges": [{"nombre": "vmb_gestion", "address_space": "10.40.0.0/24"}],
+    "guests": [CONTROL_CON_DHCP, PUESTO_CON_DHCP],
+    "address_space": "10.40.0.0/24",
+    "tunnel": {"tipo": "bastion"},
 }
-IDENTIDAD_DHCP = {"invitados": [
-    # La identidad lleva la MAC de cada pata (la deriva el motor del vmid): es de donde
+IDENTIDAD_DHCP = {"guests": [
+    # La identidad lleva la MAC de cada interfaz (la deriva el motor del vmid): es de donde
     # sale la de la reserva. 109 = 0x6D y 110 = 0x6E.
     {"rol": "control", "vmid": 109, "tipo": "lxc", "nombre": "prueba-control",
      "mac": "BC:24:11:00:00:6D"},
@@ -879,13 +879,13 @@ IDENTIDAD_DHCP = {"invitados": [
 LECTURA_DHCP_AL_DIA = {
     "alcanzable": True,
     "areas": {
-        "camino": {"salida": True},
-        "direccion": {"direccion": "10.40.0.10/24"},
-        "reenvio": {"activo": True},
-        "dhcp_servidor": {
-            "interfaz": "eth0",
+        "tunnel": {"salida": True},
+        "address": {"address": "10.40.0.10/24"},
+        "ip_forward": {"activo": True},
+        "dhcp_server": {
+            "interface": "eth0",
             "rango": "10.40.0.50-10.40.0.99",
-            "reservas": [{"mac": "BC:24:11:00:00:6E", "direccion": "10.40.0.20"}],
+            "static_leases": [{"mac": "BC:24:11:00:00:6E", "address": "10.40.0.20"}],
             "configurado": True,
             "servicio_activo": True,
             "offload_apagado": True,
@@ -901,13 +901,13 @@ igual(
 )
 
 _AREAS = motor.leido_de_lecturas(
-    [{"ansible_loop_var": "interior_comando", "interior_comando": {"area": "dhcp_servidor"}, "rc": 0, "stdout": (
+    [{"ansible_loop_var": "interior_comando", "interior_comando": {"area": "dhcp_server"}, "rc": 0, "stdout": (
         "port=0\ninterface=eth0\ndhcp-range=10.40.0.50,10.40.0.99,255.255.255.0,12h\n"
         "---NETLABS---\ntx-checksumming: on\ngeneric-segmentation-offload: off\n"
         "tcp-segmentation-offload: off\n---NETLABS---\ndnsmasq=/usr/sbin/dnsmasq\nethtool=NO\n"
     )}],
     CONTROL_CON_DHCP,
-)["areas"]["dhcp_servidor"]
+)["areas"]["dhcp_server"]
 igual(
     _AREAS["rango"], "10.40.0.50-10.40.0.99",
     "el rango leído se normaliza a la forma declarada (sin esto, el fichero se reescribe en cada pasada)",
@@ -925,18 +925,18 @@ igual(
 _OPERACIONES_NUEVO = motor.operaciones_de_pasos(motor.pasos_de_convergencia(
     CONTROL_CON_DHCP, IDENTIDAD_DHCP, DECLARACION_DHCP,
     motor.leido_de_lecturas(
-        [{"ansible_loop_var": "interior_comando", "interior_comando": {"area": "camino"}, "rc": 0, "stdout": "active"},
-         {"ansible_loop_var": "interior_comando", "interior_comando": {"area": "direccion"}, "rc": 0, "stdout":
+        [{"ansible_loop_var": "interior_comando", "interior_comando": {"area": "tunnel"}, "rc": 0, "stdout": "active"},
+         {"ansible_loop_var": "interior_comando", "interior_comando": {"area": "address"}, "rc": 0, "stdout":
           "2: eth0    inet 10.40.0.10/24 brd 10.40.0.255 scope global eth0"},
-         {"ansible_loop_var": "interior_comando", "interior_comando": {"area": "reenvio"}, "rc": 0, "stdout": "0"},
-         {"ansible_loop_var": "interior_comando", "interior_comando": {"area": "dhcp_servidor"}, "rc": 0, "stdout": '---NETLABS---\ntx-checksumming: on\ngeneric-segmentation-offload: on\ntcp-segmentation-offload: on\n---NETLABS---\ndnsmasq=NO\nethtool=NO\n---NETLABS---\ninactive'}],
+         {"ansible_loop_var": "interior_comando", "interior_comando": {"area": "ip_forward"}, "rc": 0, "stdout": "0"},
+         {"ansible_loop_var": "interior_comando", "interior_comando": {"area": "dhcp_server"}, "rc": 0, "stdout": '---NETLABS---\ntx-checksumming: on\ngeneric-segmentation-offload: on\ntcp-segmentation-offload: on\n---NETLABS---\ndnsmasq=NO\nethtool=NO\n---NETLABS---\ninactive'}],
         CONTROL_CON_DHCP),
     PARAMETROS,
 ))
 _ESCRITURAS = motor.escrituras_linux(
     _OPERACIONES_NUEVO, CONTROL_CON_DHCP, DECLARACION_DHCP, IDENTIDAD_DHCP, PARAMETROS)
 comprobar(
-    {e["area"] for e in _ESCRITURAS} <= {"dhcp_servidor", "reenvio", "direccion", "camino"},
+    {e["area"] for e in _ESCRITURAS} <= {"dhcp_server", "ip_forward", "address", "tunnel"},
     "el motor sólo escribe en áreas DECLARADAS: no se inventa ninguna",
 )
 _ORDEN = [e["comando"] for e in _ESCRITURAS]
@@ -966,32 +966,32 @@ if _CONFIG:
     )
 
 # ---------------------------------------------------------------------------
-print("\n== un puesto de control declara una dirección por cada bridge del lab ==")
+print("\n== un bastión declara una dirección por cada bridge del lab ==")
 # Medido: sin dirección en la LAN, el CHR que cuelga de ella no contesta al REST y su
-# convergencia no se puede ni empezar (10.40.1.11 en 'nucleo'). La forma es `direcciones`
-# (lista), y se funde en el área `direccion` para que la convergencia tenga un solo camino.
+# convergencia no se puede ni empezar (10.40.1.11 en 'nucleo'). La forma es `addresses`
+# (lista), y se funde en el área `address` para que la convergencia tenga un solo túnel.
 _PUESTO = {
     "rol": "control",
     "tipo": "lxc",
-    "direccion": "10.40.0.10/24",
-    "config": {"linux": {"direcciones": [{"interfaz": "eth1", "direccion": "10.40.1.2/24"}]}},
+    "address": "10.40.0.10/24",
+    "config": {"linux": {"addresses": [{"interface": "eth1", "address": "10.40.1.2/24"}]}},
 }
 comprobar(
-    motor.areas_de(_PUESTO)["direccion"]
+    motor.areas_de(_PUESTO)["address"]
     == [
-        {"interfaz": "eth0", "direccion": "10.40.0.10/24"},
-        {"interfaz": "eth1", "direccion": "10.40.1.2/24"},
+        {"interface": "eth0", "address": "10.40.0.10/24"},
+        {"interface": "eth1", "address": "10.40.1.2/24"},
     ],
-    "la de gestión sale del campo `direccion` y va PRIMERO; las otras patas, declaradas una a una",
+    "la de gestión sale del campo `address` y va PRIMERO; las otras interfaces, declaradas una a una",
 )
 comprobar(
-    motor.areas_de(_PUESTO).get("direcciones") is None,
-    "`direcciones` no es un área aparte: se funde en `direccion` (una sola forma de converger)",
+    motor.areas_de(_PUESTO).get("addresses") is None,
+    "`addresses` no es un área aparte: se funde en `address` (una sola forma de converger)",
 )
 _LEIDO_PUESTO = motor.leido_linux(
     [
         {
-            "area": "direccion",
+            "area": "address",
             "rc": 0,
             "encontrado": "2: eth0    inet 10.40.0.10/24 brd 10.40.0.255 scope global eth0\n"
             "3: eth1    inet 10.40.1.2/24 brd 10.40.1.255 scope global eth1\n",
@@ -999,34 +999,34 @@ _LEIDO_PUESTO = motor.leido_linux(
     ]
 )
 comprobar(
-    _LEIDO_PUESTO["direccion"]["direcciones"]
+    _LEIDO_PUESTO["address"]["addresses"]
     == [
-        {"interfaz": "eth0", "direccion": "10.40.0.10/24"},
-        {"interfaz": "eth1", "direccion": "10.40.1.2/24"},
+        {"interface": "eth0", "address": "10.40.0.10/24"},
+        {"interface": "eth1", "address": "10.40.1.2/24"},
     ],
-    "y la lectura saca TODAS las patas con dirección, no sólo eth0",
+    "y la lectura saca TODAS las interfaces con dirección, no sólo eth0",
 )
 comprobar(
-    _LEIDO_PUESTO["direccion"]["direccion"] == "10.40.0.10/24",
+    _LEIDO_PUESTO["address"]["address"] == "10.40.0.10/24",
     "la de gestión sigue siendo la de eth0: es la que el plan usa para levantar el túnel",
 )
 comprobar(
-    motor._direccion_linux_canonica(
-        motor.areas_de(_PUESTO)["direccion"], _LEIDO_PUESTO["direccion"]
+    motor._address_linux_canonica(
+        motor.areas_de(_PUESTO)["address"], _LEIDO_PUESTO["address"]
     )
     == [],
-    "con las dos patas puestas, la segunda pasada no escribe nada (idempotencia)",
+    "con las dos interfaces puestas, la segunda pasada no escribe nada (idempotencia)",
 )
 comprobar(
-    motor._direccion_linux_canonica(
-        motor.areas_de(_PUESTO)["direccion"],
+    motor._address_linux_canonica(
+        motor.areas_de(_PUESTO)["address"],
         {
-            "direccion": "10.40.0.10/24",
-            "direcciones": [{"interfaz": "eth0", "direccion": "10.40.0.10/24"}],
+            "address": "10.40.0.10/24",
+            "addresses": [{"interface": "eth0", "address": "10.40.0.10/24"}],
         },
     )
-    == [{"op": "poner_direccion", "interfaz": "eth1", "direccion": "10.40.1.2/24"}],
-    "si falta la pata de la LAN, se pone SÓLO esa: lo que ya está no se toca",
+    == [{"op": "add_address", "interface": "eth1", "address": "10.40.1.2/24"}],
+    "si falta la interfaz de la LAN, se pone SÓLO esa: lo que ya está no se toca",
 )
 
 # ---------------------------------------------------------------------------
@@ -1034,16 +1034,16 @@ comprobar(
 # ---------------------------------------------------------------------------
 
 comprobar(
-    motor.invitados_a_verificar(
+    motor.guests_a_verificar(
         {
             "vms": [
-                {"rol": "borde", "config": {"routeros": {"identidad": {"nombre": "b"}}}},
+                {"rol": "borde", "config": {"routeros": {"identity": {"nombre": "b"}}}},
                 {"rol": "sin-interior", "recursos": {}},
             ],
             "containers": [
-                {"rol": "control", "config": {"linux": {"camino": {"salida": "x"}}}},
-                # Sólo `direccion: dhcp`: no hay nada que preguntarle dentro.
-                {"rol": "puesto", "direccion": "dhcp", "config": {"linux": {}}},
+                {"rol": "control", "config": {"linux": {"tunnel": {"salida": "x"}}}},
+                # Sólo `address: dhcp`: no hay nada que preguntarle dentro.
+                {"rol": "puesto", "address": "dhcp", "config": {"linux": {}}},
             ],
         }
     )
@@ -1055,55 +1055,55 @@ comprobar(
 )
 
 # La MISMA pregunta sobre la declaración NORMALIZADA (la que `verify` tiene en la mano):
-# una sola lista `invitados`, con el tipo ya resuelto.
+# una sola lista `guests`, con el tipo ya resuelto.
 comprobar(
-    motor.invitados_a_verificar(
+    motor.guests_a_verificar(
         {
             "lab": "x",
-            "invitados": [
-                {"rol": "control", "tipo": "lxc", "config": {"linux": {"camino": {"salida": "x"}}}},
-                {"rol": "puesto", "tipo": "lxc", "direccion": "dhcp", "config": {"linux": {}}},
+            "guests": [
+                {"rol": "control", "tipo": "lxc", "config": {"linux": {"tunnel": {"salida": "x"}}}},
+                {"rol": "puesto", "tipo": "lxc", "address": "dhcp", "config": {"linux": {}}},
             ],
         }
     )
     == [{"rol": "control", "tipo": "linux"}],
-    "la declaración normalizada (`invitados`) se lee igual que la cruda",
+    "la declaración normalizada (`guests`) se lee igual que la cruda",
 )
 
 comprobar(
     motor.informe_ok({}) is True
     and motor.informe_ok({"a": {"alcanzable": True, "pendiente": []}}) is True
-    and motor.informe_ok({"a": {"alcanzable": True, "pendiente": ["poner_direccion"]}}) is False
+    and motor.informe_ok({"a": {"alcanzable": True, "pendiente": ["add_address"]}}) is False
     and motor.informe_ok({"a": {"alcanzable": False, "pendiente": []}}) is False,
     "el interior no se aprueba si un invitado no se pudo leer o le queda algo pendiente",
 )
 
 # ---------------------------------------------------------------------------
-# EL REST POR EL CAMINO: el puesto de control abre, ADEMÁS, el puerto 80 de cada equipo
+# EL REST POR EL CAMINO: el bastión abre, ADEMÁS, el puerto 80 de cada equipo
 # con el que el motor habla por REST, para que la llamada la haga el motor y no el puesto
 # (nada de `delegate_to`: docs/decisiones/0010-*.md).
 # ---------------------------------------------------------------------------
 
-# El puerto sale del vmid, como el del camino, y las dos bandas no se pisan.
+# El puerto sale del vmid, como el del túnel, y las dos bandas no se pisan.
 comprobar(
-    motor.puerto_rest_camino(102, {}) == 21102
-    and motor.puerto_rest_camino(102, {"camino_rest_puerto_base": 30000}) == 30102
-    and motor.puerto_rest_camino(102, {}) != motor.puerto_camino(102, {}),
+    motor.puerto_rest_tunnel(102, {}) == 21102
+    and motor.puerto_rest_tunnel(102, {"tunnel_rest_puerto_base": 30000}) == 30102
+    and motor.puerto_rest_tunnel(102, {}) != motor.puerto_tunnel(102, {}),
     "el puerto del REST de un invitado se deriva de su vmid, en una banda propia",
 )
 
 DECLARACION_REST = {
     "lab": "x",
-    "invitados": [
-        {"rol": "borde", "tipo": "vm", "direccion": "10.40.0.11/24", "config": {"routeros": {}}},
-        {"rol": "control", "tipo": "lxc", "direccion": "dhcp", "config": {"linux": {"camino": {}}}},
-        {"rol": "nucleo", "tipo": "vm", "direccion": "10.40.1.11/24", "config": {"routeros": {}}},
-        {"rol": "puesto", "tipo": "lxc", "direccion": "dhcp", "config": {"linux": {}}},
-        {"rol": "suelto", "tipo": "vm", "direccion": "10.40.2.11/24"},
+    "guests": [
+        {"rol": "borde", "tipo": "vm", "address": "10.40.0.11/24", "config": {"routeros": {}}},
+        {"rol": "control", "tipo": "lxc", "address": "dhcp", "config": {"linux": {"tunnel": {}}}},
+        {"rol": "nucleo", "tipo": "vm", "address": "10.40.1.11/24", "config": {"routeros": {}}},
+        {"rol": "puesto", "tipo": "lxc", "address": "dhcp", "config": {"linux": {}}},
+        {"rol": "suelto", "tipo": "vm", "address": "10.40.2.11/24"},
     ],
 }
 IDENTIDAD_REST = {
-    "invitados": [
+    "guests": [
         {"rol": "borde", "vmid": 102},
         {"rol": "control", "vmid": 103},
         {"rol": "nucleo", "vmid": 104},
@@ -1116,52 +1116,52 @@ IDENTIDAD_REST = {
 # invitado sin interior no se le abre el REST de nadie. El orden es estable (por rol) para
 # que un `apply` no reescriba el guion por nada.
 comprobar(
-    motor.patas_rest_del_puesto_control(DECLARACION_REST, IDENTIDAD_REST, {})
+    motor.interfaces_rest_del_bastion(DECLARACION_REST, IDENTIDAD_REST, {})
     == [
-        {"rol": "borde", "direccion": "10.40.0.11", "puerto": 21102, "puerto_servicio": 80},
-        {"rol": "nucleo", "direccion": "10.40.1.11", "puerto": 21104, "puerto_servicio": 80},
+        {"rol": "borde", "address": "10.40.0.11", "puerto": 21102, "puerto_servicio": 80},
+        {"rol": "nucleo", "address": "10.40.1.11", "puerto": 21104, "puerto_servicio": 80},
     ],
-    "sólo los equipos con `config.routeros` reciben pata de REST, y salen ordenados por rol",
+    "sólo los equipos con `config.routeros` reciben interfaz de REST, y salen ordenados por rol",
 )
 
 # La dirección se cita SIN el prefijo (lo que viaja en `-R` es una dirección, no una red),
 # y un equipo sin dirección declarada no entra: no hay a dónde reenviar, y fingirlo sería
 # mentir en el guion.
 comprobar(
-    motor.patas_rest_del_puesto_control(
+    motor.interfaces_rest_del_bastion(
         {
             "lab": "x",
-            "invitados": [
+            "guests": [
                 {"rol": "sin_dir", "tipo": "vm", "config": {"routeros": {}}},
-                {"rol": "en_dhcp", "tipo": "vm", "direccion": "dhcp", "config": {"routeros": {}}},
+                {"rol": "en_dhcp", "tipo": "vm", "address": "dhcp", "config": {"routeros": {}}},
             ],
         },
-        {"invitados": [{"rol": "sin_dir", "vmid": 110}, {"rol": "en_dhcp", "vmid": 111}]},
+        {"guests": [{"rol": "sin_dir", "vmid": 110}, {"rol": "en_dhcp", "vmid": 111}]},
         {},
     )
     == [],
-    "un RouterOS sin dirección declarada (o en dhcp) no recibe pata: no hay a dónde reenviar",
+    "un RouterOS sin dirección declarada (o en dhcp) no recibe interface: no hay a dónde reenviar",
 )
 
 comprobar(
-    motor.patas_rest_del_puesto_control(DECLARACION_REST, None, {}) == []
-    and motor.patas_rest_del_puesto_control(DECLARACION_REST, {"invitados": []}, {}) == [],
-    "sin mapa de identidad no hay patas de REST que abrir (no se inventa un puerto)",
+    motor.interfaces_rest_del_bastion(DECLARACION_REST, None, {}) == []
+    and motor.interfaces_rest_del_bastion(DECLARACION_REST, {"guests": []}, {}) == [],
+    "sin mapa de identidad no hay interfaces de REST que abrir (no se inventa un puerto)",
 )
 
 # El guion: un `-R` por equipo, cada uno siguiendo la línea como los demás argumentos del
 # `ssh`. Es lo que hace que el túnel sirva al motor en SU máquina.
-GUION_CON_REST = motor.guion_camino(
+GUION_CON_REST = motor.guion_tunnel(
     "CLAVE", "casa.example", 443, "hermes", 20103,
-    [{"rol": "borde", "direccion": "10.40.0.11", "puerto": 21102, "puerto_servicio": 80}],
+    [{"rol": "borde", "address": "10.40.0.11", "puerto": 21102, "puerto_servicio": 80}],
 )
-GUION_SIN_REST = motor.guion_camino("CLAVE", "casa.example", 443, "hermes", 20103)
+GUION_SIN_REST = motor.guion_tunnel("CLAVE", "casa.example", 443, "hermes", 20103)
 
 comprobar(
     "-R 21102:10.40.0.11:80" in GUION_CON_REST
     and "-R 20103:localhost:22" in GUION_CON_REST
     and "\n  -p 443 hermes@casa.example\n" in GUION_CON_REST,
-    "el guion del camino reenvía también el REST de cada equipo, por el MISMO túnel",
+    "el guion del túnel reenvía también el REST de cada equipo, por el MISMO túnel",
 )
 
 comprobar(
@@ -1186,13 +1186,13 @@ comprobar(
 # El estado viaja por texto: un «False» con letras es una CADENA, y `bool('False')` es
 # True en Python. Si esto se creyera, un túnel caído pasaría por túnel en pie.
 comprobar(
-    motor.camino_responde({"camino": {"responde": False}}) is False
-    and motor.camino_responde({"camino": {"responde": "False"}}) is False
-    and motor.camino_responde({"camino": {"responde": True}}) is True
-    and motor.camino_responde({"camino": {"responde": "True"}}) is True
-    and motor.camino_responde({}) is False
-    and motor.camino_responde({"camino": {}}) is False,
-    "un «False» que llega como texto NO se lee como «el camino responde»",
+    motor.tunnel_responde({"tunnel": {"responde": False}}) is False
+    and motor.tunnel_responde({"tunnel": {"responde": "False"}}) is False
+    and motor.tunnel_responde({"tunnel": {"responde": True}}) is True
+    and motor.tunnel_responde({"tunnel": {"responde": "True"}}) is True
+    and motor.tunnel_responde({}) is False
+    and motor.tunnel_responde({"tunnel": {}}) is False,
+    "un «False» que llega como texto NO se lee como «el túnel responde»",
 )
 
 # La línea de `authorized_keys`: `permitlisten` se REPITE. Una lista dentro de una sola
@@ -1206,14 +1206,14 @@ comprobar(
 )
 
 # Y la OTRA mitad del mismo fallo: el filtro ya arma las opciones enteras, así que la línea
-# de `camino.yml` NO puede volver a envolverlas (`permitlisten="{{ ... }}"` las dejaría
+# de `tunnel.yml` NO puede volver a envolverlas (`permitlisten="{{ ... }}"` las dejaría
 # como `permitlisten="permitlisten="20103"..."`, y esa sí que es mala de leer).
-_CAMINO_YML = (motor.__file__ or "").rsplit("/filter_plugins/", 1)[0] + "/tasks/camino.yml"
-with open(_CAMINO_YML) as _f:
-    _LINEA_CAMINO = _f.read()
+_TUNNEL_YML = (motor.__file__ or "").rsplit("/filter_plugins/", 1)[0] + "/tasks/tunnel.yml"
+with open(_TUNNEL_YML) as _f:
+    _LINEA_TUNNEL = _f.read()
 comprobar(
-    "permitlisten=\"{{ camino_puertos_autorizados }}\"" not in _LINEA_CAMINO
-    and "{{ camino_puertos_autorizados }}" in _LINEA_CAMINO,
+    "permitlisten=\"{{ tunnel_puertos_autorizados }}\"" not in _LINEA_TUNNEL
+    and "{{ tunnel_puertos_autorizados }}" in _LINEA_TUNNEL,
     "la línea de `authorized_keys` usa las opciones tal cual las arma el filtro (sin envolverlas dos veces)",
 )
 

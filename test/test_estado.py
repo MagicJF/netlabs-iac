@@ -4,7 +4,7 @@
 #              Ansible. Es la mitad leída de la pregunta que responde `direccion_libre`;
 #              la otra mitad está en `test_interior.py`. Y prueba las DOS formas de
 #              lectura que existen, porque de eso depende que el motor elija bien la
-#              dirección del puesto de control.
+#              dirección del bastión.
 # INVARIANTES: los casos que TIENEN que cumplirse, y que son el contrato:
 #              1. la lectura de un CONTENEDOR (`GET /lxc/<vmid>/interfaces`) da una LISTA
 #                 con `inet`/`inet6`: se cogen las IPv4, con su máscara;
@@ -14,7 +14,7 @@
 #                 IGUAL que las del contenedor (con máscara) para que el dato signifique
 #                 lo mismo venga de donde venga;
 #              3. las dos formas a la vez se suman, sin duplicar;
-#              4. una lectura VACÍA (`{}`) --la puerta TOLERÓ un fallo: al token le falta
+#              4. una lectura VACÍA (`{}`) --la vía de acceso TOLERÓ un fallo: al token le falta
 #                 `VM.GuestAgent.Audit`, o la VM no nació con agente-- no aporta nada y NO
 #                 borra lo que ya había: el motor se queda como estaba, no finge ver;
 #              5. una lectura con basura dentro (una lista de cosas que no son diccionarios,
@@ -25,7 +25,7 @@
 #              formas están escritas A MANO aquí, tomadas de una respuesta REAL del agente
 #              de un CHR (labs/05_research/05_research.md) y de un contenedor del nodo.
 # VER:         docs/decisiones/0011-el-agente-de-invitado.md;
-#              deployment_engine/tasks/direcciones.yml
+#              deployment_engine/tasks/addresses.yml
 
 # Uso:  python3 test/test_estado.py     (código de salida != 0 si algo falla)
 
@@ -47,7 +47,7 @@ def comprobar(condicion, descripcion):
         FALLOS.append(descripcion)
 
 
-# --- Las dos formas de lectura, tal cual llegan por la puerta ------------------------
+# --- Las dos formas de lectura, tal cual llegan por la vía de acceso ------------------------
 
 # Un contenedor: una LISTA de entradas con `name`, `inet` e `inet6` (medido).
 CONTENEDOR = [

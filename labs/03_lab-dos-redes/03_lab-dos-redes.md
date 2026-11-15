@@ -6,10 +6,10 @@
      VER:         AGENTS.md §Documentación; README.md §Documentación -->
 # 03_lab-dos-redes
 
-La topología que sube un escalón respecto al lab de tres dispositivos: **dos redes
-separadas —perímetro y núcleo—, cinco invitados en tres escalones de arranque, dos
-de ellos VMs**. Donde el lab de tres dispositivos tenía un bridge, dos escalones y
-una sola VM, aquí hay dos bridges, tres escalones y dos VMs, repartidos en las dos
+La topología que sube una etapa respecto al lab de tres dispositivos: **dos redes
+separadas —perímetro y núcleo—, cinco invitados en tres etapas de arranque, dos
+de ellos VMs**. Donde el lab de tres dispositivos tenía un bridge, dos etapas y
+una sola VM, aquí hay dos bridges, tres etapas y dos VMs, repartidos en las dos
 ramas del motor (QEMU y LXC) y en dos redes que no comparten direccionamiento.
 
 Sirve para lo que un lab de un solo segmento no puede enseñar: que el orden de
@@ -24,7 +24,7 @@ si los editas a mano, `./lab check docs` falla._
 
 ## Invitados declarados
 
-| rol | tipo | escalón | cores | memoria (MB) | disco (GB) | bridge | dirección |
+| rol | tipo | stage | cores | memory (MB) | disk (GB) | bridge | address |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | borde | VM (qemu) | 1 | 2 | 512 | 8 | vmb_perimetro | 203.0.113.2/24 |
 | nucleo | VM (qemu) | 2 | 2 | 1024 | 8 | vmb_nucleo | 203.0.113.130/24 |
@@ -39,9 +39,9 @@ si los editas a mano, `./lab check docs` falla._
 | vmb_perimetro | 203.0.113.1/24 |
 | vmb_nucleo | 203.0.113.129/24 |
 
-## Orden de arranque (escalones)
+## Orden de arranque (etapas)
 
-| escalón | roles |
+| stage | roles |
 | --- | --- |
 | 1 | borde |
 | 2 | nucleo |
@@ -106,7 +106,7 @@ real**; más abajo queda anotado lo que se aprendió al hacerlo.
    ```
    `apply` ejecuta exactamente el plan que acabas de ver: crea el pool, crea los
    bridges que falten y recarga la red del nodo una sola vez, crea o ajusta cada
-   invitado y los arranca por escalones.
+   invitado y los arranca por etapas.
 
 6. **Verifica** contra la API, que es el único test que no se cree a sí mismo:
    ```
@@ -134,18 +134,18 @@ ningún pool) y recargar la red del nodo **una vez** para que los dos entren en
 vigor, no una vez por bridge. Eso es lo que se ve en el plan: dos `POST` a
 `/nodes/<nodo>/network` y un único `PUT` de recarga al final.
 
-### Tres escalones y no dos
+### Tres etapas y no dos
 
 El orden de arranque es parte de la declaración, no del código: el motor sólo sabe
-«arranca el escalón 1, luego el 2, luego el 3», y no hay ni un nombre de rol dentro
-de `deployment_engine/`. Aquí el orden tiene sentido físico —primero la puerta,
+«arranca la etapa 1, luego el 2, luego el 3», y no hay ni un nombre de rol dentro
+de `deployment_engine/`. Aquí el orden tiene sentido físico —primero la vía de acceso,
 después el conmutador que da red al segundo segmento, y sólo entonces los extremos—
 y ese orden se lee entero en el YAML.
 
 ### Dos VMs y tres contenedores
 
 El lab de tres dispositivos ejercita las dos ramas del motor una vez. Aquí la rama
-QEMU aparece dos veces y en escalones distintos, que es donde se nota si el motor
+QEMU aparece dos veces y en etapas distintos, que es donde se nota si el motor
 trata igual a los dos tipos: la red de una VM se declara `virtio=<mac>` y la de un
 contenedor `name=eth0,bridge=...,hwaddr=<mac>`, y esa diferencia está en un solo
 sitio (`tools/plan.py`), no repartida por los playbooks.
@@ -153,9 +153,9 @@ sitio (`tools/plan.py`), no repartida por los playbooks.
 ### Un límite que se ve al leer la topología
 
 **Este** lab declara un bridge y una dirección por invitado, así que no declara un
-cortafuegos con una pata en cada red: la interconexión entre perímetro y núcleo **no
+cortafuegos con una interfaz en cada red: la interconexión entre perímetro y núcleo **no
 se declara**, y las dos redes quedan aisladas entre sí. No es un olvido de esta
-declaración ni un límite del motor: el esquema **sí** admite varias patas por
+declaración ni un límite del motor: el esquema **sí** admite varias interfaces por
 invitado (`bridges:` como lista) y el lab de aceptación las usa. Aquí se elige una
 por invitado, y se dice, en vez de maquillarlo con una topología que aparente lo que
 no hay.
@@ -174,7 +174,7 @@ conviene tener delante:
   nada de `address`/`cidr`. Los dos bridges de este lab existen, están activos y
   arrancan solos, pero salen con `method=manual` y **sin** dirección: la del YAML es
   intención documentada.
-- **`disco` se declara y se valida, pero la API no recibe ninguna orden de disco**:
+- **`disk` se declara y se valida, pero la API no recibe ninguna orden de disco**:
   el plan no inventa recursos que la API no da, y una plantilla de disco es uno de
   ellos (`tools/plan.py` lo deja escrito). Los tres contenedores se crean con el
   tamaño por defecto de la plantilla, también el que declara más de lo que la
@@ -222,11 +222,11 @@ pasó al correrlo contra el Proxmox real.)*
 
 ## Ver también (punteros al código)
 
-- La puerta única a la API y el diario de cada llamada:
+- La vía de acceso única a la API y el diario de cada llamada:
   [deployment_engine/tasks/pve_api.yml](../../deployment_engine/tasks/pve_api.yml)
 - El asignador de identidad (vmid, nombre canónico, MAC):
   [deployment_engine/filter_plugins/identidad.py](../../deployment_engine/filter_plugins/identidad.py)
-- El cálculo del plan ordenado (bridges, escalones y las dos formas de `net0`):
+- El cálculo del plan ordenado (bridges, etapas y las dos formas de `net0`):
   [deployment_engine/tools/plan.py](../../deployment_engine/tools/plan.py)
 - Los checks del motor, incluido `colisiones`:
   [deployment_engine/tools/framework_check.py](../../deployment_engine/tools/framework_check.py)

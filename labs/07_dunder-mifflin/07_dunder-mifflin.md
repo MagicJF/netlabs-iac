@@ -23,7 +23,7 @@ si los editas a mano, `./lab check docs` falla._
 
 ## Invitados declarados
 
-| rol | tipo | escalón | cores | memoria (MB) | disco (GB) | bridge | dirección |
+| rol | tipo | stage | cores | memory (MB) | disk (GB) | bridge | address |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | borde | VM (qemu) | 1 | 2 | 512 | 1 | vmb_dm_gestion + vmb_dm_oficina + vmb_dm_almacen | 10.43.0.11/24 |
 | control | LXC | 1 | 1 | 512 | 4 | vmb_dm_gestion | 10.43.0.10/24 |
@@ -40,9 +40,9 @@ si los editas a mano, `./lab check docs` falla._
 | vmb_dm_oficina | 10.43.1.1/24 |
 | vmb_dm_almacen | 10.43.2.1/24 |
 
-## Orden de arranque (escalones)
+## Orden de arranque (etapas)
 
-| escalón | roles |
+| stage | roles |
 | --- | --- |
 | 1 | borde, control |
 | 2 | ficheros |
@@ -78,33 +78,33 @@ dirección; es la comprobación que hace que este lab valga la pena.
 
 **El servidor lleva la dirección a mano, y los puestos la piden.** Es la regla de
 ADR 0013 y se ve entera en esta tabla: el servidor de ficheros declara dirección y
-puerta y no pregunta nada, y los puestos declaran `dhcp`. Así la sede no depende de que
+vía de acceso y no pregunta nada, y los puestos declaran `dhcp`. Así la sede no depende de que
 el DHCP funcione para todo, que es como está montado un rack de verdad. El servidor no
 declara `config:` -- no se entra en él: su dirección la escribe el motor al nacer, en
 la cadena de red del contenedor, que es donde Proxmox la pone.
 
 **El switch no es un invitado: es el bridge.** Un bridge de Linux es un conmutador
---aprende MACs y conmuta entre sus patas--, así que la oficina ya tiene el suyo y no
+--aprende MACs y conmuta entre sus interfaces--, así que la oficina ya tiene el suyo y no
 cuesta un invitado. Declarar aquí un contenedor de tipo `sw` sería declarar una caja
 que no conmuta: el vocabulario del interior no tiene `puentes`, y la validación lo
 rechaza con su motivo. El switch está donde tiene que estar, en el nodo, y por eso lo
 crea el motor (marcado, para que `destroy` sepa que es suyo).
 
-**Tres escalones, y el del medio no es un capricho.** El 1 es el puesto de control y el
+**Tres etapas, y el del medio no es un capricho.** El 1 es el bastión y el
 router --el que da y el que pide la primera dirección, que es el círculo que cierra el
-arranque en frío--; el 2 es el servidor, que no pregunta nada pero necesita la puerta
+arranque en frío--; el 2 es el servidor, que no pregunta nada pero necesita la vía de acceso
 ya sirviendo para salir; y el 3 son los puestos dinámicos, que sin DHCP no serían nada.
 El orden no es estético: es lo que mata la carrera del DHCP por construcción (regla 18).
 
-**Un solo resolutor, y en la puerta.** Los dos ámbitos anuncian el propio router como
-DNS, y es el router quien resuelve porque `exterior` le enciende el resolutor. Un lab
+**Un solo resolutor, y en la vía de acceso.** Los dos ámbitos anuncian el propio router como
+DNS, y es el router quien resuelve porque `uplink` le enciende el resolutor. Un lab
 con dos redes no necesita dos DNS: necesita uno que sepa salir.
 
-**El puesto de control no lleva dirección en las patas de dentro.** Nace con una pata
+**El bastión no lleva dirección en las interfaces de dentro.** Nace con una interfaz
 en cada bridge del lab --y una en el del nodo, derivada--, pero sólo declara la de
 gestión. No es un olvido: el único invitado en el que el motor entra es el router, y el
 router está en el bridge de gestión, que es donde el puesto ya tiene su dirección. Las
-patas de dentro son para mirar y para el día en que haya que entrar en algo que hoy no
+interfaces de dentro son para mirar y para el día en que haya que entrar en algo que hoy no
 se toca.
 
 **`dm`, y no `dunder-mifflin`, en los bridges.** Una interfaz del kernel no pasa de 15
@@ -153,7 +153,7 @@ invitado puesto a mano. Después, `destroy` limpió el lab de verdad (6 invitado
 y los tres bridges) y el ciclo volvió a empezar de cero.
 
 **Lo que este lab enseñó de paso, y no es poco:** el fixture del clúster vacío no tiene
-puerta de casa, así que un lab con `exterior` no se puede planificar en seco (ver §Qué
+vía de acceso de casa, así que un lab con `uplink` no se puede planificar en seco (ver §Qué
 queda fuera); y la reserva derivada sigue la RED que declara el servidor, no el bridge,
 que es la forma que hace falta en cuanto un router sirve dos redes.
 
@@ -164,12 +164,12 @@ que es la forma que hace falta en cuanto un router sirve dos redes.
 - **`apply`, una sola pasada**: `PLAY RECAP … changed=44 failed=0` y la verificación que
   el propio verbo corre al final: **CORRECTO** — `esperados=6 encontrados_en_el_pool=6`,
   los seis CONFORMES (existen, coinciden y están arrancados) y el interior **2/2** (los
-  dos invitados en los que el motor entra: el router por su REST y el puesto de control
+  dos invitados en los que el motor entra: el router por su REST y el bastión
   por SSH).
 - **Idempotencia (regla 6)**: segunda pasada `changed=0` (el `PLAY RECAP` lo dice), y los
   **tres diarios con sólo lecturas**: `api.jsonl` 66 líneas nuevas y todas `GET`,
-  `interior.jsonl` 10 líneas y todas `leer`, y `camino.jsonl` **ni una** (la consola es
-  para el arranque del puesto de control y no se vuelve a usar, regla 19).
+  `interior.jsonl` 10 líneas y todas `leer`, y `console.jsonl` **ni una** (la consola es
+  para el arranque del bastión y no se vuelve a usar, regla 19).
 - **El router sirvió cada red con SU ámbito**, que es lo que este lab venía a demostrar.
   Se lee en su tabla de concesiones, por su REST, en el diario de API: `ws-1` →
   `10.43.1.200` por `netlabs-ether2` (la oficina), `ws-2` → `10.43.1.199` por el mismo
@@ -180,7 +180,7 @@ que es la forma que hace falta en cuanto un router sirve dos redes.
   tiene no pregunta.
 - **El router, leído por dentro** con el agente de invitado (ADR 0011): `ether1`
   10.43.0.11/24, `ether2` 10.43.1.1/24 y `ether3` 10.43.2.1/24 — las dos áreas con la
-  dirección que les puso el motor, y la pata de fuera derivada del estado del nodo.
+  dirección que les puso el motor, y la interfaz de fuera derivada del estado del nodo.
 
 **Lo que NO se puede comprobar todavía, y se dice en claro:**
 
@@ -191,9 +191,9 @@ que es la forma que hace falta en cuanto un router sirve dos redes.
   `config:`, no hay nada que converger dentro): que tienen dirección se sabe por la
   concesión del router, no por ellos.
 - No se ha probado **tráfico** entre las dos áreas ni hacia fuera desde los puestos (eso
-  es `06_conectividad-exterior` y su verbo de camino, no este lab): aquí está demostrado
-  que cada red recibe su dirección de su ámbito y que el router tiene las dos puertas.
-- Las direcciones derivadas del puesto de control en las patas de dentro
+  es `06_conectividad-exterior` y su verbo de túnel, no este lab): aquí está demostrado
+  que cada red recibe su dirección de su ámbito y que el router tiene las dos vías de acceso.
+- Las direcciones derivadas del bastión en las interfaces de dentro
   (`10.43.1.254` y `10.43.2.254`) **no se reservan** en el DHCP del router: quedan fuera
   del rango declarado, así que no chocan, pero un lab que declarara un rango que las
   cubriera tendría un problema -- y hoy el motor no lo avisa.
@@ -220,10 +220,10 @@ de `docs/decisiones/0013-una-estacion-pregunta-un-servidor-dice.md`). No es un f
 este lab: es lo que el motor sabe hacer hoy.
 
 **`plan` sin credenciales no puede planificar este lab.** El fixture del clúster vacío
-no tiene la puerta de casa (`vmbr1` sin dirección), y un lab con `exterior` necesita
-saberla para derivar la pata de fuera: `./lab --lab 07_dunder-mifflin plan` (sin
+no tiene la vía de acceso de casa (`vmbr1` sin dirección), y un lab con `uplink` necesita
+saberla para derivar la interfaz de fuera: `./lab --lab 07_dunder-mifflin plan` (sin
 `--api`) **se para** con el motivo que ya sabe decir `estado_plan` --"el bridge de
-gestión `vmbr1` no tiene dirección en este nodo: sin dirección no hay puerta por la que
-salir hacia casa"--, en vez de inventarse una puerta. Se planifica con `--api`, que es
-lo que lee el estado de verdad. (Los labs sin `exterior` sí se pueden planificar en
-seco; el fixture del clúster vacío no tiene puerta de casa porque no la necesita.)
+gestión `vmbr1` no tiene dirección en este nodo: sin dirección no hay vía de acceso por la que
+salir hacia casa"--, en vez de inventarse una vía de acceso. Se planifica con `--api`, que es
+lo que lee el estado de verdad. (Los labs sin `uplink` sí se pueden planificar en
+seco; el fixture del clúster vacío no tiene vía de acceso de casa porque no la necesita.)

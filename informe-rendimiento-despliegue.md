@@ -1,6 +1,6 @@
 # Rendimiento del motor: dónde se va el tiempo y qué se ha recortado
 
-Medición hecha sobre `04_lab-red-routeros` (2 CHR + 1 LXC de puesto de control + 3 LXC),
+Medición hecha sobre `04_lab-red-routeros` (2 CHR + 1 LXC de bastión + 3 LXC),
 en el nodo Proxmox `54.36.168.83`, el 15-nov-2026. **Todo lo que aparece como "medido"
 sale de una ejecución real**; lo que es estimación va marcado como tal.
 
@@ -52,17 +52,17 @@ cuerpo ya saltado, que es el caso normal:
 
 | familia | seg | % | qué es |
 | --- | ---: | ---: | --- |
-| **PUERTA ROUTEROS** | **540,0** | **46 %** | 363 tareas = 99 llamadas REST a los CHR, **delegadas al puesto de control** (retrato de ANTES; hoy, con el ADR 0010: **49,7 s**) |
+| **PUERTA ROUTEROS** | **540,0** | **46 %** | 363 tareas = 99 llamadas REST a los CHR, **delegadas al bastión** (retrato de ANTES; hoy, con el ADR 0010: **49,7 s**) |
 | esperas de tarea (UPID) | 282,6 | 24 % | 13 esperas, la mayor de **50 s** (crear una VM) |
 | PUERTA (Proxmox) | 118,6 | 10 % | creación, arranque, red |
-| CONSOLA | 65,5 | 6 % | 13 usos; uno de **46,1 s** (arranque del puesto de control) |
+| CONSOLA | 65,5 | 6 % | 13 usos; uno de **46,1 s** (arranque del bastión) |
 | INTERIOR (SSH) | 55,7 | 5 % | incluye 39,4 s de "ejecutar en `control`" |
 | INVENTARIO | 33,5 | 3 % | incluye 23,2 s de "las opciones de conexión a `control`" |
 | DIARIO | 33,3 | 3 % | escritura de las líneas de diario |
 
 La API, según su propio diario: **231 llamadas, 597,7 s (51 % del total)**.
 
-| puerta | llamadas | suma | media | máx |
+| vía de acceso | llamadas | suma | media | máx |
 | --- | ---: | ---: | ---: | ---: |
 | routeros | 99 | 511,6 s | **5,17 s** | 6,87 s |
 | proxmox | 132 | 86,1 s | 0,65 s | 1,86 s |
@@ -75,9 +75,9 @@ Medido por piezas, desde el nodo:
 
 | pieza | medido |
 | --- | ---: |
-| TCP del puesto de control al CHR (`/dev/tcp`, puerto 80) | **3 ms** |
-| `python3` + `urllib` DENTRO del puesto de control, con autenticación | **0,15 s** |
-| `ssh` al puesto de control (1ª vez / siguientes) | 1,88 s / **0,92 s** |
+| TCP del bastión al CHR (`/dev/tcp`, puerto 80) | **3 ms** |
+| `python3` + `urllib` DENTRO del bastión, con autenticación | **0,15 s** |
+| `ssh` al bastión (1ª vez / siguientes) | 1,88 s / **0,92 s** |
 | **10 llamadas `uri` (sin auth) vía `delegate_to`** | **51,2 s → 5,1 s/llamada** |
 | las mismas 10 con `pipelining` | **39,4 s → 3,9 s/llamada** |
 | las mismas 10 con `ControlPersist` explícito | 50,0 s (no mejora) |
@@ -96,7 +96,7 @@ Dos conclusiones que importan:
 
 El módulo viaja por el mismo canal SSH en vez de copiarse a un fichero temporal en el
 invitado (mkdir + sftp + ejecutar + borrar: tres viajes de ida y vuelta por tarea).
-No hay riesgo de `requiretty`: el motor sólo entra como `root` con la clave del camino,
+No hay riesgo de `requiretty`: el motor sólo entra como `root` con la clave del túnel,
 sin `sudo` por medio.
 
 **Medido después** (99 llamadas reales del mismo `apply`): 5,17 s → **4,39 s** por
@@ -116,9 +116,9 @@ siguen yendo seguidos —una tarea corta se detecta igual de rápido que antes�
 - Con 13 esperas por ciclo. Medido en la familia ESPERA del `apply`: **283 s → 221 s**;
   y los `skipped` del verbo, de **6.683 a 2.379**.
 
-### 3. El REST por el camino (ADR 0010): el motor llama, el puesto sólo reenvía
+### 3. El REST por el túnel (ADR 0010): el motor llama, el puesto sólo reenvía
 
-La puerta de RouterOS le **delegaba** la llamada al puesto de control (`add_host` +
+La vía de acceso de RouterOS le **delegaba** la llamada al bastión (`add_host` +
 `delegate_to`), y eso costaba **4,39 s por petición** aunque el router estuviera a 3 ms de
 TCP. El coste no era la red: era subir un intérprete de Python por SSH en **cada** llamada.
 Ahora el motor llama **desde su propia máquina** (`127.0.0.1:<21000+vmid>`) y el puesto sólo
@@ -174,7 +174,7 @@ arranque reales; pasan a ser lo siguiente que se puede recortar.
 
 - **El trabajo real de Proxmox** (crear una VM tarda lo que tarda; la espera mayor
   medida es de 50 s). Recortar aquí sería correr contra el hardware.
-- **La espera entre sondeos de la sonda de escalón** (24 intentos × 5 s): su tiempo es
+- **La espera entre sondeos de la sonda de etapa** (24 intentos × 5 s): su tiempo es
   un CHR arrancando de verdad, no un `sleep` de más. Se comprobó que sale por éxito
   temprano, así que un equipo que contesta rápido no la paga.
 - **El intervalo entre sondeos de Proxmox** (antes 2 s fijos): bajarlo a 1 s no sale a
@@ -186,11 +186,11 @@ arranque reales; pasan a ser lo siguiente que se puede recortar.
 Por orden de tamaño:
 
 1. ~~**Las llamadas a RouterOS por `delegate_to`.**~~ **HECHO (ADR 0010)** —era justo lo que
-   este informe pedía—: el camino reenvía el puerto REST de cada CHR (una pata por router, en
+   este informe pedía—: el túnel reenvía el puerto REST de cada CHR (una interfaz por router, en
    el mismo túnel) y el motor llama `uri` desde su propio nodo, sin SSH por medio. Medido:
    **4,39 s → 0,50 s** por llamada. Queda algo por encima de los ~0,15-0,30 s que se
    estimaban aquí (el reenvío SSH suma ~0,3 s), pero el `apply` baja 378,7 s.
-2. **El arranque del puesto de control por consola (46 s en una sola tarea).** Es una
+2. **El arranque del bastión por consola (46 s en una sola tarea).** Es una
    espera de arranque real, pero el reintento está a 12 s fijos; con una rampa como la
    del punto 2 se afinaría.
 3. **El suelo de Ansible (~12-23 ms por tarea × ~4.000 tareas ≈ 50-90 s).** Sólo baja

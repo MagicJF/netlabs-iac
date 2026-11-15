@@ -6,7 +6,7 @@
     "lab_ejemplo-topologia": {"comment": "topología gestionada por netlabs_v4_b"},
     "lab_otro-lab": {"comment": "otro lab del mismo nodo"}
   },
-  "invitados": {
+  "guests": {
     "101": {
       "vmid": 101,
       "nombre": "ejemplo-topologia-switch",
@@ -21,7 +21,7 @@
       "nodo": "pve-simulado"
     }
   },
-  "invitados_otros": {
+  "guests_otros": {
     "otro-lab-a": {
       "vmid": 500,
       "pool": "lab_otro-lab",

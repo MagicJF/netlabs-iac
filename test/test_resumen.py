@@ -46,7 +46,7 @@ def main():
     resumen = cargar()
     temporal = tempfile.mkdtemp(prefix="resumen-prueba-")
     try:
-        # Un lab con las puertas que hay: un paso del plan que crea un invitado (de ahí sale
+        # Un lab con las vías de acceso que hay: un paso del plan que crea un invitado (de ahí sale
         # el mapa vmid->rol), una escritura DENTRO de un router, una lectura, una llamada
         # torcida, una línea ilegible y un veredicto.
         escribir(os.path.join(temporal, "api.jsonl"), [
@@ -57,24 +57,24 @@ def main():
              "etiqueta": "paso 6: crear_invitado -- el rol 'borde' no está desplegado: se crea con el vmid 111"},
             {"ts": "2026-01-01T10:00:02", "verb": "apply", "lab": "prueba", "method": "POST",
              "path": "/nodes/n/qemu/111/status/start", "status": "200",
-             "etiqueta": "paso 12: arrancar_invitado -- el rol 'borde' pertenece al escalón 1"},
+             "etiqueta": "paso 12: arrancar_invitado -- el rol 'borde' pertenece a la etapa 1"},
             {"ts": "2026-01-01T10:00:03", "verb": "apply", "lab": "prueba", "api": "routeros",
-             "invitado": "nucleo", "method": "POST", "path": "/ip/address/add", "status": "200",
-             "etiqueta": "escribir direcciones: poner la dirección 10.42.1.1/24 en ether2"},
+             "guest": "nucleo", "method": "POST", "path": "/ip/address/add", "status": "200",
+             "etiqueta": "escribir addresses: poner la dirección 10.42.1.1/24 en ether2"},
             {"ts": "2026-01-01T10:00:04", "verb": "apply", "lab": "prueba", "api": "routeros",
-             "invitado": "nucleo", "method": "POST", "path": "/ip/service/set", "status": "400",
-             "etiqueta": "escribir servicios: deshabilitar el servicio 'api'"},
+             "guest": "nucleo", "method": "POST", "path": "/ip/service/set", "status": "400",
+             "etiqueta": "escribir ip_services: deshabilitar el servicio 'api'"},
         ])
         escribir(os.path.join(temporal, "interior.jsonl"), [
-            {"ts": "2026-01-01T10:00:05", "verb": "apply", "lab": "prueba", "invitado": "borde",
-             "area": "direcciones", "accion": "escribir", "resultado": "ok"},
-            {"ts": "2026-01-01T10:00:06", "verb": "apply", "lab": "prueba", "invitado": "control",
+            {"ts": "2026-01-01T10:00:05", "verb": "apply", "lab": "prueba", "guest": "borde",
+             "area": "addresses", "accion": "escribir", "resultado": "ok"},
+            {"ts": "2026-01-01T10:00:06", "verb": "apply", "lab": "prueba", "guest": "control",
              "area": "sonda", "accion": "leer", "rc": "1", "resultado": "fallo"},
         ])
-        escribir(os.path.join(temporal, "camino.jsonl"), [
-            {"ts": "2026-01-01T10:00:07", "verb": "apply", "lab": "prueba", "puerta": "consola",
+        escribir(os.path.join(temporal, "console.jsonl"), [
+            {"ts": "2026-01-01T10:00:07", "verb": "apply", "lab": "prueba", "access": "console",
              "accion": "enviar la línea", "vmid": "112", "tipo": "lxc",
-             "etiqueta": "arranque del camino del rol control (intento 1)"},
+             "etiqueta": "arranque del túnel del rol control (intento 1)"},
         ])
         with open(os.path.join(temporal, "api.jsonl"), "a", encoding="utf-8") as fichero:
             fichero.write("{esto no es json\n")
@@ -83,9 +83,9 @@ def main():
 
         texto, _ = resumen.resumen_de_lab(temporal)
 
-        # Lo que hay: las puertas, la cuenta, y sobre todo A QUIÉN y EN QUÉ ORDEN.
+        # Lo que hay: las vías de acceso, la cuenta, y sobre todo A QUIÉN y EN QUÉ ORDEN.
         comprobar("| Proxmox" in texto and "| RouterOS" in texto,
-                  "no lista las puertas en la tabla del vistazo")
+                  "no lista las vías de acceso en la tabla del vistazo")
         comprobar("apply (converger)" in texto, "no dice de qué verbo es la pasada")
         comprobar("no 2xx" in texto, "no avisa de la columna de las que no responden bien")
         comprobar("## A qué equipos se les tocó algo" in texto, "no hay sección de a quién se tocó")
@@ -100,9 +100,9 @@ def main():
         comprobar("CORRECTO" in texto, "no trae el veredicto de la última comprobación")
 
         # Lo que falta: un diario ausente se avisa, no se da por vacío (la regla del invariante).
-        os.unlink(os.path.join(temporal, "camino.jsonl"))
+        os.unlink(os.path.join(temporal, "console.jsonl"))
         texto, _ = resumen.resumen_de_lab(temporal)
-        comprobar("No hay diario de" in texto and "camino.jsonl" in texto,
+        comprobar("No hay diario de" in texto and "console.jsonl" in texto,
                   "no avisa de un diario que falta")
 
         # Y un lab sin diarios: lo dice, y no revienta.

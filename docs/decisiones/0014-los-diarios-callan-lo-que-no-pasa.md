@@ -37,21 +37,21 @@ recap. Eso no se arregla callando: se arregla haciendo **menos tareas** (punto 4
 Esto es todo lo que cambia ahora. Lo de abajo está decidido pero **no hecho**, y se dice para
 que nadie lo dé por bueno.
 
-**2. Un solo diario por lab, con la puerta etiquetada. Pendiente.**
+**2. Un solo diario por lab, con la vía de acceso etiquetada. Pendiente.**
 
 Hoy son cuatro ficheros que cuentan **la misma ejecución**: `api.jsonl`, `interior.jsonl`,
-`camino.jsonl` y `ansible.log`. Repartidos por puerta, el orden cronológico se pierde, que es
+`console.jsonl` y `ansible.log`. Repartidos por vía de acceso, el orden cronológico se pierde, que es
 justo lo que se necesita para depurar («¿qué pasó antes de esto?»). Lo que se decide es
-`logs/diario.jsonl`, una línea por paso, con `puerta: proxmox | routeros | interior | camino`,
+`logs/diario.jsonl`, una línea por paso, con `gateway: proxmox | routeros | interior | túnel`,
 `ts`, `lab`, `rol` y el resultado. Es lo mismo que ya se escribe, junto y en orden.
 
-Ojo: esto toca la **regla 12** de `AGENTS.md` («cuatro puertas, tres diarios») y el check
-`puerta`, así que se hace con su cambio de regla explícito, no por la puerta de atrás.
+Ojo: esto toca la **regla 12** de `AGENTS.md` («cuatro vías de acceso, tres diarios») y el check
+`gateway`, así que se hace con su cambio de regla explícito, no por la vía de acceso de atrás.
 
 **3. Un resumen que se lee, renderizado del diario. Hecho.**
 
 `deployment_engine/tools/resumen.py` lee los diarios de un lab y escribe **`logs/resumen.md`**:
-la pasada que hay en el diario, cuántas llamadas hizo cada puerta y si alguna no respondió 200,
+la pasada que hay en el diario, cuántas llamadas hizo cada vía de acceso y si alguna no respondió 200,
 **qué se escribió** con la explicación que el propio motor dio al ordenarlo, y qué áreas se
 convergieron dentro de cada invitado. Es la página que se mira al terminar; el diario es la que
 se mira cuando algo va mal.
@@ -80,7 +80,7 @@ escribía **y no lo leía ni el propio `./lab`** (el plan ya se escribe en `plan
 pide un plan). Ahora:
 
 - **`resumen.md`** — lo que se lee. Todo lo demás es para la máquina.
-- `api.jsonl`, `interior.jsonl`, `camino.jsonl` — los diarios. No se leen a mano: son la
+- `api.jsonl`, `interior.jsonl`, `console.jsonl` — los diarios. No se leen a mano: son la
   fuente del resumen y la prueba de lo que pasó (regla 5).
 - `ultimo-verify.txt` — el veredicto suelto, en un folio. Lo imprime `./lab` al terminar.
 - `plan.txt` — qué haría un `plan`, sin tocar nada. Lo imprime `./lab plan`.
@@ -94,10 +94,10 @@ lo que no respondió 2xx tiene su propia sección en vez de perderse entre lo qu
 
 ## Por qué no se hace todo de golpe
 
-Cada punto toca la puerta por la que se habla con un equipo, y el ciclo `destroy → apply →
+Cada punto toca la vía de acceso por la que se habla con un equipo, y el ciclo `destroy → apply →
 verify` es lo único que dice que no se ha roto. Se aplica por partes, cada una con su ciclo: la
 1 es de salida y no puede romper nada; la 2 toca la regla 12 y necesita su cambio de ley; la 4
-reescribe la ejecución de las cuatro puertas. Meter las cuatro a la vez es pedir que un fallo de
+reescribe la ejecución de las cuatro vías de acceso. Meter las cuatro a la vez es pedir que un fallo de
 formato parezca un fallo de red.
 
 ## Cómo se comprueba

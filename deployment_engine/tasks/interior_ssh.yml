@@ -2,9 +2,9 @@
 # PROPÓSITO:   LA PUERTA AL INTERIOR DE UN LINUX. Es el único sitio del motor que abre
 #              una conexión SSH a un invitado, y es a la vez el que escribe la línea del
 #              diario: hacer el paso y diarizarlo son UNA sola cosa, igual que en la
-#              puerta de la API (regla 12). (El driver de RouterOS también alcanza a un
-#              invitado, pero no por aquí: va por su REST, que es OTRA puerta -- y esa
-#              llamada la hace el MOTOR, con el puesto de control de camino (`ros_api.yml`,
+#              vía de acceso de la API (regla 12). (El driver de RouterOS también alcanza a un
+#              invitado, pero no por aquí: va por su REST, que es OTRA vía de acceso -- y esa
+#              llamada la hace el MOTOR, con el bastión de túnel (`ros_api.yml`,
 #              docs/decisiones/0010-*.md).)
 #
 #              No decide NADA: recibe una lista de comandos ya decididos por el driver
@@ -21,12 +21,12 @@
 # LIMITES:     no interpreta el estado del invitado (eso son los filtros puros de
 #              `interior.py`: declarado + leído -> pasos) ni decide qué converge. Un
 #              motor que ejecuta y adivina no es un motor convergente.
-# VER:         docs/decisiones/0006-*.md; tasks/inventario_invitados.yml;
-#              ./lab check puerta
+# VER:         docs/decisiones/0006-*.md; tasks/guest_inventory.yml;
+#              ./lab check access
 
 # El inventario se construye UNA vez por invitado y por paso: aquí, antes de tocar nada.
 - name: "INTERIOR · por dónde se entra a '{{ interior_rol }}'"
-  ansible.builtin.include_tasks: inventario_invitados.yml
+  ansible.builtin.include_tasks: guest_inventory.yml
 
 # Los comandos, en orden. `changed_when` lo dice el propio paso (`accion`): una lectura
 # no cambia el mundo, y por eso la segunda ejecución de un verbo convergido puede salir
@@ -61,7 +61,7 @@
       ts: "{{ now().isoformat() }}"
       verb: "{{ pve_verb }}"
       lab: "{{ pve_lab }}"
-      invitado: "{{ interior_rol }}"
+      guest: "{{ interior_rol }}"
       tipo: "{{ interior_tipo }}"
       area: "{{ interior_ejecutado.interior_comando.area }}"
       accion: "{{ interior_ejecutado.interior_comando.accion }}"

@@ -1,14 +1,14 @@
 ---
 # PROPÓSITO:   esperar a que una tarea asíncrona de Proxmox (un UPID) termine. Es
 #              lo que convierte "lancé la creación" en "la creación terminó".
-# INVARIANTES: se sondea LLAMANDO A LA API por la puerta, no con un `until` que
+# INVARIANTES: se sondea LLAMANDO A LA API por la vía de acceso, no con un `until` que
 #              llamaría a espaldas del diario: cada sondeo deja su línea (regla
 #              12). El bucle es finito: si la tarea no termina a tiempo, el verbo
 #              FALLA con mensaje claro; si termina con un `exitstatus` que NO sea
 #              éxito ("OK" o "WARNINGS: N"), también falla (y lo dice).
 # LÍMITES:     sólo sondea tareas de Proxmox. No cancela la tarea, no reintenta la
 #              operación original y no adivina la causa de un fallo.
-# VER:         README.md §Las cuatro puertas, y un diario de cada una; AGENTS.md §Reglas duras (5 y 12)
+# VER:         README.md §Las cuatro vías de acceso, y un diario de cada una; AGENTS.md §Reglas duras (5 y 12)
 #
 # Espera: pve_tarea_upid, pve_tarea_nodo (hechos, ya anotados por
 #         `pve_api_y_esperar.yml`).

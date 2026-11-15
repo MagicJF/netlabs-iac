@@ -81,31 +81,31 @@ comprobar(
 
 print("\nLA SUPERNET: DENTRO, NO FUERA\n")
 
-comprobar(modulo._ip_en_supernet("10.40.1.5/24", "10.40.0.0/16"), "10.40.1.5/24 cae en 10.40.0.0/16")
-comprobar(modulo._ip_en_supernet("10.40.0.11", "10.40.0.0/16"), "sin máscara también")
-comprobar(not modulo._ip_en_supernet("10.41.0.11/24", "10.40.0.0/16"), "10.41.0.11/24 NO cae")
+comprobar(modulo._ip_en_address_space("10.40.1.5/24", "10.40.0.0/16"), "10.40.1.5/24 cae en 10.40.0.0/16")
+comprobar(modulo._ip_en_address_space("10.40.0.11", "10.40.0.0/16"), "sin máscara también")
+comprobar(not modulo._ip_en_address_space("10.41.0.11/24", "10.40.0.0/16"), "10.41.0.11/24 NO cae")
 comprobar(
-    not modulo._ip_en_supernet("10.40.5.5/24", "10.40.0.0/24"),
+    not modulo._ip_en_address_space("10.40.5.5/24", "10.40.0.0/24"),
     "un /24 dentro de otro: coincidir en los tres primeros octetos no basta",
 )
 comprobar(
-    modulo._ip_en_supernet("10.40.0.11/24", "10.40.0.0/24"), "y sí basta cuando coinciden todos"
+    modulo._ip_en_address_space("10.40.0.11/24", "10.40.0.0/24"), "y sí basta cuando coinciden todos"
 )
 comprobar(
-    modulo._ip_en_supernet("10.40.0.11/24", "10.40.0.0/17"),
+    modulo._ip_en_address_space("10.40.0.11/24", "10.40.0.0/17"),
     "un prefijo que no cae en un octeto no se vigila (no se opina, no se adivina)",
 )
 
-errores = errores_de(lambda d: d["lab"].__setitem__("supernet", "10.50.0.0/16"))
-comprobar(dice(errores, "se sale de la supernet"), "un lab fuera de su supernet se caza")
+errores = errores_de(lambda d: d["lab"].__setitem__("address_space", "10.50.0.0/16"))
+comprobar(dice(errores, "se sale de la espacio de direcciones"), "un lab fuera de su espacio de direcciones se caza")
 comprobar(
-    len([error for error in errores if "se sale de la supernet" in error]) >= 5,
+    len([error for error in errores if "se sale de la espacio de direcciones" in error]) >= 5,
     "y se caza TODO lo que se sale (bridges, direcciones, rangos y pasarelas), no sólo lo primero",
 )
-errores = errores_de(lambda d: d["lab"].__setitem__("supernet", "10.40.0.0/24"))
+errores = errores_de(lambda d: d["lab"].__setitem__("address_space", "10.40.0.0/24"))
 comprobar(
-    dice(errores, "se sale de la supernet"),
-    "una supernet que no contiene las LANs que el lab sirve se caza igual: es el error contrario",
+    dice(errores, "se sale de la espacio de direcciones"),
+    "una espacio de direcciones que no contiene las LANs que el lab sirve se caza igual: es el error contrario",
 )
 
 # ---------------------------------------------------------------------------
@@ -118,29 +118,29 @@ errores = errores_de(lambda d: d["vms"][0].__setitem__("mac", "aa-bb-cc-dd-ee-ff
 comprobar(dice(errores, "MAC"), "también si se escribe en otro formato")
 errores = errores_de(lambda d: d["vms"][0].__setitem__("password", "hunter2"))
 comprobar(dice(errores, "password"), "una contraseña en la declaración es un bug")
-errores = errores_de(lambda d: d["lab"].__setitem__("camino_clave", "ssh-ed25519 AAAA"))
+errores = errores_de(lambda d: d["lab"].__setitem__("tunnel_clave", "ssh-ed25519 AAAA"))
 comprobar(dice(errores, "clave") or dice(errores, "credencial"), "y una clave privada, también")
 
 # ---------------------------------------------------------------------------
 
 print("\nEL VOCABULARIO ES CERRADO\n")
 
-errores = errores_de(lambda d: d["vms"][0]["config"]["routeros"].__setitem__("cortafuegos", {}))
+errores = errores_de(lambda d: d["vms"][0]["config"]["routeros"].__setitem__("firewall", {}))
 comprobar(
-    dice(errores, "cortafuegos") and (dice(errores, "no") or dice(errores, "pendiente")),
+    dice(errores, "firewall") and (dice(errores, "no") or dice(errores, "pendiente")),
     "un área que el motor todavía no converge se RECHAZA con su motivo: aquí no se finge",
 )
 errores = errores_de(lambda d: d["vms"][0]["config"]["routeros"].__setitem__("inventado", {}))
 comprobar(dice(errores, "inventado"), "un área que no existe se caza con su nombre")
 
-# `exterior` existe, pero es una MARCA: la pata de fuera y su dirección las deriva el motor.
-# Una opción aquí es el lab inventándose una primitiva por la puerta de atrás (regla 15).
+# `uplink` existe, pero es una MARCA: la interfaz de fuera y su dirección las deriva el motor.
+# Una opción aquí es el lab inventándose una primitiva por la vía de acceso de atrás (regla 15).
 errores = errores_de(
-    lambda d: d["vms"][0]["config"]["routeros"].__setitem__("exterior", {"interfaz": "ether3"})
+    lambda d: d["vms"][0]["config"]["routeros"].__setitem__("uplink", {"interface": "ether3"})
 )
 comprobar(
-    dice(errores, "exterior") and dice(errores, "opciones"),
-    "`exterior` con opciones se caza: es una marca (`exterior: {}`), no un sitio donde el "
+    dice(errores, "uplink") and dice(errores, "opciones"),
+    "`uplink` con opciones se caza: es una marca (`uplink: {}`), no un sitio donde el "
     "lab nombre interfaces (no las ha declarado, y por eso no son suyas)",
 )
 errores = errores_de(lambda d: d["containers"][0]["config"]["linux"].__setitem__("docker", {}))
@@ -152,22 +152,22 @@ errores = errores_de(lambda d: d["vms"][0].__setitem__("config", {}))
 comprobar(dice(errores, "config"), "un `config:` vacío no declara nada y se dice")
 
 errores = errores_de(
-    lambda d: d["vms"][0]["config"]["routeros"]["servicios"].__setitem__("deshabilitar", ["www"])
+    lambda d: d["vms"][0]["config"]["routeros"]["ip_services"].__setitem__("deshabilitar", ["www"])
 )
 comprobar(
-    dice(errores, "www") and dice(errores, "camino de vuelta"),
+    dice(errores, "www") and dice(errores, "túnel de vuelta"),
     "deshabilitar `www` (donde vive REST) se caza: dejaría el equipo sin poder configurarlo nunca",
 )
 
 errores = errores_de(
-    lambda d: d["vms"][0]["config"]["routeros"]["direcciones"].append(
-        {"interfaz": "ether3", "direccion": "10.40.3.1"}
+    lambda d: d["vms"][0]["config"]["routeros"]["addresses"].append(
+        {"interface": "ether3", "address": "10.40.3.1"}
     )
 )
-comprobar(dice(errores, "direccion"), "una dirección sin máscara se caza")
+comprobar(dice(errores, "address"), "una dirección sin máscara se caza")
 errores = errores_de(
-    lambda d: d["vms"][0]["config"]["routeros"]["dhcp"][0].__setitem__(
-        "reservas", [{"rol": "servidor", "mac": "BC:24:11:00:00:01"}]
+    lambda d: d["vms"][0]["config"]["routeros"]["dhcp_server"][0].__setitem__(
+        "static_leases", [{"rol": "servidor", "mac": "BC:24:11:00:00:01"}]
     )
 )
 comprobar(
@@ -175,17 +175,17 @@ comprobar(
     "una reserva con MAC se caza: las reservas se derivan del vmid",
 )
 errores = errores_de(
-    lambda d: d["vms"][0]["config"]["routeros"]["dhcp"][0].__setitem__("reservas", "derivada")
+    lambda d: d["vms"][0]["config"]["routeros"]["dhcp_server"][0].__setitem__("static_leases", "derivada")
 )
-comprobar(dice(errores, "reservas"), "`reservas: derivada` (en singular) tampoco es la forma correcta")
+comprobar(dice(errores, "static_leases"), "`static_leases: derivada` (en singular) tampoco es la forma correcta")
 
 # ---------------------------------------------------------------------------
 
 print("\nUN INVITADO CON INTERIOR TIENE QUE SER ALCANZABLE\n")
 
-errores = errores_de(lambda d: d["containers"][0].__setitem__("direccion", None))
+errores = errores_de(lambda d: d["containers"][0].__setitem__("address", None))
 comprobar(
-    dice(errores, "direccion"),
+    dice(errores, "address"),
     "un invitado con `config:` sin dirección se caza: no se puede converger lo que no se alcanza",
 )
 
@@ -199,21 +199,21 @@ def _borde(declaracion):
     return [i for i in declaracion["vms"] if i["rol"] == "borde"][0]
 
 
-# Un CHR que declara configurar `ether2` necesita DOS patas. Sin la segunda, RouterOS
+# Un CHR que declara configurar `ether2` necesita DOS interfaces. Sin la segunda, RouterOS
 # contesta `400 input does not match any value of interface` A MITAD de la convergencia
 # (medido: con la dirección de gestión ya pedida prestada y el equipo a medias), así que
 # esto tiene que cazarse ANTES de tocar el VPS.
 errores = errores_de(lambda d: _borde(d).__setitem__("bridges", ["vmb_gestion"]))
 comprobar(
-    dice(errores, "ether2") and dice(errores, "pata"),
-    "configurar `ether2` con una sola pata declarada se caza: esa interfaz no existiría y "
+    dice(errores, "ether2") and dice(errores, "interface"),
+    "configurar `ether2` con una sola interfaz declarada se caza: esa interfaz no existiría y "
     "el motor se pararía a mitad de la convergencia",
 )
 
 errores = errores_de(lambda d: _borde(d).__setitem__("bridges", ["vmb_gestion", "vmb_lan1"]))
 igual(
     [error for error in errores if "ether2" in error], [],
-    "con las DOS patas declaradas no hay queja: el orden de `bridges` ES la numeración",
+    "con las DOS interfaces declaradas no hay queja: el orden de `bridges` ES la numeración",
 )
 
 comprobar(
@@ -225,7 +225,7 @@ comprobar(
         ),
         "vmb_que_no_existe",
     ),
-    "y una pata que el lab no declara en `lab.bridges` también se caza",
+    "y una interfaz que el lab no declara en `lab.bridges` también se caza",
 )
 
 
@@ -238,14 +238,14 @@ def _control(declaracion):
     return [i for i in declaracion["containers"] if i["rol"] == "control"][0]
 
 
-# El puesto de control declara `camino`, `dhcp_servidor`...: áreas que EXIGEN entrar. Con
-# `direccion: dhcp` el motor no sabe a dónde conectar, y no se entra a ciegas (regla 16):
+# El bastión declara `tunnel`, `dhcp_server`...: áreas que EXIGEN entrar. Con
+# `address: dhcp` el motor no sabe a dónde conectar, y no se entra a ciegas (regla 16):
 # se caza ANTES de tocar el VPS. Un puesto dinámico declara SÓLO el tipo (`linux: {}`) y
 # no pide visita, así que ése sí pasa.
-errores = errores_de(lambda d: _control(d).__setitem__("direccion", "dhcp"))
+errores = errores_de(lambda d: _control(d).__setitem__("address", "dhcp"))
 comprobar(
     dice(errores, "dhcp") and dice(errores, "ENTRAR"),
-    "un invitado con áreas que piden entrar y `direccion: dhcp` se caza: no se sabe a dónde conectar",
+    "un invitado con áreas que piden entrar y `address: dhcp` se caza: no se sabe a dónde conectar",
 )
 
 
@@ -265,11 +265,11 @@ def aconseja(consejos, codigo):
     return any(consejo["codigo"] == codigo for consejo in consejos)
 
 
-def _invitado(declaracion, rol):
+def _guest(declaracion, rol):
     for seccion in ("vms", "containers"):
-        for invitado in declaracion.get(seccion) or []:
-            if invitado.get("rol") == rol:
-                return invitado
+        for guest in declaracion.get(seccion) or []:
+            if guest.get("rol") == rol:
+                return guest
     raise AssertionError(f"el lab de aceptación ya no tiene el rol '{rol}'")
 
 
@@ -281,43 +281,43 @@ igual(consejos_de(lambda d: None), [], "el lab de aceptación no tiene nada que 
 # uno: un consejo que no se ha visto dispararse no es un consejo, es decoración.
 CASOS = [
     (
-        "escalones",
-        lambda d: _invitado(d, "servidor").__setitem__("escalon", 1),
-        "un invitado que pide dirección por DHCP en el MISMO escalón que quien se la da "
+        "stages",
+        lambda d: _guest(d, "servidor").__setitem__("stage", 1),
+        "un invitado que pide dirección por DHCP en el MISMO etapa que quien se la da "
         "(arrancarían a la vez: carrera, no diseño)",
     ),
     (
         "dhcp",
-        lambda d: _control(d)["config"]["linux"]["direcciones"][0].__setitem__(
-            "direccion", "10.40.1.150/24"
+        lambda d: _control(d)["config"]["linux"]["addresses"][0].__setitem__(
+            "address", "10.40.1.150/24"
         ),
         "una dirección estática dentro del rango que reparte el DHCP (un cliente "
         "dinámico puede pedirla antes)",
     ),
     (
-        "pasarela",
-        lambda d: _invitado(d, "nucleo")["config"]["routeros"]["rutas"][0].__setitem__(
-            "pasarela", "10.40.1.99"
+        "gateway",
+        lambda d: _guest(d, "nucleo")["config"]["routeros"]["routes"][0].__setitem__(
+            "gateway", "10.40.1.99"
         ),
-        "una pasarela que cae dentro de la supernet del lab y no es de nadie",
+        "una pasarela que cae dentro de la espacio de direcciones del lab y no es de nadie",
     ),
     (
-        "imagen",
-        lambda d: _invitado(d, "borde").pop("imagen"),
-        "una VM que declara `config` y no declara `imagen` (nacería sin disco)",
+        "image",
+        lambda d: _guest(d, "borde").pop("image"),
+        "una VM que declara `config` y no declara `image` (nacería sin disco)",
     ),
     (
         "bridge-vacio",
-        lambda d: d["lab"]["bridges"].append({"nombre": "vmb_vacio", "direccion": "10.40.3.1/24"}),
+        lambda d: d["lab"]["bridges"].append({"nombre": "vmb_vacio", "address": "10.40.3.1/24"}),
         "un bridge por el que no pasa nadie",
     ),
     (
         "dos-dhcp",
-        lambda d: _invitado(d, "borde")["config"]["routeros"]["dhcp"].append(
+        lambda d: _guest(d, "borde")["config"]["routeros"]["dhcp_server"].append(
             {
-                "interfaz": "ether2",
+                "interface": "ether2",
                 "pool": {"rango": "10.40.1.100-10.40.1.200"},
-                "red": {"prefijo": "10.40.1.0/24", "pasarela": "10.40.1.1"},
+                "network": {"address": "10.40.1.0/24", "gateway": "10.40.1.1"},
             }
         ),
         "dos servidores DHCP en el mismo bridge",
@@ -325,26 +325,26 @@ CASOS = [
     (
         "sin-quien-la-dirija",
         lambda d: (
-            d["lab"]["bridges"].append({"nombre": "vmb_sola", "direccion": "10.40.4.1/24"}),
-            _invitado(d, "servidor").__setitem__("bridge", "vmb_sola"),
+            d["lab"]["bridges"].append({"nombre": "vmb_sola", "address": "10.40.4.1/24"}),
+            _guest(d, "servidor").__setitem__("bridge", "vmb_sola"),
         ),
         "una dirección dinámica en un bridge del lab donde no hay quien la dé",
     ),
     (
-        "exterior-sin-dns",
+        "uplink-sin-dns",
         lambda d: (
-            _invitado(d, "borde")["config"]["routeros"].__setitem__("exterior", {}),
-            _invitado(d, "borde")["config"]["routeros"]["dhcp"][0]["red"].pop("dns"),
-            _invitado(d, "nucleo")["config"]["routeros"]["dhcp"][0]["red"].pop("dns"),
+            _guest(d, "borde")["config"]["routeros"].__setitem__("uplink", {}),
+            _guest(d, "borde")["config"]["routeros"]["dhcp_server"][0]["network"].pop("dns"),
+            _guest(d, "nucleo")["config"]["routeros"]["dhcp_server"][0]["network"].pop("dns"),
         ),
         "un router que es la SALIDA del lab y ningún servidor DHCP que anuncie DNS: "
         "sale a internet y no resuelve un solo nombre",
     ),
     (
-        "exterior-con-ruta",
-        lambda d: _invitado(d, "borde")["config"]["routeros"].__setitem__("exterior", {}),
+        "uplink-con-ruta",
+        lambda d: _guest(d, "borde")["config"]["routeros"].__setitem__("uplink", {}),
         "un router que es la salida del lab y además le declaran ruta por defecto: su "
-        "la que pone el motor por la puerta de fuera y la tuya compiten por el mismo destino",
+        "la que pone el motor por la pasarela de fuera y la tuya compiten por el mismo destino",
     ),
 ]
 

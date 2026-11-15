@@ -19,13 +19,13 @@ lab:
   # como la carpeta y es lo que distingue "esto es de este lab".
   nombre: <NOMBRE>
 
-  # Orden de arranque: escalones. El motor arranca el 1, espera, y sigue con el 2.
-  escalones: [1]
+  # Orden de arranque: etapas. El motor arranca el 1, espera, y sigue con el 2.
+  stages: [1]
 
   # Los bridges que este lab necesita. Si ya existen en el nodo, no se tocan.
   bridges:
     - nombre: <NOMBRE_BRIDGE>
-      direccion: 192.0.2.1/24
+      address: 192.0.2.1/24
     # ↑ <NOMBRE_BRIDGE> ya es un nombre que el kernel y Proxmox aceptan (sin
     #   guiones, 15 caracteres como mucho). Cámbialo si quieres otro; lo que no
     #   vale es el nombre del lab tal cual, porque lleva guiones.
@@ -41,12 +41,12 @@ containers:
     # no lo declaras). Aquí: `ws-<rol-de-ejemplo>`.
     tipo: ws          # rt (router) | srv (servidor) | ws (puesto) | sw (conmutador) | ctl (control)
     # nombre: 1       # opcional: con esto el invitado se llamaría `ws-1`, sin el rol
-    escalon: 1
+    stage: 1
     cores: 1
-    memoria: 256
-    disco: 4
+    memory: 256
+    disk: 4
     bridge: <NOMBRE_BRIDGE>
-    direccion: 192.0.2.11/24
+    address: 192.0.2.11/24
 #     ↑ `rol`, `tipo`, recursos, bridge y dirección. NADA de `vmid` ni de `mac`:
 #       eso lo deriva el motor del estado real del clúster (regla 11). Un lab puede
 #       repetir nombre con otro lab (`ws-1` en dos sitios) sin confundirse: el pool

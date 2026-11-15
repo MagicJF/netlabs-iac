@@ -1,17 +1,17 @@
 ---
 # PROPÓSITO:   el DESPACHADOR de un paso del plan. Mira por qué VÍA va el paso (`via`)
-#              y llama a la puerta que le toca: la API del hipervisor, el camino, el
-#              interior de un invitado o la sonda de un escalón. Es el único sitio del
+#              y llama a la vía de acceso que le toca: la API del hipervisor, el túnel, el
+#              interior de un invitado o la sonda de un etapa. Es el único sitio del
 #              motor donde un paso del plan se convierte en llamadas.
 # INVARIANTES: el plan se ejecuta EN ORDEN, paso a paso: por eso el bucle vive en el
-#              verbo y aquí sólo se elige la puerta, sin reordenar nada. Un paso sin
+#              verbo y aquí sólo se elige la vía de acceso, sin reordenar nada. Un paso sin
 #              ejecutor PARA el verbo diciendo cuál es -- no se salta en silencio, ni
-#              se rodea por otra vía (regla 16). Ninguna puerta se abre desde aquí:
+#              se rodea por otra vía (regla 16). Ninguna vía de acceso se abre desde aquí:
 #              aquí sólo se llama a la que ya existe.
 # LÍMITES:     no decide nada sobre el estado del mundo: el plan ya lo decidió. Si un
 #              paso llega aquí, es porque hay que darlo.
 # VER:         deployment_engine/tools/plan.py (las acciones y su `via`);
-#              AGENTS.md §Reglas duras (12: cuatro puertas); README.md §Arquitectura
+#              AGENTS.md §Reglas duras (12: cuatro vías de acceso); README.md §Arquitectura
 
 # `item` es el paso del plan que el verbo está recorriendo (lo pasa el bucle).
 
@@ -24,24 +24,24 @@
     pve_api_etiqueta: "paso {{ item.orden }}: {{ item.accion }} -- {{ item.porque }}"
   when: (item.via | default('api')) == 'api'
 
-- name: "PASO {{ item.orden }} · por el CAMINO del lab: {{ item.accion }}"
-  ansible.builtin.include_tasks: ../tasks/camino.yml
+- name: "PASO {{ item.orden }} · por el TÚNEL del lab: {{ item.accion }}"
+  ansible.builtin.include_tasks: ../tasks/tunnel.yml
   vars:
-    camino_rol: "{{ item.rol }}"
-    camino_vmid: "{{ item.parametros.vmid }}"
-    camino_tipo: >-
-      {{ (identidad.invitados | selectattr('rol', 'equalto', item.rol) | first).tipo }}
-    camino_puerto: "{{ item.parametros.puerto }}"
-    camino_rest: "{{ item.parametros.rest | default([]) }}"
-    camino_salida_host: "{{ item.parametros.salida_host }}"
-    camino_salida_puerto: "{{ item.parametros.salida_puerto }}"
-    camino_usuario: "{{ parametros_motor.camino_usuario }}"
-    camino_clave: "{{ parametros_motor.camino_clave }}"
-    camino_solo_comprobar: "{{ item.accion == 'comprobar_camino' }}"
-  when: (item.via | default('api')) == 'camino'
+    tunnel_rol: "{{ item.rol }}"
+    tunnel_vmid: "{{ item.parametros.vmid }}"
+    tunnel_tipo: >-
+      {{ (identidad.guests | selectattr('rol', 'equalto', item.rol) | first).tipo }}
+    tunnel_puerto: "{{ item.parametros.puerto }}"
+    tunnel_rest: "{{ item.parametros.rest | default([]) }}"
+    tunnel_salida_host: "{{ item.parametros.salida_host }}"
+    tunnel_salida_puerto: "{{ item.parametros.salida_puerto }}"
+    tunnel_usuario: "{{ parametros_motor.tunnel_usuario }}"
+    tunnel_clave: "{{ parametros_motor.tunnel_clave }}"
+    tunnel_solo_comprobar: "{{ item.accion == 'comprobar_tunnel' }}"
+  when: (item.via | default('api')) == 'tunnel'
 
 # El INTERIOR: cada tipo tiene su driver, y el tipo lo dice la DECLARACIÓN (nunca lo
-# adivina el motor, §3). El driver lee, decide, escribe y RELEE por su puerta -- aquí
+# adivina el motor, §3). El driver lee, decide, escribe y RELEE por su pasarela -- aquí
 # sólo se elige cuál. Si añades una rama aquí, añade su tipo a `DRIVERS`
 # (`filter_plugins/interior.py`): es lo que usa `apply` para avisar de lo que no sabe
 # hacer, y `test/test_interior.py` comprueba que las dos listas cuadran.
@@ -63,16 +63,16 @@
     - (item.via | default('api')) == 'interior'
     - (item.parametros.tipo | default('')) == 'routeros'
 
-# La SONDA del escalón: que un escalón SIRVA de verdad antes de tocar el siguiente (regla
+# La SONDA del etapa: que un etapa SIRVA de verdad antes de tocar el siguiente (regla
 # 18). Mira y no cambia nada: pregunta en la dirección declarada, desde el puesto de
 # control, y si no contesta se para con el nombre del rol.
-- name: "PASO {{ item.orden }} · SONDA del escalón {{ item.escalon }}: ¿sirve '{{ item.rol }}'?"
+- name: "PASO {{ item.orden }} · SONDA del etapa {{ item.stage }}: ¿sirve '{{ item.rol }}'?"
   ansible.builtin.include_tasks: ../tasks/sonda.yml
   vars:
     sonda_rol: "{{ item.rol }}"
-    sonda_escalon: "{{ item.escalon }}"
+    sonda_stage: "{{ item.stage }}"
     sonda_tipo: "{{ item.parametros.tipo }}"
-    sonda_direccion: "{{ item.parametros.direccion }}"
+    sonda_direccion: "{{ item.parametros.address }}"
     sonda_puerto: "{{ item.parametros.puerto }}"
     sonda_porque: "{{ item.porque }}"
   when: (item.via | default('api')) == 'sonda'
@@ -96,7 +96,7 @@
       ese ejecutor exista sigue exactamente desde aquí--, y ninguno posterior se ha
       tocado.
   when:
-    - (item.via | default('api')) not in ['api', 'camino', 'sonda']
+    - (item.via | default('api')) not in ['api', 'tunnel', 'sonda']
     # El interior se da por despachado SÓLO si su driver existe y lo ha cogido la rama
     # de arriba: lo que no tenga driver cae aquí y para con su nombre.
     - not ((item.via | default('api')) == 'interior'

@@ -10,10 +10,10 @@
 #              `pve_mundo_error` puesto y el verbo que llama decide qué decir.
 # VER:         README.md §Identidad; AGENTS.md §Identidad
 #
-# Necesita `declaracion` (normalizada por validar.yml). Deja: `estado`, `identidad`,
+# Necesita `declaracion` (normalizada por validar.yml). Deja: `estado`, `identity`,
 # `pve_mundo_origen` y, si algo fue mal, `pve_mundo_error`.
 
-# --- Camino sin credenciales: el estado del mundo es un fixture --------------
+# --- Túnel sin credenciales: el estado del mundo es un fixture --------------
 # Es lo que hace demostrable `plan` sin ningún Proxmox: la declaración es la misma,
 # sólo cambia de dónde sale "qué hay".
 - name: "MUNDO · leer el estado de un fixture (sin tocar la API)"
@@ -23,15 +23,15 @@
     pve_mundo_error: ""
   when: (pve_estado_fixture | default('') | length) > 0
 
-# --- Camino real: el estado del mundo sale de la API ------------------------
+# --- Túnel real: el estado del mundo sale de la API ------------------------
 # La primera llamada tolera el error a propósito: queremos poder explicar qué pasa
-# (nodo apagado, token rechazado) en vez de que reviente la puerta.
+# (nodo apagado, token rechazado) en vez de que reviente la vía de acceso.
 - name: "MUNDO · leer los recursos de todo el clúster"
   ansible.builtin.include_tasks: pve_api.yml
   vars:
     pve_api_metodo: GET
     pve_api_ruta: "/cluster/resources"
-    pve_api_etiqueta: "todos los invitados del clúster, con su pool"
+    pve_api_etiqueta: "todos los guests del clúster, con su pool"
     pve_api_tolerar_error: true
   when: (pve_estado_fixture | default('') | length) == 0
 
@@ -89,11 +89,11 @@
   vars:
     pve_api_metodo: GET
     pve_api_ruta: "/nodes/{{ item.nodo }}/{{ item.tipo }}/{{ item.vmid }}/config"
-    pve_api_etiqueta: "config del invitado {{ item.vmid }} ({{ item.rol_o_nombre }})"
+    pve_api_etiqueta: "config del guest {{ item.vmid }} ({{ item.rol_o_nombre }})"
     pve_api_tolerar_error: true
     pve_api_acumular_configs: true
     pve_api_vmid: "{{ item.vmid }}"
-  loop: "{{ pve_cluster_recursos | pve_invitados_del_pool(pve_lab) if (pve_estado_fixture | default('') | length) == 0 and (pve_mundo_error | default('') | length) == 0 else [] }}"
+  loop: "{{ pve_cluster_recursos | pve_guests_del_pool(pve_lab) if (pve_estado_fixture | default('') | length) == 0 and (pve_mundo_error | default('') | length) == 0 else [] }}"
   loop_control:
     label: "{{ item.vmid }} {{ item.rol_o_nombre }}"
 
@@ -111,10 +111,10 @@
     - (pve_mundo_error | default('') | length) == 0
 
 # Y AHORA las direcciones que ya usa alguien en el nodo. No es un detalle: el puesto de
-# control necesita una pata en el bridge de gestión del nodo con una dirección LIBRE
+# control necesita una interfaz en el bridge de gestión del nodo con una dirección LIBRE
 # elegida por el motor (§5), y para elegirla hay que saber cuáles están cogidas.
 - name: "MUNDO · averiguar qué direcciones están en uso en la red del nodo"
-  ansible.builtin.include_tasks: direcciones.yml
+  ansible.builtin.include_tasks: addresses.yml
   when:
     - (pve_estado_fixture | default('') | length) == 0
     - (pve_mundo_error | default('') | length) == 0

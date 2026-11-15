@@ -28,10 +28,10 @@
     - name: "PLAN · validar la coherencia de la declaración"
       ansible.builtin.include_tasks: ../tasks/validar.yml
 
-    # De aquí sale `estado` (del fixture o de la API) y `identidad` (rol -> vmid,
+    # De aquí sale `estado` (del fixture o de la API) y `identity` (rol -> vmid,
     # nombre, MAC). El asignador se re-deriva en cada ejecución: no hay estado en disco.
     - name: "PLAN · leer el mundo y asignar identidad"
-      ansible.builtin.include_tasks: ../tasks/identidad.yml
+      ansible.builtin.include_tasks: ../tasks/identity.yml
 
     - name: "PLAN · parar si no hay estado del mundo"
       ansible.builtin.fail:
@@ -44,17 +44,17 @@
 
     # Lo que el motor sabe del entorno (no del lab): dónde, y con qué plantilla de
     # contenedor. Sale de secrets.yml y vars/engine.yml, nunca de una variable de entorno.
-    # La clave PÚBLICA del camino se necesita ANTES de calcular el plan: el plan la
-    # inyecta al CREAR el puesto de control (`ssh-public-keys`) y después ya no se
+    # La clave PÚBLICA del túnel se necesita ANTES de calcular el plan: el plan la
+    # inyecta al CREAR el bastión (`ssh-public-keys`) y después ya no se
     # puede. `apply` puede generarla (es un verbo de escritura); `plan` y `preflight`
     # sólo la leen: mirar qué haría el motor no escribe nada, ni en su propia máquina.
-    - name: "PLAN · preparar la clave del camino (antes de planificar)"
-      ansible.builtin.include_tasks: ../tasks/camino.yml
+    - name: "PLAN · preparar la clave del túnel (antes de planificar)"
+      ansible.builtin.include_tasks: ../tasks/tunnel.yml
       vars:
-        camino_solo_clave: true
-        camino_clave_generar: false
-        camino_clave: "{{ engine_camino_clave_base }}_{{ pve_lab }}_ed25519"
-      when: (declaracion.camino | default({}, true) | length) > 0
+        tunnel_solo_clave: true
+        tunnel_clave_generar: false
+        tunnel_clave: "{{ engine_tunnel_clave_base }}_{{ pve_lab }}_ed25519"
+      when: (declaracion.tunnel | default({}, true) | length) > 0
 
     - name: "PLAN · parámetros del entorno"
       ansible.builtin.set_fact:
@@ -69,33 +69,33 @@
           # es la prueba de propiedad que `destroy` busca antes de borrar un bridge
           # (Proxmox no mete interfaces de red en pools, así que no hay pool que valga).
           comentario_bridge: "{{ engine_plantilla_comentario_bridge }}"
-          # El CAMINO (§5): por dónde sale el puesto de control hacia casa. Es ENTORNO
+          # El CAMINO (§5): por dónde sale el bastión hacia casa. Es ENTORNO
           # --la casa es una y los labs son muchos--, así que vive en secrets.yml y no
-          # en la declaración de ningún lab. Vacío = este lab no tiene camino.
+          # en la declaración de ningún lab. Vacío = este lab no tiene túnel.
           bridge_gestion: "{{ pve_bridge_gestion | default('') }}"
-          camino_host: "{{ pve_camino_salida_host | default('') }}"
-          camino_puerto: "{{ pve_camino_salida_puerto | default(443) }}"
-          camino_usuario: "{{ pve_camino_usuario | default('') }}"
-          camino_puerto_base: "{{ engine_camino_puerto_base }}"
-          camino_rest_puerto_base: "{{ engine_camino_rest_puerto_base }}"
-          # El prefijo de las MAC: la identidad de un invitado con varias patas
-          # sale de aquí (una MAC por pata, derivada del vmid; ver
-          # `identidad_mac_de_pata`).
+          tunnel_host: "{{ pve_tunnel_salida_host | default('') }}"
+          tunnel_puerto: "{{ pve_tunnel_salida_puerto | default(443) }}"
+          tunnel_usuario: "{{ pve_tunnel_usuario | default('') }}"
+          tunnel_puerto_base: "{{ engine_tunnel_puerto_base }}"
+          tunnel_rest_puerto_base: "{{ engine_tunnel_rest_puerto_base }}"
+          # El prefijo de las MAC: la identidad de un invitado con varias interfaces
+          # sale de aquí (una MAC por interfaz, derivada del vmid; ver
+          # `identidad_mac_de_interface`).
           mac_prefijo: "{{ engine_prefijo_mac }}"
-          camino_clave: "{{ engine_camino_clave_base }}_{{ pve_lab }}_ed25519"
+          tunnel_clave: "{{ engine_tunnel_clave_base }}_{{ pve_lab }}_ed25519"
           rol_control: "{{ engine_rol_control }}"
           # Dónde vive la imagen de fábrica que importa una VM al nacer (el
           # contenido `import` del almacenamiento). Es del ENTORNO, no de ningún lab.
           almacenamiento_imagen: "{{ engine_almacenamiento_imagen }}"
-          # La clave pública del camino, que lee `tasks/camino.yml` antes de planificar
-          # y que el plan mete en la creación del puesto de control.
-          camino_clave_publica: "{{ camino_clave_publica | default('') }}"
+          # La clave pública del túnel, que lee `tasks/tunnel.yml` antes de planificar
+          # y que el plan mete en la creación del bastión.
+          tunnel_clave_publica: "{{ tunnel_clave_publica | default('') }}"
 
-    # Si el camino YA responde, no hay que reconstruirlo: el plan no emitirá la mitad
-    # `construir_camino` (regla 6). Se sondea AQUÍ, antes de planificar, y se deja en el
+    # Si el túnel YA responde, no hay que reconstruirlo: el plan no emitirá la mitad
+    # `construir_túnel` (regla 6). Se sondea AQUÍ, antes de planificar, y se deja en el
     # estado del mundo (es una lectura: un puerto que contesta no se puede fingir).
-    - name: "PLAN · leer si el camino del lab ya está en pie"
-      ansible.builtin.include_tasks: ../tasks/camino_mundo.yml
+    - name: "PLAN · leer si el túnel del lab ya está en pie"
+      ansible.builtin.include_tasks: ../tasks/tunnel_probe.yml
 
     - name: "PLAN · calcular el plan ordenado"
       ansible.builtin.set_fact:

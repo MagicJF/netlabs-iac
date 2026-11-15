@@ -5,7 +5,7 @@ Resumen honesto del estado, sin maquillar.
 
     Lo que está verde (verificado con salida real)
 
-    • ./lab check: todos los checks en verde (links, docs, refs, puerta, privilegios, declaracion, supernet, colisiones,
+    • ./lab check: todos los checks en verde (links, docs, refs, vía de acceso, privilegios, declaracion, espacio de direcciones, colisiones,
     pureza-lab, readme).
     • ansible-lint: 0 fallos, 0 avisos en 52 ficheros.
     • Suites puras: test_interior, test_declaracion, test_regresion_planes, test_identidad, test_privilegios, test_bridges OK.
@@ -18,14 +18,14 @@ Resumen honesto del estado, sin maquillar.
     (b) la retirada se emitía después del cambio de credencial, y esa escritura se queda sin credencial (401 tolerado). Ahora la
     retirada va justo tras poner la declarada, con el .id resuelto (capturado del POST, o sacado de una relectura si esa respuesta
     se perdió) y por la dirección prestada.
-    2. La sonda de un escalón ya no rompe el diario: faltaba interior_tipo en el ejecutor (tasks/sonda.yml + paso.yml).
+    2. La sonda de una etapa ya no rompe el diario: faltaba interior_tipo en el ejecutor (tasks/sonda.yml + paso.yml).
     3. Sin respuesta del POST en el baile → tolerado, decide la relectura. Medido: el mismo POST /ip/address/add contesta 200 en
-    borde y -1 (timeout) en el CHR del segundo escalón. Se marca tolerar_sin_respuesta en las escrituras del baile; quien
+    borde y -1 (timeout) en el CHR del segundo etapa. Se marca tolerar_sin_respuesta en las escrituras del baile; quien
     prueba que se escribió es la relectura final.
-    4. nucleo no era alcanzable porque el puesto de control no tenía dirección en esa LAN (medido: No route to host → luego timed
-    out). El vocabulario no sabía expresar «una dirección por pata». Añadí config.linux.direcciones (lista de {interfaz,
-    direccion}), que se funde en el área direccion; la lectura de la puerta Linux pasó a ip -4 -o addr show scope global para ver
-    todas las patas. El lab declara eth1: 10.40.1.2/24. Esto es una primitiva nueva del vocabulario y le falta su ADR y su entrada
+    4. nucleo no era alcanzable porque el bastión no tenía dirección en esa LAN (medido: No route to host → luego timed
+    out). El vocabulario no sabía expresar «una dirección por interfaz». Añadí config.linux.direcciones (lista de {interfaz,
+    direccion}), que se funde en el área direccion; la lectura de la vía de acceso Linux pasó a ip -4 -o addr show scope global para ver
+    todas las interfaces. El lab declara eth1: 10.40.1.2/24. Esto es una primitiva nueva del vocabulario y le falta su ADR y su entrada
     en la prosa del lab.
     5. El mensaje de fallo del check de RouterOS ahora incluye la lectura con la que decidió: no hay que instrumentar el motor
     para diagnosticar.
@@ -41,9 +41,9 @@ Resumen honesto del estado, sin maquillar.
     se ha vuelto a lanzar.
     • No hay commit ni push de nada de esto: la regla del repo es que no se sube sin el ciclo verde. Todo está en el árbol de
     trabajo.
-    • Pendiente de documentar cuando el ciclo cierre: ADR de direcciones (Linux, patas extra del puesto de control), prosa del lab
+    • Pendiente de documentar cuando el ciclo cierre: ADR de direcciones (Linux, interfaces extra del bastión), prosa del lab
     (filing back), y las lecciones en la skill netlabs-v4_b (retirada por .id; respuesta perdida que se tolera y decide la
-    relectura; tolerar≠seguir a ciegas; una dirección por bridge para el puesto de control).
+    relectura; tolerar≠seguir a ciegas; una dirección por bridge para el bastión).
 > Este encargo **continúa** a `/home/hermes/netlabs_v4_b-goal-prompt.md` (fase 1: el motor
 > despliega por la API de Proxmox). No lo contradice: lo extiende. Lo que la fase 1 dejó
 > explícitamente fuera de alcance —«configurar el interior de los invitados»— es exactamente
@@ -55,12 +55,12 @@ Haz que el motor de `netlabs_v4_b` deje de desplegar infraestructura **vacía**:
 misma declaración de topología, que ahora además declara **la configuración de cada equipo**, el
 motor debe **entrar en cada invitado, converger su interior, comprobarlo leyéndolo desde dentro y
 saber quitar lo que sobra**, sin romper ni una sola de las propiedades que la fase 1 ya tiene
-(una sola puerta a la API, identidad derivada, diario íntegro, verificación por conjuntos en los dos
+(una sola vía de acceso a la API, identidad derivada, diario íntegro, verificación por conjuntos en los dos
 sentidos, idempotencia demostrable, el motor no conoce ningún lab).
 
 Y como hoy **no existe ninguna forma de entrar** en la red de un lab (medido: desde el nodo de
 control no se alcanza ninguna red interna del nodo, y la API no sabe ejecutar nada dentro de un
-invitado), el motor **construye su propio camino** para entrar: un puesto de control por lab que él
+invitado), el motor **construye su propio túnel** para entrar: un bastión por lab que él
 despliega, arranca y saca hacia casa, sin pasos manuales y sin tocar el hipervisor (§5).
 
 El caso de uso que manda es el de los labs de red virtualizada: **VMs RouterOS (CHR)** que hacen de
@@ -78,13 +78,13 @@ Léelo en este orden, y **no toques nada hasta entender las cuatro ideas que lo 
    manda sobre cualquier documento, incluido este.
 2. `deployment_engine/tools/plan.py` — el plan es una **función pura** de (declaración, estado del
    mundo, identidad) y `apply` ejecuta *ese mismo* plan. Aquí se insertan las fases nuevas (§7).
-3. `deployment_engine/tasks/pve_api.yml` — **la puerta**: hacer la llamada y escribir la línea del
-   diario son una sola cosa, en el mismo fichero. Es el patrón que van a copiar las puertas nuevas
+3. `deployment_engine/tasks/pve_api.yml` — **la vía de acceso**: hacer la llamada y escribir la línea del
+   diario son una sola cosa, en el mismo fichero. Es el patrón que van a copiar las vías de acceso nuevas
    (§8), no un fichero que se toca a la ligera.
 4. `deployment_engine/filter_plugins/{declaracion,identidad,estado}.py` — validar, asignar y leer el
    mundo. El nuevo vocabulario de configuración se valida y se planifica **aquí**, en funciones
    puras probables con fixtures, no en plantillas Jinja dentro de un playbook.
-5. `deployment_engine/tools/framework_check.py` — los ocho checks. Dos de ellos (`puerta`,
+5. `deployment_engine/tools/framework_check.py` — los ocho checks. Dos de ellos (`gateway`,
    `pureza-lab`) son la razón por la que este encargo tiene la forma que tiene (§3, §12).
 6. `labs/03_lab-dos-redes/03_lab-dos-redes.yml` y su `.md` — la declaración y el documento de dos regiones.
 7. `docs/decisiones/0001..0003` — las tres decisiones que no se vuelven a discutir; la 0001 es la que
@@ -102,7 +102,7 @@ Léelo en este orden, y **no toques nada hasta entender las cuatro ideas que lo 
 - **Medido, y es el hueco que abre este encargo**: los dos qemu del lab desplegado **no tienen ningún
   disco** en el almacenamiento (los LXC sí: `vm-104-disk-0.raw`, 4,3 GB). El motor de la fase 1 crea
   VMs que **no pueden arrancar nada**. Sin imagen importada no hay CHR, y sin CHR no hay laboratorio
-  de red: §9.3 no es un extra, es la puerta de entrada.
+  de red: §9.3 no es un extra, es la vía de acceso de entrada.
 - `ansible` 2.22.0 en `/home/hermes/.local/bin`; **no hay ninguna colección instalada** y el motor
   usa sólo `ansible.builtin`. `ansible-lint` y `yamllint` están instalados; si dudas, `uvx`.
 - `secrets.yml` ya declara `pve_nodo`, `pve_puerto`, `pve_token_id`, `pve_token_secreto`,
@@ -138,7 +138,7 @@ dejó medidas que valen oro; leerlas te ahorra una semana de descubrimientos. Lo
    necesita un paso de reinicio **declarado y explicado**, no un truco escondido.
 5. `PUT /rest/ip/route` responde **400 «no such command»** en RouterOS 7.25: se escribe con
    `POST /rest/ip/route/add`. La ruta REST **no siempre coincide con la ruta del CLI**.
-6. El servicio `www` (que es donde vive REST) **nunca se deshabilita**: es el camino de vuelta. v3
+6. El servicio `www` (que es donde vive REST) **nunca se deshabilita**: es el túnel de vuelta. v3
    apagaba `ssh`, `telnet`, `ftp`, `api` y `api-ssl`.
 7. Verificar un router no es «no dio error»: identidad, direcciones **estáticas y no dinámicas**,
    rutas con `active=true`, bridges con **exactamente** los puertos declarados, reservas DHCP con la
@@ -157,7 +157,7 @@ orden correcto**. Aquí el orden lo lleva el plan (§7).
 - **El nodo**: `Proxmox`, Proxmox VE **9.2.21**, API en `https://54.36.168.83:8006` (certificado
   autofirmado, `pve_verificar_tls: false`).
 - **La máquina que lanza Ansible** (el nodo de control): el contenedor `hermes-joan` (LXC 999) **en
-  casa**, en `192.168.1.155/24`, con la puerta por defecto en `192.168.1.1`.
+  casa**, en `192.168.1.155/24`, con la pasarela por defecto en `192.168.1.1`.
 - **Medido: desde casa sólo responden del VPS los puertos 22, 80, 443 y 8006.** Las redes internas
   del nodo **no son alcanzables**: `10.10.10.1:8006`, `10.10.10.2:443` y `10.20.20.1:8006` no
   contestan. Esto **es** el problema del §5.
@@ -176,9 +176,9 @@ orden correcto**. Aquí el orden lo lleva el plan (§7).
 - **Almacenamientos**: `local` (`dir`: images, iso, backup, rootdir, vztmpl, **import**) y
   `local-zfs` (`zfspool`: rootdir, images). **Ninguno ofrece `snippets`**, y eso importa (siguiente
   punto).
-- **La consola de la API es la única puerta que no necesita nada previo, y está cerrada con el token
+- **La consola de la API es la única vía de acceso que no necesita nada previo, y está cerrada con el token
   de hoy**: `POST /nodes/Proxmox/lxc/<vmid>/termproxy` responde **403 `Permission check failed
-  (/vms/<vmid>, VM.Console)`** (medido). Es la puerta que necesita el §5. El billete de consola es un
+  (/vms/<vmid>, VM.Console)`** (medido). Es la vía de acceso que necesita el §5. El billete de consola es un
   ticket RSA de **vida cortísima** (ventana `-20/+40` segundos, medido en el código) atado a usuario,
   ruta y puerto: hay que pedirlo y abrir el websocket en el mismo paso.
 - **Ningún almacenamiento ofrece `snippets`, y además no se pueden subir**: el endpoint de subida
@@ -187,11 +187,11 @@ orden correcto**. Aquí el orden lo lleva el plan (§7).
 - **`ssh-public-keys` en la creación de un LXC sí funciona y no necesita `snippets`**: PVE escribe
   `/root/.ssh/authorized_keys` en el rootfs al crear el contenedor (medido en el código de PVE, con la
   plantilla Debian estándar). Es cómo el motor deja su clave dentro de un invitado Linux **antes** de
-  que exista camino.
-- **El motor puede leer la red de un invitado desde el host, sin camino**:
+  que exista túnel.
+- **El motor puede leer la red de un invitado desde el host, sin túnel**:
   `GET /nodes/<nodo>/lxc/<vmid>/interfaces` devuelve las direcciones reales (medido: `eth0 ->
   10.10.10.2/24` en el contenedor Caddy). Sirve para elegir una dirección libre en el bridge de
-  gestión y para comprobar concesiones DHCP **sin** tener camino (§6.3, §11).
+  gestión y para comprobar concesiones DHCP **sin** tener túnel (§6.3, §11).
 - **El nodo tiene un segmento de gestión con salida**: `vmbr1` = `10.10.10.1/24`, con
   `MASQUERADE -s 10.10.10.0/24 -o vmbr0` e `ip_forward=1` (medido). Es el bridge por el que el puesto
   de control del §5 sale hacia casa. **En un nodo que no lo tuviera, el motor lo necesitaría**: el
@@ -241,7 +241,7 @@ Por qué no la alternativa («que el motor conozca los labs»):
 1. Rompe las tres propiedades que hacen que este motor sea un motor: `check pureza-lab` («añadir un
    lab no toca ni un fichero del motor»), el pool como frontera de propiedad, y «nada derivado se
    guarda en el repo».
-2. v3 ya recorrió ese camino: su capa 2 acabó con roles **con el vocabulario de una topología
+2. v3 ya recorrió ese tunnel: su capa 2 acabó con roles **con el vocabulario de una topología
    concreta** (`netlab`, `bootstrap`) dentro de la maquinaria. En cuanto el motor nombra lo que hay
    dentro de un lab, deja de valer para el siguiente.
 3. La frontera es lo que hace **comprobable** la afirmación: «añadir un lab es añadir datos» se
@@ -256,13 +256,13 @@ no se entra** (el motor lo despliega y se calla, exactamente como hoy).
 
 Las once primeras siguen valiendo. Estas se **añaden numeradas a continuación**:
 
-12. **Cuatro puertas, tres diarios.** A Proxmox y a RouterOS se les habla **sólo** con
+12. **Cuatro vías de acceso, tres diarios.** A Proxmox y a RouterOS se les habla **sólo** con
     `ansible.builtin.uri`, y cada llamada deja **una línea JSON** en `logs/api.jsonl` con un campo
     `api` (`proxmox` | `routeros`) y el rol del invitado. Al interior de un Linux se entra **sólo**
     desde `tasks/interior_ssh.yml`, y cada paso deja una línea en `logs/interior.jsonl`. Ningún otro
     fichero abre una conexión a un invitado. La contraseña o la clave **nunca** se escriben en un
-    diario. La consola de la API se habla **sólo** desde `tasks/camino_consola.yml`, y cada uso
-    deja una línea en `logs/camino.jsonl`.
+    diario. La consola de la API se habla **sólo** desde `tasks/console.yml`, y cada uso
+    deja una línea en `logs/console.jsonl`.
 13. **RouterOS se configura sólo por su REST** (`/rest/…`). Su SSH existe en esta fase **sólo para
     depurar** (declarado, y con su tarea de cierre en el roadmap); el motor no lo usa jamás para
     converger.
@@ -270,34 +270,34 @@ Las once primeras siguen valiendo. Estas se **añaden numeradas a continuación*
     router se **derivan** del vmid del invitado. Si un YAML de lab contiene una MAC, es un bug.
 15. **El vocabulario del interior es cerrado** (§6). Un lab no puede inventarse primitivas: pide una
     nueva al motor, con ADR.
-16. **El camino lo construye el motor y se comprueba de punta a punta** (§5). Si no responde, el
+16. **El túnel lo construye el motor y se comprueba de punta a punta** (§5). Si no responde, el
     verbo **para** diciendo qué pieza falta y cómo se arregla; nunca lo rodea por otra vía.
 17. **El interior es de la declaración por áreas** (§11): dentro de un área declarada, lo que no
     está en el YAML se quita del equipo; fuera de las áreas declaradas no se toca nada.
-18. **Nunca se arranca un escalón antes de que el anterior esté convergido y sirviendo.** Es lo que
+18. **Nunca se arranca una etapa antes de que el anterior esté convergido y sirviendo.** Es lo que
     mata la carrera del DHCP por construcción, no por suerte.
 19. **La consola de la API tiene una sola tarea, y una sola línea.** Sólo para poner el arranque del
-    puesto de control (§5), nunca para configurar un equipo: lo que se configura, se configura por su
-    puerta (REST del router, SSH del Linux) y queda en su diario.
+    bastión (§5), nunca para configurar un equipo: lo que se configura, se configura por su
+    vía de acceso (REST del router, SSH del Linux) y queda en su diario.
 
 Y se **endurece la regla 6**: dos ejecuciones seguidas ⇒ la segunda con `changed=0` **y** los tres
-diarios (`api.jsonl`, `interior.jsonl` y `camino.jsonl`) con **sólo lecturas**.
+diarios (`api.jsonl`, `interior.jsonl` y `console.jsonl`) con **sólo lecturas**.
 
-## 5. El camino: el puesto de control y la consola de la API
+## 5. El tunnel: el bastión y la consola de la API
 
 **El problema, medido, sin adornos.** El motor corre en casa (el nodo de control) y el lab vive en el
 VPS. Desde casa **no se alcanza ninguna red interna del nodo** (`10.10.10.1:8006`, `10.10.10.2:443`,
 `10.20.20.1:8006`: no contestan) y la API de Proxmox **no tiene plano de datos**
 (`POST /nodes/<nodo>/lxc/<vmid>/exec` = **501** en PVE 9.2). Así que el motor no puede inventarse la
-entrada… salvo por la única puerta que **no necesita nada previo**: la **consola de los invitados**,
+entrada… salvo por la única vía de acceso que **no necesita nada previo**: la **consola de los invitados**,
 la misma que pinta el navegador.
 
-**Decisión (⟵ *suposición elegida: el camino es la «opción B» —el puesto de control—; es editable*):**
-el camino lo **construye el motor entero**, sin pasos manuales y sin tocar el hipervisor.
+**Decisión (⟵ *suposición elegida: el túnel es la «opción B» —el bastión—; es editable*):**
+el túnel lo **construye el motor entero**, sin pasos manuales y sin tocar el hipervisor.
 
-1. **Un puesto de control por lab** (`rol: control`, un LXC Linux como cualquier otro): **una pata en
+1. **Un bastión por lab** (`rol: control`, un LXC Linux como cualquier otro): **una interfaz en
    el bridge de gestión del nodo** —el que tiene dirección y salida, hoy `vmbr1`; es un valor de
-   entorno, no del lab— y **una pata por cada bridge del lab**, todas **al nacer**. Cambiar las patas
+   entorno, no del lab— y **una interfaz por cada bridge del lab**, todas **al nacer**. Cambiar las interfaces
    de un invitado en marcha obliga a reiniciarlo, y aquí no se reinicia la máquina que está
    trabajando: se nace completo. Su dirección en los bridges del lab es **estática declarada**, porque
    **la gestión no puede depender de los routers que está desplegando**; la del bridge de gestión del
@@ -307,20 +307,20 @@ el camino lo **construye el motor entero**, sin pasos manuales y sin tocar el hi
    `/root/.ssh/authorized_keys` en el rootfs (medido, y sin `snippets` ni cloud-init).
 3. **La consola de la API, una sola vez y una sola línea.** El puesto no tiene forma de saber que
    quiere salir hacia casa, así que el motor **entra en su consola** (`termproxy` + `vncwebsocket`, el
-   mismo protocolo del navegador) y le pasa **un único comando**: el arranque del camino, empaquetado
+   mismo protocolo del navegador) y le pasa **un único comando**: el arranque del túnel, empaquetado
    en **base64** (una línea, sin heredocs ni comillas que escapar). Nada más se hace nunca por consola.
 4. **El puesto sale hacia casa con `ssh -R`** (nada de WireGuard, decidido): se conecta al sshd del
    nodo de control por el puerto **443** público de casa —medido: hay un sshd detrás, con el reenvío
    del router y el multiplexor por protocolo ya puestos— y **deja reenviado** un puerto local del nodo
    de control hacia su propio sshd. Por ahí entra Ansible: el puesto es el **bastión** del lab
    (`ProxyJump` hacia lo que cuelga de sus bridges).
-   - **El lado de casa lo configura el motor**: genera su par de claves del camino **una vez** en su
+   - **El lado de casa lo configura el motor**: genera su par de claves del túnel **una vez** en su
      propio `~/.ssh` (fuera del repo) y añade **una línea** a su `authorized_keys` con
      `restrict,port-forwarding,permitlisten="<puerto del lab>"`, de modo que esa clave **no da shell
      ni nada más que su reenvío**. Es la única escritura del motor fuera del repo, es de su propia
      máquina, y es idempotente.
-   - El **puerto del lab se deriva** del vmid del puesto de control: nada que guardar.
-5. **La comprobación es la prueba de punta a punta** (`tasks/camino.yml`, y también en `preflight`):
+   - El **puerto del lab se deriva** del vmid del bastión: nada que guardar.
+5. **La comprobación es la prueba de punta a punta** (`tasks/tunnel.yml`, y también en `preflight`):
    1. ¿Responde la API en la dirección pública del nodo? (lo de hoy).
    2. ¿Contesta el sshd del puesto en el **puerto reenviado** del nodo de control? Eso demuestra la
       cadena entera: casa → 443 → puesto → vuelta.
@@ -329,7 +329,7 @@ el camino lo **construye el motor entero**, sin pasos manuales y sin tocar el hi
    (**403 `VM.Console`**), el mensaje dice el privilegio exacto y la llamada exacta que hay que hacer
    **una vez** (§5.1). El motor no se auto-concede nada.
 
-**Lo que este camino no necesita**, y es la razón de elegirlo: **nada en el nodo**. Ni rutas, ni NAT,
+**Lo que este túnel no necesita**, y es la razón de elegirlo: **nada en el nodo**. Ni rutas, ni NAT,
 ni ficheros, ni reinicios, ni una receta que alguien pegue. El hipervisor sigue aportando **sólo
 bridges y API**.
 
@@ -339,12 +339,12 @@ lee el eco— y por eso queda **encerrada**: una tarea, una línea que enviar, y
 dice si funcionó. Su ventana es corta (el billete de consola vive **40 segundos**), así que pedir el
 billete y abrir el websocket son el mismo paso.
 
-**Regla 1, intacta**: la consola no es una puerta nueva —viaja por el mismo host, el mismo puerto
-(8006) y la misma autenticación que la API—; lo que cambia es el **protocolo**, no la puerta.
+**Regla 1, intacta**: la consola no es una vía de acceso nueva —viaja por el mismo host, el mismo puerto
+(8006) y la misma autenticación que la API—; lo que cambia es el **protocolo**, no la vía de acceso.
 
 **El ADR que esto necesita** (`docs/decisiones/0004-…`): fija (a) que el motor habla un protocolo más
-que REST **por la única puerta**, (b) el privilegio exacto (`VM.Console`) y por qué no más, y (c) lo
-que se descarta y por qué: **el túnel al propio nodo** (lo que v3 usó — dejaría el camino fuera del
+que REST **por la única vía de acceso**, (b) el privilegio exacto (`VM.Console`) y por qué no más, y (c) lo
+que se descarta y por qué: **el túnel al propio nodo** (lo que v3 usó — dejaría el túnel fuera del
 motor y tocaría la red del hipervisor) y **la plantilla-aparato** (que se queda en el roadmap, §16).
 
 ### 5.1 El token: mínimos privilegios de verdad (y por qué el de hoy no lo era)
@@ -393,113 +393,113 @@ manda a la API o al equipo se traduce en **un solo sitio** (el driver), nunca en
 ```yaml
 lab:
   nombre: lab-red-routeros
-  escalones: [1, 2, 3]
-  supernet: 10.40.0.0/16        # NUEVO: todo lo del lab vive aquí (lo vigila un check, §12)
+  stages: [1, 2, 3]
+  address_space: 10.40.0.0/16        # NUEVO: todo lo del lab vive aquí (lo vigila un check, §12)
   bridges:
-    - {nombre: vmb_gestion, direccion: 10.40.0.1/24}
-    - {nombre: vmb_lan1,    direccion: 10.40.1.1/24}
-  camino: {tipo: puesto_control} # NUEVO: lo construye el motor (§5)
+    - {nombre: vmb_gestion, address: 10.40.0.1/24}
+    - {nombre: vmb_lan1,    address: 10.40.1.1/24}
+  tunnel: {tipo: puesto_control} # NUEVO: lo construye el motor (§5)
 
 vms:                            # QEMU: en esta fase, RouterOS (CHR)
   - rol: borde
     escalon: 1
     cores: 2
-    memoria: 512
-    disco: 4
-    imagen: chr-7.25.1.raw      # NUEVO: disco importado al crear (§9.3)
-    bridge: vmb_gestion         # la pata de gestión (ether1)
-    direccion: 10.40.0.11/24    # estática; el puesto de control se la da por DHCP al nacer
+    memory: 512
+    disk: 4
+    image: chr-7.25.1.raw      # NUEVO: disco importado al crear (§9.3)
+    bridge: vmb_gestion         # la interfaz de gestión (ether1)
+    address: 10.40.0.11/24    # estática; el bastión se la da por DHCP al nacer
     config:
       routeros:
-        identidad: rt-borde
-        servicios: {deshabilitar: [telnet, ftp, api, api-ssl]}   # www (REST) NO se toca
-        cliente_dhcp: {deshabilitar: true}          # el de fábrica, en ether1
-        direcciones:
-          - {interfaz: ether2, direccion: 10.40.1.1/24}
+        identity: rt-borde
+        ip_services: {deshabilitar: [telnet, ftp, api, api-ssl]}   # www (REST) NO se toca
+        dhcp_client: {deshabilitar: true}          # el de fábrica, en ether1
+        addresses:
+          - {interface: ether2, address: 10.40.1.1/24}
         rutas:
-          - {destino: 0.0.0.0/0, pasarela: 10.40.0.1}
+          - {dst_address: 0.0.0.0/0, gateway: 10.40.0.1}
         dhcp:
-          - interfaz: ether2
+          - interface: ether2
             pool: {rango: 10.40.1.100-10.40.1.200}
-            red: {prefijo: 10.40.1.0/24, pasarela: 10.40.1.1, dns: [10.40.1.1]}
-            reservas: derivadas      # las direcciones estáticas declaradas en ese bridge
+            red: {prefijo: 10.40.1.0/24, gateway: 10.40.1.1, dns: [10.40.1.1]}
+            static_leases: derived      # las direcciones estáticas declaradas en ese bridge
         cortafuegos:
           filter: [{cadena: forward, accion: accept}]
           nat: []
 
 containers:                     # LXC: en esta fase, Linux
-  - rol: control                  # el puesto de control del lab (§5): el bastión y el que da
+  - rol: control                  # el bastión del lab (§5): el bastión y el que da
     escalon: 1                    #   la primera dirección a los CHR
     cores: 1
-    memoria: 512
-    disco: 4
-    bridge: vmb_gestion           # + una pata por cada bridge del lab y una en el bridge de gestión
+    memory: 512
+    disk: 4
+    bridge: vmb_gestion           # + una interfaz por cada bridge del lab y una en el bridge de gestión
                                   #   del nodo (valor de entorno): todas al nacer
-    direccion: 10.40.0.10/24
+    address: 10.40.0.10/24
     config:
       linux:
-        camino: {salida: {host: <el de casa>, puerto: 443}}     # NUEVO: el bastión (§5)
-        dhcp_servidor:
-          interfaz: eth0
+        tunnel: {salida: {host: <el de casa>, puerto: 443}}     # NUEVO: el bastión (§5)
+        dhcp_server:
+          interface: eth0
           rango: 10.40.0.50-10.40.0.99
-          reservas: derivadas
-        reenvio: true
+          static_leases: derived
+        ip_forward: true
   - rol: puesto-1
     escalon: 3
     cores: 1
-    memoria: 512
-    disco: 4
+    memory: 512
+    disk: 4
     bridge: vmb_lan1
-    direccion: dhcp              # NUEVO: cliente dinámico (§6.3)
+    address: dhcp              # NUEVO: cliente dinámico (§6.3)
     config:
       linux: {}
 ```
 
 ### 6.2 Reglas del vocabulario
 
-- **`direccion` por invitado** admite tres formas: `<ip>/<prefijo>` (estática), `dhcp` (dinámica) y
+- **`address` por invitado** admite tres formas: `<ip>/<prefijo>` (estática), `dhcp` (dinámica) y
   ausente (equipo sin dirección: un conmutador puro). Un invitado **con `config:`** necesita ser
-  alcanzable, así que necesita una pata en el bridge de gestión y una dirección: un equipo que no se
+  alcanzable, así que necesita una interfaz en el bridge de gestión y una dirección: un equipo que no se
   puede alcanzar no se puede converger, y eso se dice, no se intenta.
 - **`config:` con exactamente una clave de tipo** (`linux` o `routeros`). El tipo elige el driver.
 - **Ninguna MAC, ningún vmid, ninguna contraseña** en el YAML del lab. Las credenciales de RouterOS
   (usuario `admin`, su contraseña, la clave pública del motor) viven en `secrets.yml`; el lab sólo
   declara **qué** hay que configurar.
-- **`reservas: derivadas`** es la única forma de declarar reservas DHCP: el motor reserva, por la MAC
+- **`static_leases: derived`** es la única forma de declarar reservas DHCP: el motor reserva, por la MAC
   que deriva del vmid, **cada dirección estática declarada por otro invitado del mismo bridge** —y
   excluye al propio servidor—, de modo que ningún cliente dinámico puede robarle la dirección a un
   router o a un servidor. Si hiciera falta una reserva que no se deduce de otra declaración, se
-  declara `reservas: [{rol, direccion}]`, **nunca con MAC**.
-- **El puesto de control** declara su `camino` y sus patas: el motor le da una pata por cada
+  declara `static_leases: [{rol, direccion}]`, **nunca con MAC**.
+- **El bastión** declara su `tunnel` y sus interfaces: el motor le da una interfaz por cada
   `bridges` del lab **y** una en el bridge de gestión del nodo (valor de entorno, en
   `vars/engine.yml`, no en el lab). Su dirección en los bridges del lab es **estática declarada**,
   porque **la gestión no puede depender de los routers que está desplegando**; la del bridge de
   gestión del nodo la elige el motor de entre las libres (§5).
-- Un lab **sin `config:` y sin `imagen:`** es un lab de la fase 1 y **su plan no puede cambiar ni un
+- Un lab **sin `config:` y sin `image:`** es un lab de la fase 1 y **su plan no puede cambiar ni un
   paso** (§14).
 
-### 6.3 `direccion: dhcp` — qué promete y cómo se verifica
+### 6.3 `address: dhcp` — qué promete y cómo se verifica
 
 Un cliente dinámico no declara su dirección, así que la verificación cambia de forma: se comprueba
 que (a) el invitado **tiene** una dirección y está **dentro del rango declarado** por el servidor
 DHCP de ese bridge, y (b) el servidor DHCP del router tiene una **concesión activa para la MAC
 derivada** de ese invitado. Las dos cosas, o no está verificado.
 
-## 7. El plan y el orden: escalones, fases y arranque en cadena
+## 7. El plan y el orden: etapas, fases y arranque en cadena
 
-**La columna vertebral ya existe y no se cambia: los `escalones`.** Lo que cambia es que la
+**La columna vertebral ya existe y no se cambia: los `stages`.** Lo que cambia es que la
 configuración deja de ser un playbook que el humano lanza después, y pasa a ser **una fase más del
-mismo plan**, intercalada escalón a escalón:
+mismo plan**, intercalada etapa a etapa:
 
 ```
-0. construir el camino si falta (§5): el puesto de control nace, recibe su clave, el motor le pone
-   el arranque por consola UNA vez, y la salida hacia casa se comprueba. Ningún escalón empieza antes.
+0. construir el túnel si falta (§5): el bastión nace, recibe su clave, el motor le pone
+   el arranque por consola UNA vez, y la salida hacia casa se comprueba. Ningún etapa empieza antes.
 
-por cada escalón, en orden:
-  1. crear / actualizar los invitados del escalón      (API, como hoy)
-  2. arrancar el escalón                               (API, como hoy)
-  3. converger el interior de los invitados del escalón  (NUEVO: drivers, §9)
-  4. comprobar que el escalón sirve de verdad            (NUEVO: sondas de §11)
+por cada etapa, en orden:
+  1. crear / actualizar los invitados de la etapa      (API, como hoy)
+  2. arrancar la etapa                               (API, como hoy)
+  3. converger el interior de los invitados de la etapa  (NUEVO: drivers, §9)
+  4. comprobar que la etapa sirve de verdad            (NUEVO: sondas de §11)
 antes de pasar al siguiente.
 ```
 
@@ -527,31 +527,31 @@ misma función pura de siempre, extendida. La diferencia es que los pasos del in
 
 **Acciones nuevas del plan** (junto a las de hoy: `crear_pool`, `crear_bridge`, `recargar_red`,
 `crear_invitado`, `arrancar_invitado`): `converger_interior`, `reiniciar_invitado` (cuando el
-residuo dinámico lo exige, §9.2) y `esperar_servicio` — y las dos del camino: `construir_camino`
-(con sus sub-pasos: clave, `authorized_keys` local, consola) y `comprobar_camino`. Cada una con su `porque` legible, como las
+residuo dinámico lo exige, §9.2) y `esperar_servicio` — y las dos del tunnel: `construir_túnel`
+(con sus sub-pasos: clave, `authorized_keys` local, consola) y `comprobar_túnel`. Cada una con su `porque` legible, como las
 actuales: el plan es una **explicación**, no una lista de órdenes.
 
-## 8. Las puertas y los diarios
+## 8. Las vías de acceso y los diarios
 
 | Puerta | Fichero | Transporte | Diario | Qué la vigila |
 | --- | --- | --- | --- | --- |
-| Proxmox | `tasks/pve_api.yml` (existe) | `ansible.builtin.uri` | `logs/api.jsonl`, `api: proxmox` | `check puerta` (hoy) |
-| RouterOS REST | `tasks/ros_api.yml` (nuevo) | `ansible.builtin.uri` | `logs/api.jsonl`, `api: routeros` | `check puerta` (ampliado) |
-| Interior Linux | `tasks/interior_ssh.yml` (nuevo) | SSH | `logs/interior.jsonl` | `check puerta` (ampliado) |
-| Consola de la API | `tasks/camino_consola.yml` (nuevo) | websocket sobre la **misma** puerta (8006) | `logs/camino.jsonl`, `puerta: consola` | `check puerta` (ampliado) |
+| Proxmox | `tasks/pve_api.yml` (existe) | `ansible.builtin.uri` | `logs/api.jsonl`, `api: proxmox` | `check access` (hoy) |
+| RouterOS REST | `tasks/ros_api.yml` (nuevo) | `ansible.builtin.uri` | `logs/api.jsonl`, `api: routeros` | `check access` (ampliado) |
+| Interior Linux | `tasks/interior_ssh.yml` (nuevo) | SSH | `logs/interior.jsonl` | `check access` (ampliado) |
+| Consola de la API | `tasks/console.yml` (nuevo) | websocket sobre la **misma** vía de acceso (8006) | `logs/console.jsonl`, `gateway: consola` | `check access` (ampliado) |
 
-- **La puerta de RouterOS es una copia del patrón de `pve_api.yml`, no una variante**: una llamada,
+- **La vía de acceso de RouterOS es una copia del patrón de `pve_api.yml`, no una variante**: una llamada,
   una línea de diario, siempre, salga bien o mal; `no_log` en la respuesta; códigos 4xx tolerados
   para poder diarizarlos; `changed_when` decidido por el método. Su URL base es
   `http://<direccion del invitado>/rest` — **el HTTP en claro es deliberado y temporal** (el CHR de
   fábrica no tiene certificado); el ADR correspondiente debe decirlo.
-- **La puerta del interior** construye el inventario **en memoria** (`inventario_invitados.yml`):
+- **La vía de acceso del interior** construye el inventario **en memoria** (`guest_inventory.yml`):
   usuario, clave, `StrictHostKeyChecking=no`, `UserKnownHostsFile=/dev/null`, y `ProxyJump` cuando haga
-  falta: el **primer salto es siempre el puerto reenviado del puesto de control** (§5) —el bastión del
+  falta: el **primer salto es siempre el puerto reenviado del bastión** (§5) —el bastión del
   lab— y el segundo, si el invitado cuelga detrás de un router del propio lab. Es el **único** sitio del repo donde se declaran
   parámetros de conexión SSH a invitados; el check lo vigila.
 - **El diario del interior** es una línea JSON por paso, con lo que hace falta para reconstruir qué
-  pasó: `ts`, `verb`, `lab`, `invitado`, `tipo`, `area`, `accion`, `declarado`, `encontrado`,
+  pasó: `ts`, `verb`, `lab`, `guest`, `tipo`, `area`, `accion`, `declarado`, `encontrado`,
   `cambiado`, `resultado`. Sin credenciales, sin claves, sin contenido de ficheros enteros.
 - **La clave pública del motor se inyecta al crear** el invitado, no después: LXC con
   **`ssh-public-keys`** (medido: PVE lo escribe en el rootfs al crear, sin `snippets` ni cloud-init);
@@ -569,12 +569,12 @@ lo que sobra **dentro del área** → volver a leer y comprobar. Nada de «lanza
 
 Áreas y orden de convergencia (el orden importa: es el de v3, y no es casual):
 
-1. `identidad` — el nombre del equipo y las credenciales del motor (**la última** en la primera
-   convergencia, para no perder el camino de vuelta a mitad de camino; v3 lo llamaba intercambio
+1. `identity` — el nombre del equipo y las credenciales del motor (**la última** en la primera
+   convergencia, para no perder el túnel de vuelta a mitad de túnel; v3 lo llamaba intercambio
    atómico y la razón sigue siendo buena).
-2. `servicios` — deshabilitar lo declarado (`telnet`, `ftp`, `api`, `api-ssl`), **nunca `www`**.
-3. `cliente_dhcp` — deshabilitar el de fábrica (si queda alguno).
-4. `direcciones` — estáticas, y comprobando que **no** queda una dinámica con el mismo valor.
+2. `ip_services` — deshabilitar lo declarado (`telnet`, `ftp`, `api`, `api-ssl`), **nunca `www`**.
+3. `dhcp_client` — deshabilitar el de fábrica (si queda alguno).
+4. `addresses` — estáticas, y comprobando que **no** queda una dinámica con el mismo valor.
 5. `rutas` — con `active=true` en la verificación.
 6. `puentes` — con exactamente los puertos declarados.
 7. `dhcp` — red, servidor, pool y reservas derivadas.
@@ -582,7 +582,7 @@ lo que sobra **dentro del área** → volver a leer y comprobar. Nada de «lanza
 9. `reinicio` — sólo si el residuo dinámico lo exige (§9.2), y **declarado en el plan**.
 
 Trampas que ya están pagadas y no se vuelven a pagar: `POST /rest/…/add` en vez de `PUT`;
-`dynamic=yes` no se borra por API; el servicio `www` es el camino de vuelta.
+`dynamic=yes` no se borra por API; el servicio `www` es el túnel de vuelta.
 
 ### 9.2 El residuo dinámico del CHR (y el reinicio, si no hay más remedio)
 
@@ -607,8 +607,8 @@ recrear el invitado»), no sigue y lo deja pasar.
 
 ### 9.4 `linux` (SSH)
 
-Áreas: `direccion` (estática o dinámica), `pasarela`, `rutas`, `dns`, `reenvio`, `dhcp_servidor`
-(con reservas derivadas), `claves` y **`camino`** (sólo en el puesto de control: la unidad de salida
+Áreas: `address` (estática o dinámica), `gateway`, `rutas`, `dns`, `ip_forward`, `dhcp_server`
+(con reservas derivadas), `claves` y **`tunnel`** (sólo en el bastión: la unidad de salida
 hacia casa, que se pone **una vez por consola** y después se comprueba como todo lo demás, §5). Se converge con comandos idempotentes y se comprueba leyendo el
 estado real (`ip -j addr`, `ip -j route`, la tabla de concesiones). **Nada de `shell` con `creates`**:
 leer, decidir, escribir, releer.
@@ -617,39 +617,39 @@ leer, decidir, escribir, releer.
 
 La cadena completa, resuelta y en orden (es la parte que el encargo anterior dejó abierta):
 
-0. **El camino, antes de todo** (§5): el puesto de control nace con sus patas, recibe su clave por
+0. **El túnel, antes de todo** (§5): el bastión nace con sus interfaces, recibe su clave por
    API, el motor entra **una vez** por su consola para poner el arranque de la salida hacia casa, y
    comprueba que el puerto reenviado contesta. **Hasta que eso no se cumple, no se toca nada más.**
-1. **Escalón 1 — el puesto de control** (LXC Linux, `config.linux.dhcp_servidor`): ya arrancado en el
-   paso 0, se converge su interior por el camino recién construido. Es el que da la **primera**
+1. **Escalón 1 — el bastión** (LXC Linux, `config.linux.dhcp_servidor`): ya arrancado en el
+   paso 0, se converge su interior por el túnel recién construido. Es el que da la **primera**
    dirección a los CHR en el bridge de gestión.
    - Su servidor DHCP reserva, por la **MAC derivada del vmid**, la dirección que cada CHR declara
      (§6.2). Nadie escribe una MAC.
    - En su interfaz hace falta el arreglo del checksum medido en v3:
      `ethtool -K <if> tx off gso off tso off`. Sin eso, las ofertas se tiran y nada funciona.
 2. **Escalón 1 — el primer CHR**: se arranca sin dirección y la pide por DHCP. Es **tolerante**
-   (pide sin parar hasta que la recibe), así que puede compartir escalón con el puesto de control.
-3. **El motor ya lo alcanza** por el camino (§5) en su dirección declarada, y hace la **primera
+   (pide sin parar hasta que la recibe), así que puede compartir etapa con el bastión.
+3. **El motor ya lo alcanza** por el túnel (§5) en su dirección declarada, y hace la **primera
    convergencia**: usuario y clave del motor, identidad, servicios, direcciones estáticas, y
    deshabilitar el cliente de fábrica.
-4. **Escalón 2 — el segundo escalón de la red** (otro CHR y/o servidores): su dirección en la LAN del
+4. **Escalón 2 — el segundo etapa de la red** (otro CHR y/o servidores): su dirección en la LAN del
    primer CHR es **estática declarada**, y el primer CHR la tiene reservada por MAC derivada. Aquí se
    ve el encadenamiento: el que da la dirección ya está convergido antes de que el otro arranque.
-5. **Escalón 3 — los puestos**: `direccion: dhcp`, colgados del CHR de su LAN. **No arrancan hasta
+5. **Escalón 3 — los puestos**: `address: dhcp`, colgados del CHR de su LAN. **No arrancan hasta
    que su CHR está sirviendo** (regla 18). Su verificación es la de §6.3.
 
 **Nada de esto puede depender de que un humano lance las cosas en el orden correcto**: el orden está
-en el plan, y el plan sale de los `escalones` que el lab declara.
+en el plan, y el plan sale de los `stages` que el lab declara.
 
 ## 11. Verificación: qué significa «hecho» ahora
 
 `verify` sigue siendo el test final, y ahora mira **en los dos mundos**:
 
 - **El mundo (API)**: lo de hoy — cada invitado declarado existe, con su pool, su descripción, su
-  bridge, su escalón; y nada de fuera del lab se toca.
-- **Parte de la verdad se puede leer sin camino**: `GET /nodes/<nodo>/lxc/<vmid>/interfaces` da las
+  bridge, su etapa; y nada de fuera del lab se toca.
+- **Parte de la verdad se puede leer sin túnel**: `GET /nodes/<nodo>/lxc/<vmid>/interfaces` da las
   direcciones reales de cada invitado, desde el host y sin tocar su interior (§1.3). Permite comprobar
-  «tiene dirección y está en el rango declarado» **aunque el camino esté caído**. Cuando existen las
+  «tiene dirección y está en el rango declarado» **aunque el túnel esté caído**. Cuando existen las
   dos lecturas, se dicen las dos.
 - **El interior de cada invitado**: para cada **área declarada**, el estado real del equipo coincide
   con lo declarado **en los dos sentidos**: todo lo declarado está, y **nada que no esté declarado
@@ -665,36 +665,36 @@ en el plan, y el plan sale de los `escalones` que el lab declara.
 
 ## 12. Documentación, checks y guardas nuevas
 
-- **ADRs nuevos** (`docs/decisiones/`): `0004` el camino y el token (qué protocolo nuevo se habla
-  por la única puerta, qué privilegios exactos tiene el token y qué se descartó: el túnel al propio
+- **ADRs nuevos** (`docs/decisiones/`): `0004` el túnel y el token (qué protocolo nuevo se habla
+  por la única vía de acceso, qué privilegios exactos tiene el token y qué se descartó: el túnel al propio
   nodo y la plantilla-aparato); `0005` qué es «de la declaración» dentro de un equipo (las áreas);
-  `0006` las cuatro puertas y los tres diarios; `0007` el residuo dinámico del CHR (§9.2), con el
+  `0006` las cuatro vías de acceso y los tres diarios; `0007` el residuo dinámico del CHR (§9.2), con el
   resultado real de la medición. Una decisión por ADR, con el **porqué** y con lo descartado.
-- **`docs/camino-del-puesto-de-control.md`**: cómo funciona el camino —el protocolo de la consola y su
+- **`docs/tunnel-del-bastion.md`**: cómo funciona el túnel —el protocolo de la consola y su
   ventana de billete, la línea en base64, el `authorized_keys` de casa con su `permitlisten`, el
   puerto derivado—. **No es una receta para un humano**: no hay nada que pegar a mano.
 - **`README.md`**: el motor cambia de verdad, así que el README cambia: verbos (¿siguen siendo los
-  mismos? sí: `plan`, `preflight`, `apply`, `verify`, `destroy`), las cuatro puertas, los tres
+  mismos? sí: `plan`, `preflight`, `apply`, `verify`, `destroy`), las cuatro vías de acceso, los tres
   diarios,
   y el vocabulario nuevo. **Sin valores de ningún lab** (lo vigila `check readme`).
 - **`AGENTS.md`**: las reglas 12–19 del §4 y la tabla «si pasa X → corre Y» con las filas nuevas
-  (cambiar un lab con `config:` → `plan --api` y `check docs`; tocar un driver → `check puerta` y los
+  (cambiar un lab con `config:` → `plan --api` y `check docs`; tocar un driver → `check access` y los
   tests de interior).
 - **El documento de cada lab** (`labs/<lab>/<lab>.md`): la región generada crece para mostrar la
   configuración declarada (una tabla por invitado con sus áreas). La reescribe
   `tools/documentos.py`; la prosa sigue siendo libre y es donde se archiva **lo que se aprendió al
   ejecutar** (los reinicios, los residuos, las trampas del checksum).
 - **Checks nuevos o ampliados** (todos con su caso que **debe** fallar, probado a propósito):
-  - `puerta`: la ruta base de RouterOS (`/rest`) sólo puede aparecer en `tasks/ros_api.yml`; los
+  - `gateway`: la ruta base de RouterOS (`/rest`) sólo puede aparecer en `tasks/ros_api.yml`; los
     parámetros de conexión SSH a invitados, sólo en `tasks/interior_ssh.yml` y
-    `tasks/inventario_invitados.yml`; y el protocolo de consola, sólo en `tasks/camino_consola.yml`.
+    `tasks/guest_inventory.yml`; y el protocolo de consola, sólo en `tasks/console.yml`.
   - `privilegios`: nada del motor concede privilegios de la API (ninguna llamada a `/access/…` fuera
     de la guarda de `preflight`); ningún invitado declarado nace privilegiado (`unprivileged`
     siempre), ni con claves crudas de LXC que monten rutas del host, ni con dispositivos.
-  - `supernet`: toda dirección y todo rango declarado por un lab cae dentro de su `lab.supernet`, y
-    los supernets de dos labs no se solapan.
-  - `declaracion`: valida el vocabulario del §6 (tipos, formas de `direccion`, áreas conocidas,
-    ninguna MAC, ninguna contraseña, `reservas` bien formadas).
+  - `address_space`: toda dirección y todo rango declarado por un lab cae dentro de su `lab.espacio de direcciones`, y
+    los espacio de direccioness de dos labs no se solapan.
+  - `declaracion`: valida el vocabulario del §6 (tipos, formas de `address`, áreas conocidas,
+    ninguna MAC, ninguna contraseña, `static_leases` bien formadas).
   - `pureza-lab`: sigue igual de estricto, y ahora también con los ficheros nuevos del interior
     (si el nombre de un lab o el de un bridge aparece en el motor, es un bug).
 - **Una afirmación de comportamiento que puede ser un check no se queda en prosa.** Si al ejecutar
@@ -705,19 +705,19 @@ en el plan, y el plan sale de los `escalones` que el lab declara.
 
 ```
 deployment_engine/
-  tasks/ros_api.yml              la puerta a RouterOS REST + el diario
-  tasks/interior_ssh.yml         la puerta al interior Linux + el diario
-  tasks/inventario_invitados.yml construye el inventario en memoria (una vez)
-  tasks/camino.yml              el lado del motor: clave del camino, authorized_keys, comprobación
-  tasks/camino_consola.yml      la puerta de consola (la única que habla ese protocolo)
-  tools/consola.py              el cliente de consola (websocket, sólo biblioteca estándar)
+  tasks/ros_api.yml              la vía de acceso a RouterOS REST + el diario
+  tasks/interior_ssh.yml         la vía de acceso al interior Linux + el diario
+  tasks/guest_inventory.yml construye el inventario en memoria (una vez)
+  tasks/tunnel.yml              el lado del motor: clave del túnel, authorized_keys, comprobación
+  tasks/console.yml      la vía de consola (la única que habla ese protocolo)
+  tools/console.py              el cliente de consola (websocket, sólo biblioteca estándar)
   tasks/configurar_routeros.yml  el driver: orquesta llamadas a ros_api
   tasks/configurar_linux.yml     el driver: lee, decide, escribe, relee
   filter_plugins/interior.py     PURO: (declarado, leído) → pasos del interior  [+ tests]
   playbooks/…                    los verbos, con las fases nuevas del §7
   tools/documentos.py            la región generada, ampliada
 docs/decisiones/0004..0007-*.md
-docs/camino-del-puesto-de-control.md
+docs/tunnel-del-bastion.md
 labs/<lab-de-aceptacion>/…       el lab nuevo (§14) + su documento
 test/test_interior.py            el driver puro, con fixtures
 ```
@@ -729,11 +729,11 @@ pide, para y justifícalo por escrito en el README (regla 10). Nada de coleccion
 ## 14. Los labs de aceptación
 
 1. **Un lab nuevo con CHR** (nombre sugerido: `04_lab-red-routeros`), que ejerza la cadena entera del
-   §10: puesto de control (con su **camino**, §5) → primer CHR → segundo escalón → puestos dinámicos. Dos bridges como
-   mínimo (gestión y una LAN), dos escalones de red, y puestos que obtienen su dirección del CHR. Es
+   §10: bastión (con su **túnel**, §5) → primer CHR → segundo etapa → puestos dinámicos. Dos bridges como
+   mínimo (gestión y una LAN), dos etapas de red, y puestos que obtienen su dirección del CHR. Es
    el lab que se despliega **de verdad** en el VPS y se destruye al final (§15).
 2. **Regresión de los labs de la fase 1** (`03_lab-dos-redes`, `02_lab-minimo`, `01_ejemplo-topologia`): **su
-   plan no puede cambiar ni un paso**, porque no declaran `config:` ni `imagen:`. Se comprueba
+   plan no puede cambiar ni un paso**, porque no declaran `config:` ni `image:`. Se comprueba
    comparando la salida de `plan` con una copia de referencia tomada **antes** de empezar.
 
 ## 15. Alcance del test final (comandos y salida esperada)
@@ -745,8 +745,8 @@ Todo esto se ejecuta y se pega con la salida real. «Funciona» no es una salida
 python3 test/test_interior.py        # el driver puro: declarado+leído → pasos (con fixtures)
 ./lab --lab 03_lab-dos-redes plan       # MISMO plan que antes de empezar (regresión, §14)
 
-# el ciclo real contra el Proxmox del VPS, con el camino en pie:
-./lab --lab 04_lab-red-routeros preflight      # dice qué hay y si el camino responde
+# el ciclo real contra el Proxmox del VPS, con el túnel en pie:
+./lab --lab 04_lab-red-routeros preflight      # dice qué hay y si el túnel responde
 ./lab --lab 04_lab-red-routeros plan --api     # plan exacto: lecturas y escrituras
 ./lab --lab 04_lab-red-routeros apply          # converge en UNA sola pasada
 ./lab --lab 04_lab-red-routeros apply          # changed=0 y los TRES diarios con sólo lecturas
@@ -754,7 +754,7 @@ python3 test/test_interior.py        # el driver puro: declarado+leído → paso
 ./lab --lab 04_lab-red-routeros destroy --yes
 
 # y los DOS fallos correctos, provocados a propósito (parte del test, no un extra):
-# 1) el camino caído (puesto de control parado): `apply` DEBE reconstruirlo —arrancarlo y rehacer su
+# 1) el túnel caído (bastión parado): `apply` DEBE reconstruirlo —arrancarlo y rehacer su
 #    salida— sin tocar nada más.
 # 2) la consola fuera de alcance (privilegio `VM.Console` retirado a mano): `apply` DEBE parar
 #    diciendo el privilegio exacto y la llamada exacta, sin tocar nada.
@@ -765,9 +765,9 @@ CHR?), qué no se pudo probar y por qué, y qué límites tiene la capa nueva.
 
 ## 16. Fuera de alcance (y dónde vive el punto de extensión)
 
-- **Cerrar la consola**: en esta fase la consola de la API **es** el arranque del camino (§5). El
+- **Cerrar la consola**: en esta fase la consola de la API **es** el arranque del túnel (§5). El
   roadmap la cierra con **el aparato preparado** —una plantilla que ya nace sabiendo salir hacia casa,
-  subida al nodo **por la propia API** (`vztmpl`: medido, se puede)—, que dejaría el camino sin
+  subida al nodo **por la propia API** (`vztmpl`: medido, se puede)—, que dejaría el túnel sin
   consola y sin `VM.Console`. Su ADR lo dirá.
 - **Estrechar `VM.Console`** de `/vms` (todo el clúster) a una ACL por pool de lab, y **endurecer el
   resto de la ACL por ruta** si al operador le aprieta el radio de daño del §5.1.
@@ -786,10 +786,10 @@ CHR?), qué no se pudo probar y por qué, y qué límites tiene la capa nueva.
 
 1. **Capa por capa, y cada capa verificada antes de la siguiente**: (a) **el token nuevo y su guarda
    de mínimos privilegios** (§5.1) — lo primero, porque todo lo demás se apoya en él; (b) el
-   vocabulario y su validación + el plan, con tests puros; (c) **el camino** (§5): puesto de control,
-   puerta de consola y comprobación de punta a punta, con su prueba de «funciona» y su prueba de
-   «falla como debe»; (d) la puerta de RouterOS y su diario; (e) el driver de RouterOS con un CHR
-   suelto; (f) el driver de Linux; (g) el encadenamiento por escalones y el lab de aceptación; (h) el
+   vocabulario y su validación + el plan, con tests puros; (c) **el túnel** (§5): bastión,
+   vía de consola y comprobación de punta a punta, con su prueba de «funciona» y su prueba de
+   «falla como debe»; (d) la vía de acceso de RouterOS y su diario; (e) el driver de RouterOS con un CHR
+   suelto; (f) el driver de Linux; (g) el encadenamiento por etapas y el lab de aceptación; (h) el
    ciclo real completo.
 2. **Pregunta en vez de inventar.** Si algo del §5 o del §10 no encaja con lo que mides, para y
    dilo; no lo rodees con un `ignore_errors`.

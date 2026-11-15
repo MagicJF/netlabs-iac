@@ -54,7 +54,7 @@ def _filas(filas, columnas):
     return "\n".join("| " + " | ".join(str(celda) for celda in fila) + " |" for fila in filas)
 
 
-def _invitados_normalizados(declaracion):
+def _guests_normalizados(declaracion):
     """Misma normalización que el motor, sin depender de él.
 
     Se repite a propósito: `documentos.py` es una herramienta y no debe cargar el
@@ -62,12 +62,12 @@ def _invitados_normalizados(declaracion):
     a la vista; la alternativa (importar el filtro) ataría la documentación a
     Ansible, que es justo lo que se quiere evitar.
     """
-    invitados = []
+    guests = []
     for seccion, tipo in (("vms", "qemu"), ("containers", "lxc")):
-        for invitado in declaracion.get(seccion) or []:
-            invitados.append({**invitado, "tipo": tipo})
-    invitados.sort(key=lambda i: (i["escalon"], i["rol"]))
-    return invitados
+        for guest in declaracion.get(seccion) or []:
+            guests.append({**guest, "tipo": tipo})
+    guests.sort(key=lambda i: (i["stage"], i["rol"]))
+    return guests
 
 
 def _localizar_region(texto, ruta_documento):
@@ -95,42 +95,42 @@ def renderizar_region(directorio_lab):
     declaracion = _leer_yaml(os.path.join(directorio_lab, archivo_declaracion))
     motor = _vars_del_motor()
 
-    invitados = _invitados_normalizados(declaracion)
+    guests = _guests_normalizados(declaracion)
     bridges = declaracion["lab"]["bridges"]
-    escalones = sorted(set(declaracion["lab"]["escalones"]))
+    stages = sorted(set(declaracion["lab"]["stages"]))
 
-    tabla_invitados = _filas(
+    tabla_guests = _filas(
         [
             [
                 i["rol"],
                 ETIQUETA_TIPO[i["tipo"]],
-                i["escalon"],
+                i["stage"],
                 i["cores"],
-                i["memoria"],
-                i["disco"],
-                # Las patas del invitado, en orden. Un invitado de varias (`bridges`) las
+                i["memory"],
+                i["disk"],
+                # Las interfaces del invitado, en orden. Un invitado de varias (`bridges`) las
                 # enseña todas: la tabla es la lectura rápida de la topología.
                 " + ".join(i.get("bridges") or [i.get("bridge") or ""]),
-                i["direccion"],
+                i["address"],
             ]
-            for i in invitados
+            for i in guests
         ],
         8,
     )
 
     tabla_bridges = _filas(
-        [[b["nombre"], b.get("direccion") or "—"] for b in bridges],
+        [[b["nombre"], b.get("address") or "—"] for b in bridges],
         2,
     )
 
-    # El orden de arranque, derivado: qué roles caen en cada escalón.
-    tabla_escalones = _filas(
+    # El orden de arranque, derivado: qué roles caen en cada etapa.
+    tabla_stages = _filas(
         [
             [
-                escalon,
-                ", ".join(i["rol"] for i in invitados if i["escalon"] == escalon) or "—",
+                stage,
+                ", ".join(i["rol"] for i in guests if i["stage"] == stage) or "—",
             ]
-            for escalon in escalones
+            for stage in stages
         ],
         2,
     )
@@ -149,7 +149,7 @@ def renderizar_region(directorio_lab):
                 "—",
                 "—",
             ]
-            for i in invitados
+            for i in guests
         ],
         5,
     )
@@ -161,9 +161,9 @@ def renderizar_region(directorio_lab):
     sustituciones = {
         "archivo_declaracion": archivo_declaracion,
         "prefijo_mac": motor["engine_prefijo_mac"],
-        "tabla_invitados": tabla_invitados,
+        "tabla_guests": tabla_guests,
         "tabla_bridges": tabla_bridges,
-        "tabla_escalones": tabla_escalones,
+        "tabla_stages": tabla_stages,
         "tabla_identidad": tabla_identidad,
     }
     resultado = plantilla

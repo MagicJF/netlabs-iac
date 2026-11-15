@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # PROPÓSITO:   leer los diarios de un lab y escribir, en un folio y en forma de INFORME, qué
-#              ha pasado: de un vistazo (cuántas llamadas hizo cada puerta y cuántas no
+#              ha pasado: de un vistazo (cuántas llamadas hizo cada vía de acceso y cuántas no
 #              respondieron bien), a QUÉ EQUIPOS se les tocó algo (con su vmid y su rol, uno
 #              por línea), los pasos del despliegue EN SU ORDEN, qué se escribió dentro de
 #              cada equipo, y el veredicto de la última comprobación. Es lo que se mira al
@@ -23,14 +23,14 @@ import sys
 
 RAIZ = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# Cómo se llama cada puerta en el informe. La de Proxmox no se etiqueta a sí misma en la
+# Cómo se llama cada vía de acceso en el informe. La de Proxmox no se etiqueta a sí misma en la
 # línea (las otras sí, con `api`): se dice aquí, en un solo sitio, en vez de repartir la
 # suposición por el código.
-PUERTAS = {
+ACCESOS = {
     "proxmox": "Proxmox",
     "routeros": "RouterOS",
     "rest": "RouterOS",
-    "consola": "la consola",
+    "console": "la consola",
 }
 
 # Las respuestas que cuentan como "bien". Lo que no esté aquí se señala aparte.
@@ -83,7 +83,7 @@ def _tabla(cabeceras, filas):
     return salida
 
 
-def _mapa_de_invitados(api, camino, lab):
+def _mapa_de_guests(api, tunnel, lab):
     """vmid -> (rol, tipo) y rol -> vmids. Se DERIVA del diario; no hay otro sitio.
 
     "El rol 'servidor' no está desplegado: se crea con el vmid 114" está escrito en el diario
@@ -110,7 +110,7 @@ def _mapa_de_invitados(api, camino, lab):
             mapa.setdefault(vmid, [rol, ""])
             if tipo and not mapa[vmid][1]:
                 mapa[vmid][1] = tipo
-    for _, d in camino:
+    for _, d in tunnel:
         vmid = str(d.get("vmid") or "")
         if not vmid:
             continue
@@ -121,14 +121,14 @@ def _mapa_de_invitados(api, camino, lab):
     return mapa
 
 
-def _invitado_de(linea, mapa):
+def _guest_de(linea, mapa):
     """A qué equipo se le hizo esta llamada. Vacío = no es a un equipo (el clúster, un pool).
 
-    Tres fuentes, en orden de fiabilidad: el campo que escribe la puerta de RouterOS, el vmid
+    Tres fuentes, en orden de fiabilidad: el campo que escribe la vía de acceso de RouterOS, el vmid
     de la ruta, y el rol que el propio motor nombró en su explicación.
     """
-    if linea.get("invitado"):
-        return str(linea["invitado"])
+    if linea.get("guest"):
+        return str(linea["guest"])
     en_ruta = re.search(r"/(?:lxc|qemu)/(\d+)", str(linea.get("path") or ""))
     if en_ruta and mapa.get(en_ruta.group(1), [""])[0]:
         return mapa[en_ruta.group(1)][0]
@@ -155,22 +155,22 @@ def resumen_de_lab(carpeta, verbo=None):
 
     api, rotas_api = _lineas(os.path.join(carpeta, "api.jsonl"))
     interior, rotas_interior = _lineas(os.path.join(carpeta, "interior.jsonl"))
-    camino, rotas_camino = _lineas(os.path.join(carpeta, "camino.jsonl"))
+    tunnel, rotas_tunnel = _lineas(os.path.join(carpeta, "console.jsonl"))
     # Un diario que no existe no es un diario vacío: se dice (regla 5). Se mira ANTES de
     # vaciar a `None` para no confundir "no lo hay" con "no tiene líneas".
     faltan = [nombre for nombre, leidas in (("api.jsonl", api), ("interior.jsonl", interior),
-                                            ("camino.jsonl", camino)) if leidas is None]
-    api, interior, camino = api or [], interior or [], camino or []
-    rotas = (rotas_api or 0) + (rotas_interior or 0) + (rotas_camino or 0)
+                                            ("console.jsonl", tunnel)) if leidas is None]
+    api, interior, tunnel = api or [], interior or [], tunnel or []
+    rotas = (rotas_api or 0) + (rotas_interior or 0) + (rotas_tunnel or 0)
 
     lab = (api[0][1].get("lab") if api else "") or os.path.basename(carpeta)
     verbos = [str(d.get("verb") or "") for _, d in api]
     pasada = verbo or (verbos[-1] if verbos else "")
-    mapa = _mapa_de_invitados(api, camino, lab)
+    mapa = _mapa_de_guests(api, tunnel, lab)
 
     de_la_pasada = [(n, d) for n, d in api if str(d.get("verb") or "") == pasada]
     interior_pasada = [d for _, d in interior if str(d.get("verb") or "") == pasada]
-    camino_pasada = [d for _, d in camino if str(d.get("verb") or "") == pasada]
+    tunnel_pasada = [d for _, d in tunnel if str(d.get("verb") or "") == pasada]
     horas = [str(d.get("ts") or "")[11:19] for _, d in de_la_pasada if d.get("ts")]
 
     # --- Cabecera ----------------------------------------------------------------------
@@ -186,7 +186,7 @@ def resumen_de_lab(carpeta, verbo=None):
         return "\n".join(salida), "\n".join(escribir)
     ambos(f"**Pasada: {VERBOS_LEGIBLES.get(pasada, pasada)}**"
           + (f" — de {horas[0]} a {horas[-1]}" if horas else "")
-          + f", {len(de_la_pasada)} llamada(s) por las puertas.")
+          + f", {len(de_la_pasada)} llamada(s) por las vías de acceso.")
     ambos()
     ambos("> Cuenta todas las pasadas de ese verbo que hay en el diario, no sólo la última: el")
     ambos("> diario no marca dónde empieza cada ejecución (es lo que arregla el ADR 0014 §2).")
@@ -197,22 +197,22 @@ def resumen_de_lab(carpeta, verbo=None):
     ambos("## De un vistazo")
     ambos()
     filas = []
-    por_puerta = {}
+    por_acceso = {}
     for _, d in de_la_pasada:
-        por_puerta.setdefault(str(d.get("api") or "proxmox"), []).append(d)
-    for puerta in sorted(por_puerta, key=lambda p: (p not in ("proxmox", "routeros"), p)):
-        llamadas = por_puerta[puerta]
+        por_acceso.setdefault(str(d.get("api") or "proxmox"), []).append(d)
+    for gateway in sorted(por_acceso, key=lambda p: (p not in ("proxmox", "routeros"), p)):
+        llamadas = por_acceso[gateway]
         lecturas = [c for c in llamadas if str(c.get("method") or "").upper() == "GET"]
         malas = [c for c in llamadas if str(c.get("status") or "") not in BIEN]
-        filas.append([PUERTAS.get(puerta, puerta), len(llamadas), len(lecturas),
+        filas.append([ACCESOS.get(gateway, gateway), len(llamadas), len(lecturas),
                       len(llamadas) - len(lecturas), len(malas)])
     if interior_pasada:
         malas = [d for d in interior_pasada
                  if str(d.get("resultado") or d.get("rc") or "ok") not in ("ok", "0")]
         filas.append(["el interior (SSH / REST del router)", len(interior_pasada), "—", "—", len(malas)])
-    if camino_pasada:
-        filas.append(["la consola de la API", len(camino_pasada), "—", "—", "—"])
-    tabla(["puerta", "llamadas", "lecturas", "escrituras", "no 2xx"], filas)
+    if tunnel_pasada:
+        filas.append(["la consola de la API", len(tunnel_pasada), "—", "—", "—"])
+    tabla(["gateway", "llamadas", "lecturas", "escrituras", "no 2xx"], filas)
     ambos()
     if faltan:
         ambos("No hay diario de: " + ", ".join(f"`{n}`" for n in faltan) + ".")
@@ -223,31 +223,31 @@ def resumen_de_lab(carpeta, verbo=None):
 
     # --- A quién se le tocó, y qué -----------------------------------------------------
     escrituras = [(n, d) for n, d in de_la_pasada if str(d.get("method") or "").upper() != "GET"]
-    por_invitado = {}
+    por_guest = {}
     for _, d in escrituras:
-        rol = _invitado_de(d, mapa)
+        rol = _guest_de(d, mapa)
         if rol:
-            por_invitado.setdefault(rol, []).append(d)
+            por_guest.setdefault(rol, []).append(d)
     areas_interior = {}
     for d in interior_pasada:
-        areas_interior.setdefault(str(d.get("invitado") or "?"), set()).add(str(d.get("area") or "?"))
+        areas_interior.setdefault(str(d.get("guest") or "?"), set()).add(str(d.get("area") or "?"))
 
     ambos("## A qué equipos se les tocó algo")
     ambos()
     filas = []
-    for rol in sorted(set(por_invitado) | set(areas_interior)):
+    for rol in sorted(set(por_guest) | set(areas_interior)):
         vmids = sorted(v for v, (r, _t) in mapa.items() if r == rol)
         tipos = sorted({t for _v, (r, t) in mapa.items() if r == rol and t})
         filas.append([rol, ", ".join(vmids) or "—", ", ".join(tipos) or "—",
-                      len(por_invitado.get(rol, [])),
+                      len(por_guest.get(rol, [])),
                       ", ".join(sorted(areas_interior.get(rol, set()))) or "—"])
     if filas:
-        tabla(["invitado", "vmid", "tipo", "escrituras", "áreas por dentro"], filas)
+        tabla(["guest", "vmid", "tipo", "escrituras", "áreas por dentro"], filas)
     else:
         ambos("Ninguno: esta pasada no escribió nada en ningún equipo.")
     ambos()
     ambos("Un invitado con 0 escrituras no es un olvido: si su dirección la da el DHCP (o el")
-    ambos("lab la pone en su pata), al equipo no hay que entrarle. Lo que se configura por la")
+    ambos("lab la pone en su interfaz), al equipo no hay que entrarle. Lo que se configura por la")
     ambos("red no se configura por dentro.")
     ambos()
 
@@ -257,7 +257,7 @@ def resumen_de_lab(carpeta, verbo=None):
         if str(d.get("method") or "").upper() == "GET":
             continue
         etiqueta = str(d.get("etiqueta") or "").strip()
-        rol = _invitado_de(d, mapa)
+        rol = _guest_de(d, mapa)
         llamada = f"{d.get('method')} {d.get('path')}"
         estado = str(d.get("status") or "")
         con_paso = re.match(r"^paso\s+(\d+):\s*(\w+)\s*(?:--\s*(.*))?$", etiqueta, re.DOTALL)
@@ -283,7 +283,7 @@ def resumen_de_lab(carpeta, verbo=None):
     ambos(f"## Los pasos del despliegue ({len(unos)} paso(s), en el orden del plan)")
     ambos()
     if unos:
-        tabla(["paso", "invitado", "qué hace", "y por qué", "orden lanzada", "respuesta", "veces"],
+        tabla(["paso", "guest", "qué hace", "y por qué", "orden lanzada", "respuesta", "veces"],
               [[p[0], p[2], p[1], p[3], p[4], p[5], p[6]] for p in sorted(unos, key=lambda p: p[0])])
     else:
         ambos("Ninguno: esta pasada no creó ni arrancó nada.")
@@ -293,7 +293,7 @@ def resumen_de_lab(carpeta, verbo=None):
     ambos(f"## Dentro de los equipos ({len(escritas)} cosa(s) escrita(s))")
     ambos()
     if escritas:
-        tabla(["invitado", "área", "qué se escribió", "orden lanzada", "respuesta", "veces"], escritas)
+        tabla(["guest", "área", "qué se escribió", "orden lanzada", "respuesta", "veces"], escritas)
     else:
         ambos("Nada: esta pasada no entró a configurar ningún equipo.")
     ambos()
@@ -301,14 +301,14 @@ def resumen_de_lab(carpeta, verbo=None):
     if otros:
         ambos("## Otros cambios")
         ambos()
-        tabla(["invitado", "qué se hizo", "orden lanzada", "respuesta", "veces"], _sin_repetir(otros))
+        tabla(["guest", "qué se hizo", "orden lanzada", "respuesta", "veces"], _sin_repetir(otros))
         ambos()
 
     # --- Lo que no salió bien, aparte y sin adornos ------------------------------------
     if torcidas:
         ambos(f"## Lo que no respondió 2xx ({len(_sin_repetir(torcidas))})")
         ambos()
-        tabla(["respuesta", "invitado", "orden lanzada", "qué se quería", "veces"],
+        tabla(["respuesta", "guest", "orden lanzada", "qué se quería", "veces"],
               _sin_repetir(torcidas))
         ambos()
 
@@ -317,13 +317,13 @@ def resumen_de_lab(carpeta, verbo=None):
         ambos("## El interior, invitado por invitado")
         ambos()
         filas = []
-        for invitado in sorted(areas_interior):
-            pasos_inv = [d for d in interior_pasada if str(d.get("invitado") or "?") == invitado]
+        for guest in sorted(areas_interior):
+            pasos_inv = [d for d in interior_pasada if str(d.get("guest") or "?") == guest]
             malos = [d for d in pasos_inv
                      if str(d.get("resultado") or d.get("rc") or "ok") not in ("ok", "0")]
-            filas.append([invitado, ", ".join(sorted(areas_interior[invitado])),
+            filas.append([guest, ", ".join(sorted(areas_interior[guest])),
                           len(pasos_inv), len(malos)])
-        tabla(["invitado", "áreas por las que se entró", "pasos", "fallos"], filas)
+        tabla(["guest", "áreas por las que se entró", "pasos", "fallos"], filas)
         ambos()
 
     # --- El veredicto, si lo hay -------------------------------------------------------

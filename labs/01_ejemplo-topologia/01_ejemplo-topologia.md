@@ -11,9 +11,9 @@ La topología que pidió el encargo: **una VM que hace de conmutador y dos
 contenedores que hacen de puestos de trabajo**. Es el lab "grande" de los dos de
 ejemplo, y el único que ejercita las dos ramas del motor (QEMU y LXC).
 
-Sirve para leer el motor de una vez: aquí se ve un lab que declara dos escalones de
+Sirve para leer el motor de una vez: aquí se ve un lab que declara dos etapas de
 arranque, un bridge propio, una VM con rol `switch` y dos contenedores que comparten
-escalón —sin vmid, sin MAC y sin ningún nombre de invitado escrito a mano—.
+etapa —sin vmid, sin MAC y sin ningún nombre de invitado escrito a mano—.
 
 <!-- generado:inicio -->
 _Datos derivados de `01_ejemplo-topologia.yml`. Los reescribe `./lab check docs --actualizar`;
@@ -21,7 +21,7 @@ si los editas a mano, `./lab check docs` falla._
 
 ## Invitados declarados
 
-| rol | tipo | escalón | cores | memoria (MB) | disco (GB) | bridge | dirección |
+| rol | tipo | stage | cores | memory (MB) | disk (GB) | bridge | address |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | switch | VM (qemu) | 1 | 2 | 512 | 8 | vmb_ejemplo | 192.0.2.2/24 |
 | workstation-1 | LXC | 2 | 1 | 256 | 4 | vmb_ejemplo | 192.0.2.11/24 |
@@ -33,9 +33,9 @@ si los editas a mano, `./lab check docs` falla._
 | --- | --- |
 | vmb_ejemplo | 192.0.2.1/24 |
 
-## Orden de arranque (escalones)
+## Orden de arranque (etapas)
 
-| escalón | roles |
+| stage | roles |
 | --- | --- |
 | 1 | switch |
 | 2 | workstation-1, workstation-2 |
@@ -99,7 +99,7 @@ aparecieron (nombre del nodo y nombre del bridge).
    ./lab --lab 01_ejemplo-topologia apply
    ```
    `apply` ejecuta exactamente el plan que acabas de ver: crea el pool, crea el
-   bridge si falta, crea o ajusta cada invitado y los arranca por escalones.
+   bridge si falta, crea o ajusta cada invitado y los arranca por etapas.
 
 6. **Verifica** contra la API, que es el único test que no se cree a sí mismo:
    ```
@@ -114,13 +114,13 @@ aparecieron (nombre del nodo y nombre del bridge).
 
 ## Por qué así
 
-### Dos escalones y no uno
+### Dos etapas y no uno
 
 El conmutador tiene que estar en marcha antes que los puestos: si los dos
 contenedores arrancan a la vez que la VM que les da red, se pasan un rato con la
-interfaz sin salida. Los escalones son parte de la **declaración**, no del código
-del motor: un lab que no necesite orden pone un solo escalón y ya está. El motor
-sólo sabe "arranca el escalón 1, luego el 2": no hay ningún nombre de rol dentro de
+interfaz sin salida. Los etapas son parte de la **declaración**, no del código
+del motor: un lab que no necesite orden pone un solo etapa y ya está. El motor
+sólo sabe "arranca la etapa 1, luego el 2": no hay ningún nombre de rol dentro de
 `deployment_engine/`.
 
 ### La VM del conmutador no se configura
@@ -129,7 +129,7 @@ Su interior no se toca: el motor la despliega, la arranca y comprueba que existe
 tiene los recursos declarados. Este lab **no declara `config:`**, así que no hay
 interior que converger: la declaración sólo dice que este rol es una VM con su
 interfaz en el bridge del lab. (El motor **sí** sabe configurar el interior —es el
-vocabulario de la fase 2, `config:` e `imagen:`—, y lo ejerce el lab de aceptación.)
+vocabulario de la fase 2, `config:` e `image:`—, y lo ejerce el lab de aceptación.)
 
 ### Lo que el YAML no dice, y se aprende al usarlo
 
@@ -138,7 +138,7 @@ credenciales de relleno, lo único que se ha podido comprobar es el plan y que l
 verificación falla limpiamente.)*
 
 - **Lo verificado aquí:** `./lab --lab 01_ejemplo-topologia plan` produce el orden
-  esperado (pool → bridge → invitados → arrancada por escalones) y
+  esperado (pool → bridge → invitados → arrancada por etapas) y
   `./lab --lab 01_ejemplo-topologia verify` alcanza la API, no encuentra nada de lo
   declarado y lo dice sin traceback, dejando el informe en `logs/`.
 - **Lo no verificado:** todo lo que exige un Proxmox alcanzable. La disjunción de
@@ -154,7 +154,7 @@ dirección no es comprobable, en vez de dar por bueno lo que no ha mirado.
 
 ## Ver también (punteros al código)
 
-- La puerta de la API de Proxmox y el diario de cada llamada:
+- La vía de acceso de la API de Proxmox y el diario de cada llamada:
   [deployment_engine/tasks/pve_api.yml](../../deployment_engine/tasks/pve_api.yml)
 - El asignador de identidad (vmid, nombre canónico, MAC):
   [deployment_engine/filter_plugins/identidad.py](../../deployment_engine/filter_plugins/identidad.py)

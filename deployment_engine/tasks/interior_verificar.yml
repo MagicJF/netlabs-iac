@@ -1,5 +1,5 @@
 ---
-# PROPÓSITO:   MIRAR DENTRO de un invitado, para `verify`: leer por su puerta lo que el
+# PROPÓSITO:   MIRAR DENTRO de un invitado, para `verify`: leer por su pasarela lo que el
 #              lab declara y anotar si coincide --en los DOS sentidos-- sin escribir
 #              NADA. Es el driver de siempre en modo `solo_leer`, así que la lectura y
 #              la decisión son las MISMAS que usa `apply`: no hay dos verdades sobre

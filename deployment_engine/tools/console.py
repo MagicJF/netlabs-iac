@@ -3,7 +3,7 @@
 #              navegador (`termproxy` + `vncwebsocket`). Es lo único del repositorio
 #              que habla ese protocolo, y el motor lo usa para UNA sola cosa: pasar
 #              UNA línea a un invitado que todavía no tiene ninguna red por la que
-#              recibirla (el arranque del camino, ver docs/camino-del-puesto-de-control.md).
+#              recibirla (el arranque del túnel, ver docs/tunnel-del-bastion.md).
 #
 #              No inventa un protocolo: replica exactamente lo que hace el cliente
 #              del navegador del nodo, leído en /usr/share/pve-xtermjs/main.js
@@ -29,13 +29,13 @@
 #              tarea, una línea, y una comprobación que dice si funcionó.
 #              El billete de consola vive 40 segundos: pedirlo y abrir el websocket
 #              van seguidos, en el mismo paso.
-# VER:         docs/camino-del-puesto-de-control.md; docs/decisiones/0004-*.md
+# VER:         docs/tunnel-del-bastion.md; docs/decisiones/0004-*.md
 #
 # Uso:
-#     consola.py --url-base https://<nodo>:8006 --token-id X --token-secreto Y \
+#     console.py --url-base https://<nodo>:8006 --token-id X --token-secreto Y \
 #                --nodo N --tipo lxc --vmid 107 --linea <base64> \
 #                --marca-ok MARCA_OK --marca-fallo MARCA_FALLO
-#     consola.py --ayuda         (no: ver --help)
+#     console.py --ayuda         (no: ver --help)
 #
 # Salida: una línea JSON con lo ocurrido (para el diario), y un código de salida:
 #     0  se leyó la marca de éxito en la consola
@@ -56,14 +56,14 @@ import time
 import urllib.parse
 import urllib.request
 
-# La ruta base de la API. Vive aquí porque este fichero es el cliente de la puerta de
-# consola (mismo host, mismo puerto, mismo token que la puerta REST; lo que cambia es
-# el protocolo). `./lab check puerta` permite el literal en DOS ficheros y en ninguno
+# La ruta base de la API. Vive aquí porque este fichero es el cliente de la vía de acceso de
+# consola (mismo host, mismo puerto, mismo token que la vía de acceso REST; lo que cambia es
+# el protocolo). `./lab check access` permite el literal en DOS ficheros y en ninguno
 # más: tasks/pve_api.yml (REST) y este (consola). Se arma por piezas para que el
 # check pueda seguir siendo estricto sin excluirse a sí mismo.
 BASE_API = "/api2" + "/json"
 
-# Cuánto se espera, como mucho, a que la consola responda. El arranque del camino
+# Cuánto se espera, como mucho, a que la consola responda. El arranque del túnel
 # incluye descargar paquetes si hiciera falta, así que es generoso a propósito.
 ESPERA_POR_DEFECTO = 300
 

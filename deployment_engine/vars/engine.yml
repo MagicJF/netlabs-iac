@@ -63,19 +63,19 @@ engine_plantilla_comentario_bridge: "lab={lab} gestionado por netlabs_v4_b"
 # --- Puerta de la API -----------------------------------------------------
 # Segundos que se espera una respuesta antes de que la llamada se dé por perdida.
 engine_timeout_api: 30
-# Cuánto se espera a que un invitado conteste al SSH del motor (por el camino). Es más
-# corto que el de la API a propósito: si el camino no está, no se espera un minuto a
-# que se cumpla un imposible -- se dice que el camino no está en pie.
+# Cuánto se espera a que un invitado conteste al SSH del motor (por el túnel). Es más
+# corto que el de la API a propósito: si el túnel no está, no se espera un minuto a
+# que se cumpla un imposible -- se dice que el túnel no está en pie.
 engine_timeout_ssh: 15
 # El puerto del sshd DENTRO de un invitado. No es un valor de ningún lab: es el puerto
 # por el que escucha un invitado Linux y lo sabe todo el mundo.
-engine_puerto_ssh_invitado: 22
+engine_puerto_ssh_guest: 22
 # El usuario con el que el motor entra en un invitado Linux. Es `root` porque es como
 # Proxmox crea los contenedores que el motor despliega: no hay usuario de laboratorio
 # que elegir, y el interior de un equipo de un lab se configura entero. NO es el usuario
-# del túnel hacia casa (`camino_usuario`, que es el de la máquina donde corre el motor):
+# del túnel hacia casa (`pve_tunnel_usuario`, que es el de la máquina donde corre el motor):
 # son dos cosas distintas y confundirlas da «Permission denied» al entrar.
-engine_usuario_invitado: root
+engine_usuario_guest: root
 
 # --- RouterOS (un invitado que se configura por su REST) -------------------
 # El usuario del motor en un RouterOS, y lo que trae de fábrica. No son valores de
@@ -102,7 +102,7 @@ engine_routeros_clave_fabrica: ""
 # cambian aquí (una línea) y en las ACLs del nodo. El motor no los concede: los vigila.
 #
 # `VM.Console` está en el rol de `/vms` porque el motor entra UNA vez por la consola de
-# un invitado para poner en marcha el camino (§El camino). Sin él, el motor no puede
+# un invitado para poner en marcha el túnel (§El túnel). Sin él, el motor no puede
 # salir de casa hacia la red del lab; con él, root dentro de un invitado Linux es root
 # DENTRO de ese invitado -- y por eso todo invitado nace `unprivileged` (check
 # `privilegios`).
@@ -154,8 +154,8 @@ engine_privilegios_por_rol:
 # necesita: su consola es la de un INVITADO, y por eso basta `VM.Console`.
 # `Datastore.Allocate` permite crear y borrar almacenamientos. Y de `VM.GuestAgent.*` se
 # veda todo MENOS `Audit` (que está arriba, en el rol de `/vms`): `FileRead`, `FileWrite`,
-# `FileSystemMgmt` y `Unrestricted` SÍ serían un camino al interior que no pasa por las
-# puertas del motor (regla 12) -- leer y escribir ficheros dentro de un invitado,
+# `FileSystemMgmt` y `Unrestricted` SÍ serían un túnel al interior que no pasa por las
+# vías de acceso del motor (regla 12) -- leer y escribir ficheros dentro de un invitado,
 # congelarle el sistema de ficheros o ejecutar programas dentro (medido en el código de
 # PVE del nodo: `exec` pide `Unrestricted`). `Audit` no es eso: cubre lecturas y `ping`,
 # y se pide a la API por la PUERTA, con su línea en el diario. Es lo que deja al motor
@@ -169,55 +169,55 @@ engine_privilegios_vedados:
   - VM.GuestAgent.FileSystemMgmt
   - VM.GuestAgent.Unrestricted
 
-# --- El camino ------------------------------------------------------------
-# El puesto de control (ver §El camino y docs/camino-del-puesto-de-control.md).
-# Nombre del rol del invitado que es el puesto de control. Es vocabulario del
-# MOTOR: cualquier lab que declare un camino tendrá un invitado con este rol.
+# --- El túnel ------------------------------------------------------------
+# El bastión (ver §El túnel y docs/tunnel-del-bastion.md).
+# Nombre del rol del invitado que es el bastión. Es vocabulario del
+# MOTOR: cualquier lab que declare un túnel tendrá un invitado con este rol.
 engine_rol_control: "control"
-# El `config:` con esta clave es el puesto de control: en vez de un interior que
+# El `config:` con esta clave es el bastión: en vez de un interior que
 # se converge por SSH, lo que se le pide es que SEPA salir hacia casa.
-engine_clave_camino: "camino"
+engine_clave_tunnel: "tunnel"
 # Puerto local del nodo de control donde el puesto deja su sshd reenviado. Se
 # DERIVA del vmid del puesto: no se guarda ni se declara. El rango (este valor +
 # el vmid) deja sitio de sobra sin pisar el 22 ni puertos privilegiados.
-engine_camino_puerto_base: 20000
+engine_tunnel_puerto_base: 20000
 # El puerto local del nodo de control por el que se alcanza el REST (el `www` de
 # fábrica, puerto 80) de cada equipo con el que el motor habla por REST: el puesto de
 # control reenvía también ese puerto por el MISMO túnel, y así el `uri` del motor se
 # ejecuta en la máquina del motor en vez de delegado al puesto (medido: 4,4 s -> ~0,3 s
-# por llamada). DERIVADO del vmid, como el del camino; la banda no pisa la de arriba.
-engine_camino_rest_puerto_base: 21000
-# Ruta, dentro del nodo de control, del par de claves del camino. Fuera del
+# por llamada). DERIVADO del vmid, como el del túnel; la banda no pisa la de arriba.
+engine_tunnel_rest_puerto_base: 21000
+# Ruta, dentro del nodo de control, del par de claves del túnel. Fuera del
 # repositorio (nunca se versiona una clave privada) y fuera de `~/.ssh/config`.
-# La clave del camino es UNA POR LAB, y no por capricho: en el `authorized_keys` del nodo
+# La clave del túnel es UNA POR LAB, y no por capricho: en el `authorized_keys` del nodo
 # de control, OpenSSH usa la PRIMERA línea cuya clave case, así que con una sola clave y
 # una línea por lab (cada lab tiene su puerto) sólo funcionaría el primer lab y los demás
 # se quedarían mudos -- medido: `Remote: port forwarding refused`. Una clave por lab es
 # una línea por clave, y no hay sombras posibles. El nombre del lab forma parte de la
 # ruta, así que no hay nada que guardar: se vuelve a derivar.
-engine_camino_clave_base: "~/.ssh/netlabs_camino"
+engine_tunnel_clave_base: "~/.ssh/netlabs_tunnel"
 # Cuántos segundos se espera a que el puerto reenviado conteste antes de decir
-# que el camino no está en pie.
-engine_camino_espera: 45
-# La consola de un invitado es la puerta más frágil del motor: el invitado puede estar
+# que el túnel no está en pie.
+engine_tunnel_espera: 45
+# La consola de un invitado es la vía de acceso más frágil del motor: el invitado puede estar
 # arrancado y su consola todavía no dar shell, así que la MISMA línea se reintenta.
 # Medido: recién arrancado el contenedor, la primera línea se pierde (la consola devuelve
 # el eco del terminal, no la salida de la shell) y unos segundos después entra. El guion
 # es idempotente, así que repetirlo no hace daño: la unidad de systemd se reescribe igual.
-engine_camino_intentos: 3
-engine_camino_reintento: 12
+engine_tunnel_intentos: 3
+engine_tunnel_reintento: 12
 
 # Cuánto se espera antes de empezar a sondear el puerto reenviado. El guion duerme 4
 # segundos dentro del invitado antes de imprimir su marca, y el sshd tarda un poco
 # más en aceptar: sondear sin este respiro sólo sirve para gastar el tiempo de espera.
-engine_camino_retardo: 3
+engine_tunnel_retardo: 3
 
 # Tamaño máximo, en caracteres, del cuerpo de la respuesta que se guarda en el
 # diario. El diario es prueba de lo ocurrido, no una copia del cluster.
 engine_diario_max_cuerpo: 2000
 
-# --- La sonda de un escalón ---------------------------------------------------
-# Cuánto se espera a que un escalón conteste antes de negarse a tocar el siguiente
+# --- La sonda de un etapa ---------------------------------------------------
+# Cuánto se espera a que un etapa conteste antes de negarse a tocar el siguiente
 # (regla 18). Son intentos cortos y seguidos: un CHR que acaba de arrancar tarda unos
 # segundos en levantar su servidor web, y un Linux en abrir el sshd, pero un equipo roto
 # no se arregla esperando media hora. Con estos números la ventana es de ~2 min y medio.

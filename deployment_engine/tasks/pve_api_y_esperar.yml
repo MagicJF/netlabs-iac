@@ -9,19 +9,19 @@
 #              cualquier paso nuevo que sea asíncrono queda cubierto sin tocar esto.
 # LÍMITES:     no reintenta la operación original si la tarea falla: la deja fallar.
 #              No decide QUÉ llamar (eso lo pone el llamante).
-# VER:         README.md §Las cuatro puertas, y un diario de cada una; AGENTS.md §Reglas duras (5 y 12)
+# VER:         README.md §Las cuatro vías de acceso, y un diario de cada una; AGENTS.md §Reglas duras (5 y 12)
 #
 # Espera las mismas variables que `pve_api.yml` (pve_api_metodo, pve_api_ruta,
 # pve_api_cuerpo, pve_api_etiqueta...) y deja lo mismo en `pve_api_ultimo_*`.
 
-- name: "PUERTA+ESPERA · ejecutar {{ pve_api_metodo }} {{ pve_api_ruta }}"
+- name: "ACCESO+ESPERA · ejecutar {{ pve_api_metodo }} {{ pve_api_ruta }}"
   ansible.builtin.include_tasks: pve_api.yml
 
 # El UPID se ANOTA como HECHO (una cadena fija), no como plantilla perezosa: si
 # quedara como `{{ pve_api_ultimo_datos }}`, el primer sondeo la sobreescribiría con
 # su propia respuesta y el siguiente apuntaría a una ruta sin sentido. Aquí también
 # se REINICIA el estado de la espera, para que un paso asíncrono no herede el de otro.
-- name: "PUERTA+ESPERA · anotar la tarea asíncrona lanzada, si la llamada lanzó una"
+- name: "ACCESO+ESPERA · anotar la tarea asíncrona lanzada, si la llamada lanzó una"
   ansible.builtin.set_fact:
     pve_tarea_upid: "{{ pve_api_ultimo_datos if (pve_api_ultimo_datos is string and pve_api_ultimo_datos is match('^UPID:')) else '' }}"
     pve_tarea_nodo: "{{ pve_nombre_nodo | default(pve_nodo) }}"
@@ -29,8 +29,8 @@
     pve_tarea_estado: "unknown"
     pve_tarea_exitstatus: ""
 
-- name: "PUERTA+ESPERA · esperar a la tarea asíncrona, si la llamada lanzó una"
+- name: "ACCESO+ESPERA · esperar a la tarea asíncrona, si la llamada lanzó una"
   when: (pve_tarea_upid | length) > 0
   block:
-    - name: "PUERTA+ESPERA · esperar a que la tarea termine"
+    - name: "ACCESO+ESPERA · esperar a que la tarea termine"
       ansible.builtin.include_tasks: esperar_tarea.yml

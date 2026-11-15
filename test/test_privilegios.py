@@ -109,12 +109,12 @@ resultado = comparar(corto)
 igual(resultado["ok"], False, "a un rol sin VM.Console NO se le da por bueno")
 igual(resultado["faltan"]["NetlabsMotorVms"], ["VM.Console"], "y se dice cuál falta")
 
-# Y el caso que importa de verdad: ese privilegio que falta es el del camino. Si el
+# Y el caso que importa de verdad: ese privilegio que falta es el del túnel. Si el
 # token lo perdiera, el motor no podría entrar en la red de ningún lab, y la guarda
 # lo dice ANTES de intentarlo.
 comprobar(
     "VM.Console" in POR_ROL["NetlabsMotorVms"],
-    "el rol de /vms lleva VM.Console: es la puerta del camino y sin él no hay lab",
+    "el rol de /vms lleva VM.Console: es la vía de acceso del túnel y sin él no hay lab",
 )
 comprobar(
     "Sys.Modify" not in POR_ROL["NetlabsMotorVms"] and "Sys.Modify" in POR_ROL["NetlabsMotorNodo"],

@@ -4,7 +4,7 @@
      conectar el driver de RouterOS con un CHR real: (1) con qué forma se ESCRIBE por
      REST, (2) las dos trampas del transporte que no dan un error sino un timeout, y
      (3) por qué el orden de las áreas lo manda el motor y no el lab.
-     INVARIANTES: toda escritura va por `ros_api.yml` (la única puerta a RouterOS, con
+     INVARIANTES: toda escritura va por `ros_api.yml` (la única vía de acceso a RouterOS, con
      diario `api: routeros` en `logs/api.jsonl`); en una lectura no se declara el formato
      del cuerpo; la dirección de gestión de un equipo cuyo cliente de fábrica aún la tiene
      la pone el propio router, con un guion que se le manda ENTERO (`POST /execute`),
@@ -24,9 +24,9 @@ VPS). La pregunta abierta que queda se dice al final.
 **Contexto.** El lab `04_lab-red-routeros` tiene un CHR de MikroTik (`borde`) al que el motor
 tiene que configurar por REST: identidad, servicios, cliente DHCP de fábrica, direcciones,
 rutas y el servidor DHCP de la LAN. RouterOS **no tiene SSH por API** y su REST no se puede
-llamar desde el nodo de control (no hay ruta al otro lado del router): la puerta
+llamar desde el nodo de control (no hay ruta al otro lado del router): la vía de acceso
 `deployment_engine/tasks/ros_api.yml` llama **en la máquina del motor** y el **puesto de
-control le hace de camino**, reenviando el puerto 80 de cada router por el túnel del camino
+control le hace de túnel**, reenviando el puerto 80 de cada router por el túnel del túnel
 (ADR 0010; la primera versión le **delegaba** la llamada, y costaba 4,4 s por petición). Cada
 llamada queda diarizada en `logs/api.jsonl` con `api: routeros`. Lo que sigue se aprendió
 llamando de verdad a ese CHR.
@@ -70,10 +70,10 @@ body_format: "{{ 'json' if (ros_metodo | upper in ['POST', 'PUT']) else omit }}"
 Y el diario lo prueba: las lecturas del ciclo real son `GET` con 200; las escrituras,
 `POST` con 200.
 
-## 3. Trampa: apagar el cliente DHCP de fábrica se lleva la dirección (y el camino)
+## 3. Trampa: apagar el cliente DHCP de fábrica se lleva la dirección (y el túnel)
 
 `borde` no tiene dirección propia: la recibe del cliente DHCP de fábrica que trae RouterOS,
-y el puesto de control la tiene reservada por la MAC derivada del vmid. Al deshabilitar ese
+y el bastión la tiene reservada por la MAC derivada del vmid. Al deshabilitar ese
 cliente, RouterOS **se lleva la dirección que ese cliente instaló** —y con ella el REST—.
 No da un error: da un timeout, porque la escritura llega, el equipo se queda sin dirección y
 la conexión se muere antes de responder.
@@ -88,7 +88,7 @@ POST /ip/service/set        -> 200    4637 ms   deshabilitar el servicio 'telnet
 POST /ip/dhcp-client/set    ->  -1   34685 ms   deshabilitar el cliente DHCP de fábrica de ether1
 ```
 
-Y desde el puesto de control: `ping KO` y `10.40.0.11 dev eth0 INCOMPLETE`. El equipo se
+Y desde el bastión: `ping KO` y `10.40.0.11 dev eth0 INCOMPLETE`. El equipo se
 quedó sin dirección hasta rehacer el lab. De paso: **RouterOS tarda ~4,7 s por escritura**,
 dato que hay que tener en cuenta al dimensionar los timeouts del motor.
 
@@ -96,12 +96,12 @@ dato que hay que tener en cuenta al dimensionar los timeouts del motor.
 `deployment_engine/filter_plugins/interior.py`, no el orden en que el lab las escriba:
 
 ```python
-"routeros": ("identidad", "direcciones", "servicios", "cliente_dhcp", "rutas", "dhcp"),
+"routeros": ("identidad", "direcciones", "servicios", "dhcp_client", "routes", "dhcp"),
 ```
 
-Lo que la medida corrigió es **quién da el orden dentro de `direcciones`**: la dirección de
+Lo que la medida corrigió es **quién da el orden dentro de `addresses`**: la dirección de
 gestión no se puede escribir mientras el cliente de fábrica la tenga, y apagarlo desde fuera
-se lleva el camino antes de que nadie pueda escribir nada más. Por eso ese intercambio no se
+se lleva el túnel antes de que nadie pueda escribir nada más. Por eso ese intercambio no se
 da a pasos desde fuera: lo ejecuta el router, entero y de una vez, en un guion (§5). No se
 dedujo: se midió (el intento «natural» se comió un `400 already have such address`, y el
 intento «a pasos» se comió una llamada sin respuesta).
@@ -113,15 +113,15 @@ de operaciones completa y —en el caso del choque de direcciones— la lista de
 orden, con el guion en su sitio y sin que ninguna de las escrituras que van dentro de él se
 mande además por fuera.
 
-La `identidad` sigue yendo la última en la primera convergencia (intercambio atómico):
+La `identity` sigue yendo la última en la primera convergencia (intercambio atómico):
 primero se pone y se verifica lo nuevo, y sólo entonces se cambia el nombre y la credencial
 del equipo, para no quedarse fuera con las credenciales viejas.
 
 ## 4. Lo que NO se hizo por SSH
 
-Nada. Todo el camino se hizo por el REST del equipo, con la puerta diarizando cada llamada
-(entonces la puerta le **delegaba** la llamada al puesto de control; hoy la hace el motor, con
-el puesto de camino: ADR 0010).
+Nada. Todo el túnel se hizo por el REST del equipo, con la vía de acceso diarizando cada llamada
+(entonces la vía de acceso le **delegaba** la llamada al bastión; hoy la hace el motor, con
+el puesto de tunnel: ADR 0010).
 Los dos diagnósticos que no se pudieron hacer por REST (ver la pantalla del CHR y recuperar
 un equipo que se quedó sin dirección) se hicieron por la vía de depuración del `AGENTS.md`
 —consola del hipervisor y reinicio por API— y se dice en el reporte, sin maquillar. El
@@ -137,7 +137,7 @@ POST /ip/address/add  {"address":"10.40.0.11/24","interface":"ether1"}
   -> 400  Bad Request  failure: already have such address
 ```
 
-Así que el orden `direcciones` → `cliente_dhcp` **no basta por sí solo**: la dirección de
+Así que el orden `addresses` → `dhcp_client` **no basta por sí solo**: la dirección de
 gestión no se puede escribir mientras el cliente de fábrica la tenga, y el cliente no se
 puede apagar antes porque se lleva la dirección (y con ella el REST, §3). Es un círculo.
 
@@ -154,14 +154,14 @@ Lo que se ejecuta, en su orden:
 
 | # | Llamada REST | Por dónde se habla | Qué garantiza |
 | --- | --- | --- | --- |
-| 1 | …todo lo demás (la otra pata, servicios, rutas, DHCP, y el nombre y la clave del equipo)… | la declarada (la dinámica contesta: es la misma dirección) | se aprovecha que el camino existe |
+| 1 | …todo lo demás (la otra interfaz, servicios, rutas, DHCP, y el nombre y la clave del equipo)… | la declarada (la dinámica contesta: es la misma dirección) | se aprovecha que el túnel existe |
 | 2 | `POST /execute` con el guion: quitar el cliente + poner la estática | la declarada, **sin exigir respuesta** | el equipo no se queda sin dirección a medias: las dos cosas pasan dentro, o ninguna |
 | 3 | `POST /user/set` (la credencial del motor) | la declarada | lo último que se toca es la credencial (§6) |
 
 - **Por qué NO a pasos desde fuera** (que es lo que había antes): cada paso intermedio deja
   al equipo en un estado que sólo sirve si el siguiente llega. Se probó con una dirección
   prestada —cuatro llamadas, una de ellas muriendo por construcción— y la medida del segundo
-  escalón fue un `POST /ip/address/add` **sin respuesta** (`status: -1`, 34,6 s) con el MISMO
+  etapa fue un `POST /ip/address/add` **sin respuesta** (`status: -1`, 34,6 s) con el MISMO
   cuerpo que en el primer CHR contesta 200. Con el guion, ese corte ya no deja el trabajo a
   medias: o el equipo lo ejecutó —y lo dice la relectura— o no lo ejecutó, y entonces la
   operación sigue pendiente y el paso falla con su razón.
@@ -175,8 +175,8 @@ Lo que se ejecuta, en su orden:
   borrar la RUTA dinámica heredada del cliente (`cannot modify dynamic route created by a
   different owner`, medido; intentarlo deja al equipo sin dirección). Eso lo purga el
   reinicio del residuo, que es un paso aparte del plan.
-- **El baile es sólo de la boca de gestión**: la otra pata (`ether2`) se escribe como
-  siempre, por la dirección declarada. Y `www` no se toca: es el REST, o sea el camino de
+- **El baile es sólo de la boca de gestión**: la otra interfaz (`ether2`) se escribe como
+  siempre, por la dirección declarada. Y `www` no se toca: es el REST, o sea el túnel de
   vuelta.
 - **Las dos listas no se suman**: el guion SUSTITUYE a las llamadas de fuera, no se añade a
   ellas. Es trampa ya pagada —en v3 el guion emitía su `add` y la lista normal el suyo: dos
@@ -185,11 +185,11 @@ Lo que se ejecuta, en su orden:
 
 ### Procedencia
 
-El camino del guion no se inventó aquí: el experimento anterior (`ansible-netlabs-v3`) ya lo
+El túnel del guion no se inventó aquí: el experimento anterior (`ansible-netlabs-v3`) ya lo
 había medido y escrito —`POST /execute` con un guion, «the swap goes LAST and inside ONE
 script», y el `:delay` entre quitar y poner—. Se cita como procedencia del CONOCIMIENTO, que
 es lo aprovechable; no se copió ni código ni estructura (lo prohíbe el `AGENTS.md`): el guion
-lo decide la capa pura de este motor (`_intercambio_de_la_gestion`), lo traduce su puerta
+lo decide la capa pura de este motor (`_intercambio_de_la_gestion`), lo traduce su pasarela
 (`ros_api.yml`, con diario) y lo prueba su suite.
 
 Lo que queda demostrado por el diario de ese ciclo: las **11 lecturas** de las seis áreas
@@ -199,7 +199,7 @@ rutas, servidores DHCP, rangos, redes y concesiones), y la elección de credenci
 
 ## 6. La credencial se cambia AL FINAL (medido, y costó un paso parado)
 
-El área `identidad` escribe tres cosas: el nombre del equipo, la clave pública del motor y
+El área `identity` escribe tres cosas: el nombre del equipo, la clave pública del motor y
 la credencial del motor (la contraseña de su usuario). El orden NO es indiferente, y el
 primero que probó el motor estaba mal:
 

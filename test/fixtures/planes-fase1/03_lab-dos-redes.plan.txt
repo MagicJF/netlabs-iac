@@ -2,11 +2,11 @@ PLAN del lab '03_lab-dos-redes'
 ============================================================
 
 Identidad asignada por el motor (no declarada, no guardada):
-  escalón 1  qemu  rol=borde            vmid=100    mac=BC:24:11:00:00:64  nuevo
-  escalón 2  qemu  rol=nucleo           vmid=101    mac=BC:24:11:00:00:65  nuevo
-  escalón 3  lxc   rol=puesto-1         vmid=102    mac=BC:24:11:00:00:66  nuevo
-  escalón 3  lxc   rol=puesto-2         vmid=103    mac=BC:24:11:00:00:67  nuevo
-  escalón 3  lxc   rol=servidor         vmid=104    mac=BC:24:11:00:00:68  nuevo
+  etapa 1  qemu  rol=borde            vmid=100    mac=BC:24:11:00:00:64  nuevo
+  etapa 2  qemu  rol=nucleo           vmid=101    mac=BC:24:11:00:00:65  nuevo
+  etapa 3  lxc   rol=puesto-1         vmid=102    mac=BC:24:11:00:00:66  nuevo
+  etapa 3  lxc   rol=puesto-2         vmid=103    mac=BC:24:11:00:00:67  nuevo
+  etapa 3  lxc   rol=servidor         vmid=104    mac=BC:24:11:00:00:68  nuevo
 
 Llamadas REST que se harían, en orden (14):
 
@@ -88,18 +88,18 @@ Llamadas REST que se harían, en orden (14):
       porque: el rol 'servidor' no está desplegado: se crea con el vmid 104 (el menor libre del clúster)
 
   10. POST /nodes/nodo-simulado/qemu/100/status/start
-      porque: el rol 'borde' pertenece al escalón 1 y no está arrancado
+      porque: el rol 'borde' pertenece a la etapa 1 y no está arrancado
 
   11. POST /nodes/nodo-simulado/qemu/101/status/start
-      porque: el rol 'nucleo' pertenece al escalón 2 y no está arrancado
+      porque: el rol 'nucleo' pertenece a la etapa 2 y no está arrancado
 
   12. POST /nodes/nodo-simulado/lxc/102/status/start
-      porque: el rol 'puesto-1' pertenece al escalón 3 y no está arrancado
+      porque: el rol 'puesto-1' pertenece a la etapa 3 y no está arrancado
 
   13. POST /nodes/nodo-simulado/lxc/103/status/start
-      porque: el rol 'puesto-2' pertenece al escalón 3 y no está arrancado
+      porque: el rol 'puesto-2' pertenece a la etapa 3 y no está arrancado
 
   14. POST /nodes/nodo-simulado/lxc/104/status/start
-      porque: el rol 'servidor' pertenece al escalón 3 y no está arrancado
+      porque: el rol 'servidor' pertenece a la etapa 3 y no está arrancado
 
-Resumen: arrancar_invitado=5, crear_bridge=2, crear_invitado=5, crear_pool=1, recargar_red=1
+Resumen: arrancar_guest=5, crear_bridge=2, crear_guest=5, crear_pool=1, recargar_red=1

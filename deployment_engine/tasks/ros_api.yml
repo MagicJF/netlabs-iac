@@ -1,16 +1,16 @@
 ---
 # PROPÓSITO:   LA PUERTA A ROUTEROS. Es el único sitio del repositorio que habla con el
 #              REST de un invitado, y es a la vez el que escribe la línea del diario:
-#              hacer la petición y diarizarla son UNA sola cosa, igual que en la puerta
-#              de Proxmox (regla 12: cuatro puertas, tres diarios).
+#              hacer la petición y diarizarla son UNA sola cosa, igual que en la vía de acceso
+#              de Proxmox (regla 12: cuatro vías de acceso, tres diarios).
 #
 #              La llamada SE HACE AQUÍ, en la máquina donde corre Ansible: NO se delega
-#              en el puesto de control (era el único `delegate_to` del motor). Al REST
+#              en el bastión (era el único `delegate_to` del motor). Al REST
 #              de un invitado no se llega desde casa, así que el PUESTO DE CONTROL le
-#              deja abierto un camino --reenvía el puerto 80 del invitado por el MISMO
-#              túnel del camino (tasks/camino.yml)-- y esta puerta llama a
+#              deja abierto un túnel --reenvía el puerto 80 del invitado por el MISMO
+#              túnel del túnel (tasks/tunnel.yml)-- y esta vía de acceso llama a
 #              `127.0.0.1:<puerto derivado del vmid>`. Así las llamadas se ejecutan en
-#              UN solo sitio (el motor), el puesto sólo hace de camino, y se mide: la
+#              UN solo sitio (el motor), el puesto sólo hace de túnel, y se mide: la
 #              misma llamada delegada costaba 4,4 s y así cuesta ~0,3 s
 #              (informe-rendimiento-despliegue.md).
 #
@@ -27,9 +27,9 @@
 #              de fábrica no trae certificado (ver docs/decisiones/0006-*.md).
 #              El túnel sólo reenvía el REST de los equipos que la DECLARACIÓN declara
 #              con `config.routeros`: a un invitado sin interior de RouterOS no se le
-#              llama, y sin camino no hay puerto.
+#              llama, y sin túnel no hay puerto.
 # VER:         docs/decisiones/0006-*.md; docs/decisiones/0010-*.md;
-#              tasks/configurar_routeros.yml; ./lab check puerta
+#              tasks/configurar_routeros.yml; ./lab check access
 #
 # Variables que espera:
 #   ros_metodo       GET | POST | PUT | DELETE
@@ -41,7 +41,7 @@
 #                    la última (el driver lee un área por llamada)
 #   ros_direccion    la dirección del invitado en el bridge del lab (para el diario y
 #                    para los mensajes: es lo que el lector reconoce)
-#   ros_puerto       el puerto local del nodo de control por el que el camino reenvía el
+#   ros_puerto       el puerto local del nodo de control por el que el túnel reenvía el
 #                    REST de ESE invitado (derivado de su vmid: `interior_puerto_rest`)
 #   ros_usuario ros_clave   la credencial con la que se llama
 #   ros_invitado     el rol del invitado (para el diario)
@@ -49,53 +49,53 @@
 #   ros_tolerar_error  (opcional) no fallar en error: el llamante decide
 # Y deja en `ros_ultimo_*` el status, el cuerpo, los datos y el error legible.
 
-# Sin camino abierto no hay puerta: se dice ANTES de intentar nada y con el remedio, en
+# Sin túnel abierto no hay gateway: se dice ANTES de intentar nada y con el remedio, en
 # vez de fallar con un error de conexión que no explica nada (regla 16).
-- name: "PUERTA ROUTEROS · ¿hay camino abierto hacia el REST de este invitado?"
+- name: "ACCESO ROUTEROS · ¿hay túnel abierto hacia el REST de este invitado?"
   ansible.builtin.fail:
     msg: |-
-      No se puede hablar con el REST de '{{ ros_invitado | default('?') }}': no hay
-      camino abierto hacia su REST.
+      No se puede hablar con el REST de '{{ ros_guest | default('?') }}': no hay
+      túnel abierto hacia su REST.
 
       El motor no llega solo a la red del lab: el PUESTO DE CONTROL reenvía el puerto 80
-      del invitado por el mismo túnel del camino, y este paso no trae el puerto por el
-      que hacerlo. Eso significa que el camino de este lab no se ha construido en este
-      verbo --o que se construyó antes de que este invitado entrara en el camino--:
-      lanza `./lab --lab {{ pve_lab }} apply`, que construye el camino primero (y ningún
-      escalón empieza antes de que el camino responda).
+      del invitado por el mismo túnel del túnel, y este paso no trae el puerto por el
+      que hacerlo. Eso significa que el túnel de este lab no se ha construido en este
+      verbo --o que se construyó antes de que este invitado entrara en el túnel--:
+      lanza `./lab --lab {{ pve_lab }} apply`, que construye el túnel primero (y ningún
+      etapa empieza antes de que el túnel responda).
 
       Si el lab venía de una versión anterior del motor, el túnel está en pie pero NO
       reenvía los REST: hay que REHACERLO. `apply` lo rehace solo: su comprobación del
-      camino ya mira también los puertos de REST de los invitados que existen.
+      túnel ya mira también los puertos de REST de los invitados que existen.
   when: (ros_puerto | default('') | string | length) == 0
 
-# La RED DE SEGURIDAD del modo «sólo leer» (lo usa `verify`): en sólo-lectura esta puerta
+# La RED DE SEGURIDAD del modo «sólo leer» (lo usa `verify`): en sólo-lectura esta vía de acceso
 # SÓLO atiende GET, y escribir por ella PARA. Es lo que hace IMPOSIBLE que una comprobación
-# cambie el mundo, aunque un driver olvidara su guarda: la frontera está en la puerta, no
+# cambie el mundo, aunque un driver olvidara su guarda: la frontera está en la vía de acceso, no
 # en la memoria de quien llama. Se MIDIÓ al implementar `verify` mirando dentro: una guarda
 # en el driver no basta, porque el driver sigue teniendo la sección de escribir.
-- name: "PUERTA ROUTEROS · en sólo lectura, esta puerta NO escribe"
+- name: "ACCESO ROUTEROS · en sólo lectura, esta vía de acceso NO escribe"
   ansible.builtin.fail:
     msg: |-
       Se ha pedido ESCRIBIR en un invitado en modo «sólo lectura»:
-      {{ ros_metodo }} {{ ros_ruta }} sobre '{{ ros_invitado | default('?') }}'.
+      {{ ros_metodo }} {{ ros_ruta }} sobre '{{ ros_guest | default('?') }}'.
 
-      En «sólo leer» (lo usa `verify`) la puerta sólo atiende GET: comprobar no cambia el
+      En «sólo leer» (lo usa `verify`) la vía de acceso sólo atiende GET: comprobar no cambia el
       mundo. Si esto salta, es un bug del driver, no de la declaración.
   when: >-
     (interior_solo_leer | default(false))
     and (ros_metodo | default('GET') | upper) != 'GET'
 
-- name: "PUERTA ROUTEROS · cronometrar {{ ros_metodo }} {{ ros_ruta }}"
+- name: "ACCESO ROUTEROS · cronometrar {{ ros_metodo }} {{ ros_ruta }}"
   ansible.builtin.set_fact:
     ros_t0: "{{ now() }}"
 
 # `no_log`: el resultado contiene la cabecera Authorization con la credencial.
 # `failed_when: false`: primero se DIARIZA, después se decide.
-- name: "REST {{ ros_metodo }} {{ ros_ruta }} de '{{ ros_invitado | default('?') }}'"
+- name: "REST {{ ros_metodo }} {{ ros_ruta }} de '{{ ros_guest | default('?') }}'"
   ansible.builtin.uri:
-    # Por `127.0.0.1` y por el puerto que el camino deja abierto hacia ESE invitado: la
-    # llamada sale de esta máquina, y el puesto de control sólo hace de camino. La dirección
+    # Por `127.0.0.1` y por el puerto que el túnel deja abierto hacia ESE invitado: la
+    # llamada sale de esta máquina, y el bastión sólo hace de túnel. La dirección
     # del invitado sigue siendo `ros_direccion` --es la que se diariza y la que se lee en
     # los errores--, pero por ahí NO se viaja.
     url: "http://127.0.0.1:{{ ros_puerto }}/rest{{ ros_ruta }}"
@@ -123,7 +123,7 @@
   # idempotencia (regla 6): la segunda ejecución de un verbo convergido sólo lleva GET.
   changed_when: ros_metodo | upper not in ['GET', 'HEAD']
 
-- name: "PUERTA ROUTEROS · clasificar la respuesta de {{ ros_ruta }}"
+- name: "ACCESO ROUTEROS · clasificar la respuesta de {{ ros_ruta }}"
   ansible.builtin.set_fact:
     # Sin conexión no hay `status`: -1 lo representa y es legible en el diario.
     ros_ultimo_status: "{{ ros_respuesta.status | default(-1) | int }}"
@@ -132,7 +132,7 @@
     ros_ultimo_crudo: "{{ ros_respuesta.msg | default('') }}"
     ros_duracion_ms: "{{ ((now() - ros_t0).total_seconds() * 1000) | round(0) | int }}"
 
-- name: "PUERTA ROUTEROS · extraer los datos de {{ ros_ruta }}"
+- name: "ACCESO ROUTEROS · extraer los datos de {{ ros_ruta }}"
   ansible.builtin.set_fact:
     # RouterOS devuelve LISTA al preguntar por una tabla y OBJETO al preguntar por un
     # dato suelto (`/system/identity` -> `{"name": "CHR"}`). Se deja tal cual llegó y
@@ -143,8 +143,8 @@
   vars:
     errores_conocidos:
       -1: >-
-        no se pudo conectar con el camino hacia {{ ros_direccion }} (127.0.0.1:{{
-        ros_puerto }}) -- puede que el camino no esté en pie, que el invitado no esté
+        no se pudo conectar con el túnel hacia {{ ros_direccion }} (127.0.0.1:{{
+        ros_puerto }}) -- puede que el túnel no esté en pie, que el guest no esté
         arrancado, que su dirección no sea la declarada, o que el túnel no reenvíe ESE
         puerto (un túnel construido antes de este cambio: se rehace con
         `./lab --lab {{ pve_lab }} apply`). Lo que dijo el transporte: {{ ros_ultimo_crudo }}
@@ -166,7 +166,7 @@
 # El diario va SIEMPRE, antes de decidir nada: un 401 queda registrado igual de bien
 # que un 200. Y los parámetros se tapan: la contraseña del motor viaja en el cuerpo de
 # alguna llamada (poner la credencial) y NUNCA puede acabar escrita aquí.
-- name: "DIARIO · {{ ros_metodo }} {{ ros_ruta }} en '{{ ros_invitado | default('?') }}'"
+- name: "DIARIO · {{ ros_metodo }} {{ ros_ruta }} en '{{ ros_guest | default('?') }}'"
   ansible.builtin.lineinfile:
     path: "{{ pve_carpeta_logs }}/api.jsonl"
     line: "{{ diario | to_json }}"
@@ -179,8 +179,8 @@
       verb: "{{ pve_verb }}"
       lab: "{{ pve_lab }}"
       api: routeros
-      puerta: rest
-      invitado: "{{ ros_invitado | default('') }}"
+      access: rest
+      guest: "{{ ros_guest | default('') }}"
       method: "{{ ros_metodo }}"
       path: "{{ ros_ruta }}"
       params: "{{ ros_cuerpo | default({}) | interior_sin_secretos }}"
@@ -193,7 +193,7 @@
 # Acumulación: una lectura es una RUTA, así que la ruta es la clave natural. Sin esto,
 # leer cuatro tablas en un bucle dejaría sólo la última y el analizador vería un equipo
 # a medias. Es estado de ESTA ejecución: no se guarda nada (regla 11).
-- name: "PUERTA ROUTEROS · acumular lo leído en {{ ros_ruta }}"
+- name: "ACCESO ROUTEROS · acumular lo leído en {{ ros_ruta }}"
   ansible.builtin.set_fact:
     ros_leidos: >-
       {{ (ros_leidos | default({})) | combine({ ros_ruta: {
@@ -206,12 +206,12 @@
   changed_when: false
 
 # Salvo que el llamante pida tolerar errores (el driver sabe qué esperaba de un 401 en la
-# primera convergencia), una respuesta de error PARA el verbo, con el camino de vuelta.
-- name: "PUERTA ROUTEROS · parar si el router respondió con error"
+# primera convergencia), una respuesta de error PARA el verbo, con el túnel de vuelta.
+- name: "ACCESO ROUTEROS · parar si el router respondió con error"
   ansible.builtin.fail:
     msg: |-
-      La llamada al REST de '{{ ros_invitado | default('?') }}' ({{ ros_direccion }}, por
-      el puerto {{ ros_puerto }} del camino) ha fallado: {{ ros_metodo }} {{ ros_ruta }}
+      La llamada al REST de '{{ ros_guest | default('?') }}' ({{ ros_direccion }}, por
+      el puerto {{ ros_puerto }} del túnel) ha fallado: {{ ros_metodo }} {{ ros_ruta }}
           {{ ros_ultimo_error | default('error desconocido') }}
       El diario de esta ejecución está en {{ pve_carpeta_logs }}/api.jsonl
   when:

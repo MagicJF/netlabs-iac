@@ -39,7 +39,7 @@
       ansible.builtin.include_tasks: ../tasks/validar.yml
 
     - name: "DESTROY · leer el mundo y re-derivar la identidad"
-      ansible.builtin.include_tasks: ../tasks/identidad.yml
+      ansible.builtin.include_tasks: ../tasks/identity.yml
 
     - name: "DESTROY · parar si no hay estado del mundo"
       ansible.builtin.fail:
@@ -95,13 +95,13 @@
       vars:
         pve_api_metodo: POST
         pve_api_ruta: "/nodes/{{ item.nodo }}/{{ item.tipo }}/{{ item.vmid }}/status/stop"
-        pve_api_etiqueta: "paro del invitado {{ item.vmid }} ({{ item.nombre }})"
+        pve_api_etiqueta: "paro del guest {{ item.vmid }} ({{ item.nombre }})"
         # El paro se tolera, y se dice. Puede fallar por una razón buena -- el invitado ya
         # estaba parado -- o por una mala -- no hay manera de pararlo. La guarda de verdad
         # es el BORRADO que viene después, que NO tolera nada: Proxmox se niega a borrar un
         # invitado arrancado, así que un paro de verdad fallido se para ahí, con su razón.
         pve_api_tolerar_error: true
-      loop: "{{ estado.invitados | dict2items | map(attribute='value') | selectattr('arrancado') | list }}"
+      loop: "{{ estado.guests | dict2items | map(attribute='value') | selectattr('arrancado') | list }}"
       loop_control:
         label: "{{ item.tipo }}/{{ item.vmid }} {{ item.nombre }}"
 
@@ -120,8 +120,8 @@
         # `purge` va en la RUTA (query), no en el cuerpo: Proxmox rechaza un DELETE
         # con cuerpo ("Unexpected content for method 'DELETE'", 501).
         pve_api_ruta: "/nodes/{{ item.nodo }}/{{ item.tipo }}/{{ item.vmid }}?purge=1"
-        pve_api_etiqueta: "borrado del invitado {{ item.vmid }} ({{ item.nombre }})"
-      loop: "{{ estado.invitados | dict2items | map(attribute='value') | list }}"
+        pve_api_etiqueta: "borrado del guest {{ item.vmid }} ({{ item.nombre }})"
+      loop: "{{ estado.guests | dict2items | map(attribute='value') | list }}"
       loop_control:
         label: "{{ item.tipo }}/{{ item.vmid }} {{ item.nombre }}"
 
@@ -153,11 +153,11 @@
       vars:
         pve_api_metodo: GET
         pve_api_ruta: "/nodes/{{ item.nodo }}/{{ item.tipo }}/{{ item.vmid }}/config"
-        pve_api_etiqueta: "red del invitado ajeno {{ item.vmid }} ({{ item.rol_o_nombre }}): ¿usa un bridge del lab?"
+        pve_api_etiqueta: "red del guest ajeno {{ item.vmid }} ({{ item.rol_o_nombre }}): ¿usa un bridge del lab?"
         pve_api_tolerar_error: true
         pve_api_acumular_configs_ajenas: true
         pve_api_vmid: "{{ item.vmid }}"
-      loop: "{{ pve_cluster_recursos | pve_invitados_fuera_del_pool(pve_lab) if (pve_bridges_candidatos | length) > 0 else [] }}"
+      loop: "{{ pve_cluster_recursos | pve_guests_fuera_del_pool(pve_lab) if (pve_bridges_candidatos | length) > 0 else [] }}"
       loop_control:
         label: "{{ item.tipo }}/{{ item.vmid }} {{ item.rol_o_nombre }}"
 
@@ -193,6 +193,6 @@
     - name: "DESTROY · resultado"
       ansible.builtin.debug:
         msg: >-
-          '{{ pve_lab }}' destruido: {{ estado.invitados | length }} invitado(s), su pool y
+          '{{ pve_lab }}' destruido: {{ estado.guests | length }} invitado(s), su pool y
           {{ pve_bridges_decision.borrar | length }} bridge(s) propio(s).
           El diario dice exactamente qué se llamó: {{ pve_carpeta_logs }}/api.jsonl

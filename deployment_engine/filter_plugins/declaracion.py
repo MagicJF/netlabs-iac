@@ -16,10 +16,10 @@
 # LÍMITES:     no habla con Proxmox y no sabe nada del mundo real; sólo mira el
 #              YAML. Que un bridge exista en el NODO no se comprueba aquí: eso es
 #              `preflight`, que sí lee la API. Que el interior de un invitado se
-#              pueda alcanzar tampoco: eso necesita el camino en pie, y se dice al
+#              pueda alcanzar tampoco: eso necesita el túnel en pie, y se dice al
 #              aplicar.
 #              Además de validar, ACONSEJA (`declaracion_consejos`): lo que es legal
-#              pero casi siempre es un olvido (el escalón antes de quien da la
+#              pero casi siempre es un olvido (la etapa antes de quien da la
 #              dirección, la dirección estática dentro del rango del DHCP, la
 #              pasarela que no es nadie del lab...). Los consejos NO bloquean ni
 #              cambian el plan: el criterio lo sigue teniendo quien declara.
@@ -61,16 +61,16 @@ TIPOS = ("qemu", "lxc")
 # ya no es el nombre entero -- ése lo sigue derivando el motor, con el `tipo:` y ese alias.
 CLAVES_DERIVADAS = ("vmid", "mac", "name", "pool")
 
-# Campos obligatorios de cada invitado declarado, y su tipo esperado. `direccion`
+# Campos obligatorios de cada invitado declarado, y su tipo esperado. `address`
 # NO está aquí a propósito: desde la fase 2 admite tres formas (estática, `dhcp` y
 # AUSENTE, para un equipo sin dirección como un conmutador puro), así que se valida
 # aparte y con más cuidado.
-CAMPOS_INVITADO = {
+CAMPOS_GUEST = {
     "rol": str,
-    "escalon": int,
+    "stage": int,
     "cores": int,
-    "memoria": int,
-    "disco": int,
+    "memory": int,
+    "disk": int,
     "bridge": str,
 }
 
@@ -92,40 +92,40 @@ CLAVE_EN_TEXTO = re.compile(
 # Una dirección IPv4 con máscara, y un rango `a-b` de un pool DHCP.
 IP_PATRON = re.compile(r"^\d{1,3}(\.\d{1,3}){3}(/\d{1,2})?$")
 
-# El área `camino` no declara credenciales ni direcciones de casa: eso es entorno
+# El área `tunnel` no declara credenciales ni direcciones de casa: eso es entorno
 # (secrets.yml). Lo único que puede traer son los dos valores que un lab de verdad
 # puede necesitar distintos: qué host y qué puerto, y son OPCIONALES.
-CLAVES_CAMINO = ("salida", "host", "puerto")
+CLAVES_TUNNEL = ("salida", "host", "puerto")
 
 # Los tipos de equipo que un lab declara (`tipo:`) y de los que sale la primera mitad del
 # nombre del invitado: `rt-borde`, `srv-1`, `ws-2`. Vocabulario CERRADO (regla 15): un
 # equipo que no quepa en ninguno pide su tipo al motor, con su ADR -- no se inventa aquí.
 TIPOS_DE_EQUIPO = {
-    "rt": "router (un CHR: la puerta de una red)",
-    "srv": "servidor (nace con su dirección fija y su puerta)",
+    "rt": "router (un CHR: la vía de acceso de una red)",
+    "srv": "servidor (nace con su dirección fija y su pasarela)",
     "ws": "puesto de trabajo (pide su dirección por DHCP)",
     "sw": "conmutador (un equipo que conmuta, o uno sin dirección)",
-    "ctl": "puesto de control (el bastión por el que se entra al lab)",
+    "ctl": "bastión (el bastión por el que se entra al lab)",
 }
 
 
-def patas_declaradas(invitado):
+def interfaces_declaradas(guest):
     """Los bridges del invitado, EN ORDEN: `bridges:` (varias) o `bridge:` (una).
 
-    El orden es el de las interfaces: la primera pata es `eth0` (en RouterOS, `ether1`),
-    la segunda `eth1`/`ether2`, y así. Un invitado de una sola pata puede seguir
+    El orden es el de las interfaces: la primera interfaz es `eth0` (en RouterOS, `ether1`),
+    la segunda `eth1`/`ether2`, y así. Un invitado de una sola interfaz puede seguir
     declarando `bridge:` (todo lo de la fase 1 sigue igual); uno que sirve varias redes
     declara `bridges: [...]` porque sus interfaces se nombran en la declaración.
     """
-    if isinstance(invitado.get("bridges"), list) and invitado["bridges"]:
-        return [str(nombre) for nombre in invitado["bridges"]]
-    if invitado.get("bridge"):
-        return [str(invitado["bridge"])]
+    if isinstance(guest.get("bridges"), list) and guest["bridges"]:
+        return [str(nombre) for nombre in guest["bridges"]]
+    if guest.get("bridge"):
+        return [str(guest["bridge"])]
     return []
 
 
 def _direccion_valida(direccion):
-    """¿Es una de las tres formas que admite `direccion:`?"""
+    """¿Es una de las tres formas que admite `address:`?"""
     texto = str(direccion)
     if texto == "dhcp":
         return True
@@ -138,15 +138,15 @@ def _direccion_valida(direccion):
     return all(0 <= o <= 255 for o in octetos) and 0 <= prefijo <= 32
 
 
-def _ip_en_supernet(ip, supernet):
-    """¿Cae `ip` (con o sin máscara) dentro de la supernet declarada?
+def _ip_en_address_space(ip, address_space):
+    """¿Cae `ip` (con o sin máscara) dentro de la espacio de direcciones declarada?
 
     Se comparan los PREFIJOS enteros, octeto a octeto: 10.40.1.5/24 está en
     10.40.0.0/16 porque los 16 primeros bits coinciden. No se hace aritmética de red
     más fina que esa: con IPv4 y prefijos de laboratorio sobra, y un cálculo
     complicado aquí sería otra cosa que puede estar mal sin que nadie lo note.
     """
-    base, _, prefijo = str(supernet).partition("/")
+    base, _, prefijo = str(address_space).partition("/")
     if not prefijo:
         return True
     try:
@@ -165,9 +165,9 @@ def _ip_en_supernet(ip, supernet):
     )
 
 
-def _validar_interior(invitado, etiqueta, rol, errores):
+def _validar_interior(guest, etiqueta, rol, errores):
     """Valida el vocabulario de `config:` con las reglas del §6 del encargo."""
-    config = invitado.get("config")
+    config = guest.get("config")
     if config is None:
         return
     if not isinstance(config, dict) or not config:
@@ -205,56 +205,56 @@ def _validar_interior(invitado, etiqueta, rol, errores):
         )
 
     # Las interfaces que el interior nombra TIENEN que existir en el invitado. Un CHR que
-    # declara configurar `ether2` necesita dos patas, y sin la segunda RouterOS contesta
+    # declara configurar `ether2` necesita dos interfaces, y sin la segunda RouterOS contesta
     # `400 input does not match any value of interface` A MITAD de la convergencia (medido:
     # con el intercambio de la dirección de gestión ya mandado y el equipo a medias).
     # Aquí se ve antes de tocar nada.
-    patas = patas_declaradas(invitado)
+    interfaces = interfaces_declaradas(guest)
     for area, datos in declarado.items():
         entradas = datos if isinstance(datos, list) else ([datos] if isinstance(datos, dict) else [])
         for entrada in entradas:
             if not isinstance(entrada, dict):
                 continue
-            numero = re.match(r"^eth(?:er)?(\d+)$", str(entrada.get("interfaz") or ""))
-            if numero and int(numero.group(1)) > len(patas):
+            numero = re.match(r"^eth(?:er)?(\d+)$", str(entrada.get("interface") or ""))
+            if numero and int(numero.group(1)) > len(interfaces):
                 errores.append(
-                    f"`{etiqueta}` ({rol}) declara configurar `{entrada['interfaz']}` en "
-                    f"'{area}', pero el invitado sólo tiene {len(patas)} pata(s) "
-                    f"({', '.join(patas) or 'ninguna'}): añade a `bridges` los bridges que "
-                    "falten, en orden (las patas se deciden al crear y no se cambian en "
+                    f"`{etiqueta}` ({rol}) declara configurar `{entrada['interface']}` en "
+                    f"'{area}', pero el invitado sólo tiene {len(interfaces)} interface(s) "
+                    f"({', '.join(interfaces) or 'ninguna'}): añade a `bridges` los bridges que "
+                    "falten, en orden (las interfaces se deciden al crear y no se cambian en "
                     "caliente)"
                 )
 
-    # El área `exterior` no admite opciones: es una MARCA. La pata de fuera, su interfaz y su
-    # dirección las deriva el motor (el plan tiende la pata, y el router pide dirección por
+    # El área `uplink` no admite opciones: es una MARCA. La interfaz de fuera, su interfaz y su
+    # dirección las deriva el motor (el plan tiende la interfaz, y el router pide dirección por
     # DHCP desde dentro), así que una opción aquí sería una invención del lab -- y este
     # vocabulario es cerrado (regla 15): se rechaza antes de tocar nada.
-    exterior = declarado.get("exterior")
+    exterior = declarado.get("uplink")
     if exterior not in (None, {}, [], ""):
         errores.append(
-            f"`{etiqueta}` ({rol}): el área 'exterior' no lleva opciones y se declaró "
-            f"{exterior!r}. Es una marca (`exterior: {{}}`): que este router ES la salida "
-            "del lab. La pata de fuera, la interfaz y la dirección las pone el motor."
+            f"`{etiqueta}` ({rol}): el área 'uplink' no lleva opciones y se declaró "
+            f"{exterior!r}. Es una marca (`uplink: {{}}`): que este router ES la salida "
+                        "del lab. La interfaz de fuera, su dirección y su salida las pone el motor."
         )
 
     # Y la dirección: un invitado con config tiene que ser alcanzable.
-    direccion = invitado.get("direccion")
+    direccion = guest.get("address")
     if direccion in (None, ""):
         errores.append(
-            f"`{etiqueta}` ({rol}) declara `config.` pero no declara `direccion`: un "
+            f"`{etiqueta}` ({rol}) declara `config.` pero no declara `address`: un "
             "equipo que no se puede alcanzar no se puede converger (un conmutador "
             "puro no lleva `config`)"
         )
     elif (modulo_interior.es_direccion_dinamica(direccion)
-          and modulo_interior.areas_que_piden_visita(invitado)):
-        # Los puestos dinámicos declaran SÓLO el tipo (`linux: {}`) con `direccion: dhcp`:
+          and modulo_interior.areas_que_piden_visita(guest)):
+        # Los puestos dinámicos declaran SÓLO el tipo (`linux: {}`) con `address: dhcp`:
         # su dirección se lee del HOST y no se configura dentro, así que no piden visita.
         # Pero un `dhcp` CON áreas que exijan entrar no se puede converger: no se sabe a
         # qué dirección conectar, y el motor no entra a ciegas (regla 16). Se dice aquí,
         # no se intenta.
-        piden = ", ".join(sorted(modulo_interior.areas_que_piden_visita(invitado)))
+        piden = ", ".join(sorted(modulo_interior.areas_que_piden_visita(guest)))
         errores.append(
-            f"`{etiqueta}` ({rol}) declara `direccion: dhcp` y áreas que piden ENTRAR "
+            f"`{etiqueta}` ({rol}) declara `address: dhcp` y áreas que piden ENTRAR "
             f"({piden}): sin una dirección estática el motor no sabe a dónde conectar. "
             "Deja sólo el tipo (`linux: {}`) o declara una dirección."
         )
@@ -267,126 +267,126 @@ def _validar_interior(invitado, etiqueta, rol, errores):
 
 def _validar_routeros(declarado, etiqueta, rol, errores):
     """Las formas del vocabulario de RouterOS, una a una."""
-    identidad = declarado.get("identidad")
+    identidad = declarado.get("identity")
     if identidad is not None and (not isinstance(identidad, str) or not identidad.strip()):
-        errores.append(f"`{etiqueta}` ({rol}): `identidad` tiene que ser texto no vacío")
+        errores.append(f"`{etiqueta}` ({rol}): `identity` tiene que ser texto no vacío")
 
-    servicios = declarado.get("servicios")
+    servicios = declarado.get("ip_services")
     if servicios is not None:
         if not isinstance(servicios, dict) or set(servicios) - {"deshabilitar", "habilitar"}:
             errores.append(
-                f"`{etiqueta}` ({rol}): `servicios` sólo admite `deshabilitar` (una lista)"
+                f"`{etiqueta}` ({rol}): `ip_services` sólo admite `deshabilitar` (una lista)"
             )
         else:
             for servicio in servicios.get("deshabilitar") or []:
                 if str(servicio) in modulo_interior.SERVICIOS_NUNCA_DESHABILITADOS:
                     errores.append(
                         f"`{etiqueta}` ({rol}): `servicios.deshabilitar` incluye "
-                        f"'{servicio}', que es donde vive REST: es el camino de vuelta "
+                        f"'{servicio}', que es donde vive REST: es el túnel de vuelta "
                         "y deshabilitarlo deja el equipo sin forma de ser configurado"
                     )
                 elif str(servicio) not in modulo_interior.SERVICIOS_GESTIONADOS:
                     errores.append(
                         f"`{etiqueta}` ({rol}): el servicio '{servicio}' no está en el "
-                        "alcance del área `servicios` "
+                        "alcance del área `ip_services` "
                         f"({', '.join(modulo_interior.SERVICIOS_GESTIONADOS)})"
                     )
 
-    cliente = declarado.get("cliente_dhcp")
+    cliente = declarado.get("dhcp_client")
     if cliente is not None and (
         not isinstance(cliente, dict) or not isinstance(cliente.get("deshabilitar"), bool)
     ):
-        errores.append(f"`{etiqueta}` ({rol}): `cliente_dhcp` se declara `{{deshabilitar: true|false}}`")
+        errores.append(f"`{etiqueta}` ({rol}): `dhcp_client` se declara `{{deshabilitar: true|false}}`")
 
-    for indice, direccion in enumerate(declarado.get("direcciones") or []):
-        if not isinstance(direccion, dict) or not direccion.get("interfaz"):
-            errores.append(f"`{etiqueta}` ({rol}): `direcciones[{indice}]` necesita `interfaz` y `direccion`")
+    for indice, direccion in enumerate(declarado.get("addresses") or []):
+        if not isinstance(direccion, dict) or not direccion.get("interface"):
+            errores.append(f"`{etiqueta}` ({rol}): `addresses[{indice}]` necesita `interface` y `address`")
             continue
-        if not _direccion_valida(direccion.get("direccion")):
+        if not _direccion_valida(direccion.get("address")):
             errores.append(
-                f"`{etiqueta}` ({rol}): `direcciones[{indice}]` tiene una dirección que no "
-                f"es IPv4 con máscara: {direccion.get('direccion')!r}"
+                f"`{etiqueta}` ({rol}): `addresses[{indice}]` tiene una dirección que no "
+                f"es IPv4 con máscara: {direccion.get('address')!r}"
             )
 
-    for indice, ruta in enumerate(declarado.get("rutas") or []):
-        if not isinstance(ruta, dict) or not ruta.get("destino") or not ruta.get("pasarela"):
-            errores.append(f"`{etiqueta}` ({rol}): `rutas[{indice}]` necesita `destino` y `pasarela`")
+    for indice, ruta in enumerate(declarado.get("routes") or []):
+        if not isinstance(ruta, dict) or not ruta.get("dst_address") or not ruta.get("gateway"):
+            errores.append(f"`{etiqueta}` ({rol}): `routes[{indice}]` necesita `dst_address` y `gateway`")
 
-    for indice, servidor in enumerate(declarado.get("dhcp") or []):
-        if not isinstance(servidor, dict) or not servidor.get("interfaz"):
-            errores.append(f"`{etiqueta}` ({rol}): `dhcp[{indice}]` necesita `interfaz`")
+    for indice, servidor in enumerate(declarado.get("dhcp_server") or []):
+        if not isinstance(servidor, dict) or not servidor.get("interface"):
+            errores.append(f"`{etiqueta}` ({rol}): `dhcp_server[{indice}]` necesita `interface`")
             continue
-        reservas = servidor.get("reservas")
-        if isinstance(reservas, str) and reservas != "derivadas":
+        reservas = servidor.get("static_leases")
+        if isinstance(reservas, str) and reservas != "derived":
             errores.append(
-                f"`{etiqueta}` ({rol}): `dhcp[{indice}].reservas` sólo admite "
-                "`derivadas` o una lista de `{rol, direccion}` (nunca con MAC)"
+                f"`{etiqueta}` ({rol}): `dhcp_server[{indice}].static_leases` sólo admite "
+                "`derived` o una lista de `{role, address}` (nunca con MAC)"
             )
         elif isinstance(reservas, list):
             for reserva in reservas:
-                if not isinstance(reserva, dict) or set(reserva) - {"rol", "direccion"}:
+                if not isinstance(reserva, dict) or set(reserva) - {"rol", "address"}:
                     errores.append(
-                        f"`{etiqueta}` ({rol}): una reserva es `{{rol, direccion}}` y "
+                        f"`{etiqueta}` ({rol}): una reserva es `{{role, address}}` y "
                         "nunca lleva MAC: la MAC se deriva del vmid (regla 14)"
                     )
 
 
 def _validar_linux(declarado, etiqueta, rol, errores):
     """Las formas del vocabulario de Linux, una a una."""
-    camino = declarado.get(modulo_interior.CLAVE_CAMINO)
-    if camino is not None:
-        if not isinstance(camino, dict):
-            errores.append(f"`{etiqueta}` ({rol}): `camino` tiene que ser un mapa")
+    tunnel = declarado.get(modulo_interior.CLAVE_TUNNEL)
+    if tunnel is not None:
+        if not isinstance(tunnel, dict):
+            errores.append(f"`{etiqueta}` ({rol}): `tunnel` tiene que ser un mapa")
         else:
-            for clave in camino:
-                if clave not in CLAVES_CAMINO:
+            for clave in tunnel:
+                if clave not in CLAVES_TUNNEL:
                     errores.append(
-                        f"`{etiqueta}` ({rol}): `camino.{clave}` no existe: un puesto de "
+                        f"`{etiqueta}` ({rol}): `tunnel.{clave}` no existe: un puesto de "
                         "control declara sólo por dónde sale "
-                        f"({', '.join(CLAVES_CAMINO)}), y el resto es "
+                        f"({', '.join(CLAVES_TUNNEL)}), y el resto es "
                         "entorno (secrets.yml), no lab"
                     )
-    if "reenvio" in declarado and not isinstance(declarado["reenvio"], bool):
-        errores.append(f"`{etiqueta}` ({rol}): `reenvio` tiene que ser true o false")
-    # `direcciones` (Linux): las patas EXTRA del invitado, una por bridge del lab. Se
+    if "ip_forward" in declarado and not isinstance(declarado["ip_forward"], bool):
+        errores.append(f"`{etiqueta}` ({rol}): `ip_forward` tiene que ser true o false")
+    # `addresses` (Linux): las interfaces EXTRA del invitado, una por bridge del lab. Se
     # declaran una a una porque el motor no adivina direcciones (regla 11) y porque un
-    # puesto de control sin dirección en un bridge no puede llegar a lo que cuelga de él.
-    if "direcciones" in declarado:
-        patas = declarado["direcciones"]
-        if not isinstance(patas, list) or not patas:
+    # bastión sin dirección en un bridge no puede llegar a lo que cuelga de él.
+    if "addresses" in declarado:
+        interfaces = declarado["addresses"]
+        if not isinstance(interfaces, list) or not interfaces:
             errores.append(
-                f"`{etiqueta}` ({rol}): `direcciones` tiene que ser una lista de "
-                "`{interfaz, direccion}`"
+                f"`{etiqueta}` ({rol}): `addresses` tiene que ser una lista de "
+                "`{interface, address}`"
             )
         else:
-            for pata in patas:
-                if not isinstance(pata, dict) or not pata.get("interfaz") or not pata.get("direccion"):
+            for interface in interfaces:
+                if not isinstance(interface, dict) or not interface.get("interface") or not interface.get("address"):
                     errores.append(
-                        f"`{etiqueta}` ({rol}): cada entrada de `direcciones` necesita "
-                        "`interfaz` y `direccion`"
+                        f"`{etiqueta}` ({rol}): cada entrada de `addresses` necesita "
+                        "`interface` y `address`"
                     )
-    servidor = declarado.get("dhcp_servidor")
+    servidor = declarado.get("dhcp_server")
     if servidor is not None:
-        if not isinstance(servidor, dict) or not servidor.get("interfaz"):
-            errores.append(f"`{etiqueta}` ({rol}): `dhcp_servidor` necesita `interfaz` y `rango`")
+        if not isinstance(servidor, dict) or not servidor.get("interface"):
+            errores.append(f"`{etiqueta}` ({rol}): `dhcp_server` necesita `interface` y `rango`")
         else:
             if not servidor.get("rango") or "-" not in str(servidor.get("rango")):
                 errores.append(
-                    f"`{etiqueta}` ({rol}): `dhcp_servidor.rango` tiene que ser un rango "
+                    f"`{etiqueta}` ({rol}): `dhcp_server.rango` tiene que ser un rango "
                     "`inicio-fin` (p. ej. 10.40.0.50-10.40.0.99)"
                 )
-            reservas = servidor.get("reservas")
-            if reservas is not None and reservas != "derivadas" and not isinstance(reservas, list):
+            reservas = servidor.get("static_leases")
+            if reservas is not None and reservas != "derived" and not isinstance(reservas, list):
                 errores.append(
-                    f"`{etiqueta}` ({rol}): `dhcp_servidor.reservas` sólo admite "
-                    "`derivadas` o una lista de `{rol, direccion}`"
+                    f"`{etiqueta}` ({rol}): `dhcp_server.static_leases` sólo admite "
+                    "`derived` o una lista de `{role, address}`"
                 )
 
 
-def _supernet_de(declaracion):
-    """La supernet declarada por el lab, o None. Es opcional: un lab de la fase 1 no
+def _address_space_de(declaracion):
+    """La espacio de direcciones declarada por el lab, o None. Es opcional: un lab de la fase 1 no
     la declara y no se le exige."""
-    valor = (declaracion.get("lab") or {}).get("supernet")
+    valor = (declaracion.get("lab") or {}).get("address_space")
     if valor is None:
         return None
     texto = str(valor)
@@ -446,71 +446,71 @@ def _buscar_prohibidos(valor, ruta, errores):
             errores.append(
                 f"`{ruta}` declara una MAC ({valor}): la MAC se DERIVA del vmid "
                 "(regla 14) y no se declara nunca. Si hace falta una reserva DHCP, se "
-                "declara `reservas: derivadas` o `{rol, direccion}`, nunca la MAC."
+                "declara `static_leases: derived` o `{role, address}`, nunca la MAC."
             )
         elif CLAVE_EN_TEXTO.search(valor):
             errores.append(
                 f"`{ruta}` parece una CLAVE (o un certificado): las claves del motor son "
                 "suyas y viven fuera del repo (regla 3); el lab no declara ninguna. "
-                "La clave del camino la genera el motor y la deja él mismo dentro del "
-                "puesto de control."
+                "La clave del túnel la genera el motor y la deja él mismo dentro del "
+                "bastión."
             )
 
 
 def _direcciones_declaradas(declaracion):
-    """Todas las direcciones y rangos que un lab declara, para vigilar la supernet.
+    """Todas las direcciones y rangos que un lab declara, para vigilar la espacio de direcciones.
 
     Devuelve (ruta, texto). Se incluyen los bridges del lab (su dirección es la
-    puerta de los invitados de ese bridge), las direcciones de los invitados y las
+    pasarela de los invitados de ese bridge), las direcciones de los invitados y las
     que el interior declara por dentro (direcciones de un RouterOS, pools, redes y
     rangos del DHCP).
     """
     salida = []
     for indice, bridge in enumerate((declaracion.get("lab") or {}).get("bridges") or []):
-        if bridge.get("direccion"):
-            salida.append((f"lab.bridges[{indice}].direccion", bridge["direccion"]))
+        if bridge.get("address"):
+            salida.append((f"lab.bridges[{indice}].address", bridge["address"]))
     for seccion in ("vms", "containers"):
-        for indice, invitado in enumerate(declaracion.get(seccion) or []):
+        for indice, guest in enumerate(declaracion.get(seccion) or []):
             etiqueta = f"{seccion}[{indice}]"
-            direccion = invitado.get("direccion")
+            direccion = guest.get("address")
             if direccion and str(direccion) != "dhcp":
-                salida.append((f"{etiqueta}.direccion", direccion))
-            config = (invitado.get("config") or {}).get("routeros") or {}
-            for i, item in enumerate(config.get("direcciones") or []):
-                if item.get("direccion"):
-                    salida.append((f"{etiqueta}.config.routeros.direcciones[{i}]", item["direccion"]))
-            for i, servidor in enumerate(config.get("dhcp") or []):
+                salida.append((f"{etiqueta}.address", direccion))
+            config = (guest.get("config") or {}).get("routeros") or {}
+            for i, item in enumerate(config.get("addresses") or []):
+                if item.get("address"):
+                    salida.append((f"{etiqueta}.config.routeros.addresses[{i}]", item["address"]))
+            for i, servidor in enumerate(config.get("dhcp_server") or []):
                 if (servidor.get("pool") or {}).get("rango"):
                     rango = str(servidor["pool"]["rango"])
                     for trozo in rango.split("-"):
                         salida.append((f"{etiqueta}.config.routeros.dhcp[{i}].pool", trozo))
-                if (servidor.get("red") or {}).get("prefijo"):
+                if (servidor.get("network") or {}).get("address"):
                     salida.append(
-                        (f"{etiqueta}.config.routeros.dhcp[{i}].red", servidor["red"]["prefijo"])
+                        (f"{etiqueta}.config.routeros.dhcp[{i}].network", servidor["network"]["address"])
                     )
-                for i_r, reserva in enumerate(servidor.get("reservas") or []):
-                    if isinstance(reserva, dict) and reserva.get("direccion"):
+                for i_r, reserva in enumerate(servidor.get("static_leases") or []):
+                    if isinstance(reserva, dict) and reserva.get("address"):
                         salida.append(
-                            (f"{etiqueta}.config.routeros.dhcp[{i}].reservas[{i_r}]", reserva["direccion"])
+                            (f"{etiqueta}.config.routeros.dhcp[{i}].static_leases[{i_r}]", reserva["address"])
                         )
-                if servidor.get("red", {}).get("pasarela"):
+                if servidor.get("network", {}).get("gateway"):
                     salida.append(
-                        (f"{etiqueta}.config.routeros.dhcp[{i}].red.pasarela", servidor["red"]["pasarela"])
+                        (f"{etiqueta}.config.routeros.dhcp[{i}].network.gateway", servidor["network"]["gateway"])
                     )
-            for ruta, item in enumerate(config.get("rutas") or []):
-                if item.get("pasarela"):
-                    salida.append((f"{etiqueta}.config.routeros.rutas[{ruta}].pasarela", item["pasarela"]))
-            linux = (invitado.get("config") or {}).get("linux") or {}
-            servidor_dhcp = linux.get("dhcp_servidor") or {}
+            for ruta, item in enumerate(config.get("routes") or []):
+                if item.get("gateway"):
+                    salida.append((f"{etiqueta}.config.routeros.routes[{ruta}].gateway", item["gateway"]))
+            linux = (guest.get("config") or {}).get("linux") or {}
+            servidor_dhcp = linux.get("dhcp_server") or {}
             if servidor_dhcp.get("rango"):
                 for trozo in str(servidor_dhcp["rango"]).split("-"):
-                    salida.append((f"{etiqueta}.config.linux.dhcp_servidor.rango", trozo))
+                    salida.append((f"{etiqueta}.config.linux.dhcp_server.rango", trozo))
     return salida
 
 
-def declaracion_supernet(declaracion):
-    """La supernet declarada, o None. Lo usa `./lab check supernet`."""
-    return _supernet_de(declaracion)
+def declaracion_address_space(declaracion):
+    """La espacio de direcciones declarada, o None. Lo usa `./lab check address-space`."""
+    return _address_space_de(declaracion)
 
 
 def declaracion_validar(declaracion, carpeta=None):
@@ -527,7 +527,7 @@ def declaracion_validar(declaracion, carpeta=None):
 
     lab = declaracion.get("lab")
     if not isinstance(lab, dict):
-        return ["falta la sección `lab` (nombre, bridges, escalones)"]
+        return ["falta la sección `lab` (nombre, bridges, stages)"]
 
     nombre = lab.get("nombre")
     if not isinstance(nombre, str) or not nombre.strip():
@@ -560,14 +560,14 @@ def declaracion_validar(declaracion, carpeta=None):
     if duplicados:
         errores.append(f"hay bridges repetidos en el lab: {sorted(duplicados)}")
 
-    # --- escalones de arranque --------------------------------------------
-    escalones = lab.get("escalones")
-    if not isinstance(escalones, list) or not escalones:
-        errores.append("`lab.escalones` falta o está vacío (el orden de arranque es parte de la topología)")
-        escalones = []
-    for escalon in escalones:
-        if not isinstance(escalon, int) or escalon < 1:
-            errores.append(f"escalón inválido {escalon!r}: tienen que ser enteros >= 1")
+    # --- etapas de arranque --------------------------------------------
+    stages = lab.get("stages")
+    if not isinstance(stages, list) or not stages:
+        errores.append("`lab.stages` falta o está vacío (el orden de arranque es parte de la topología)")
+        stages = []
+    for stage in stages:
+        if not isinstance(stage, int) or stage < 1:
+            errores.append(f"etapa inválido {stage!r}: tienen que ser enteros >= 1")
 
     # --- lo que no se declara nunca, también fuera de los invitados ---------
     # La sección `lab` no es un rincón libre: una MAC o una clave escondida ahí sigue
@@ -576,7 +576,7 @@ def declaracion_validar(declaracion, carpeta=None):
     _buscar_prohibidos(lab, "lab", errores)
 
     # --- invitados ---------------------------------------------------------
-    invitados = []
+    guests = []
     for seccion, tipo in (("vms", "qemu"), ("containers", "lxc")):
         lista = declaracion.get(seccion, [])
         if lista is None:
@@ -584,22 +584,22 @@ def declaracion_validar(declaracion, carpeta=None):
         if not isinstance(lista, list):
             errores.append(f"`{seccion}` no es una lista")
             continue
-        for indice, invitado in enumerate(lista):
-            if not isinstance(invitado, dict):
+        for indice, guest in enumerate(lista):
+            if not isinstance(guest, dict):
                 errores.append(f"`{seccion}[{indice}]` no es un mapa")
                 continue
-            invitados.append((f"{seccion}[{indice}]", tipo, invitado))
+            guests.append((f"{seccion}[{indice}]", tipo, guest))
 
     roles = []
     direcciones = []
-    escalones_usados = []
+    stages_usados = []
     puestos_control = []
     # Los nombres derivados que ya han salido, para vigilar que dos invitados del MISMO lab
     # no se llamen igual (`srv-1` dos veces). Entre labs distintos SÍ puede repetirse: el pool
     # y la descripción (`lab=… rol=…`) son los que dicen de quién es cada uno.
     nombres_derivados = {}
-    for etiqueta, tipo, invitado in invitados:
-        rol = invitado.get("rol")
+    for etiqueta, tipo, guest in guests:
+        rol = guest.get("rol")
         if not isinstance(rol, str) or not rol.strip():
             errores.append(f"`{etiqueta}` no tiene `rol`")
             continue
@@ -609,7 +609,7 @@ def declaracion_validar(declaracion, carpeta=None):
         # El nombre dice qué es el invitado, no de qué lab es: `rt-borde`, `srv-1`. Se deriva
         # de dos mitades declaradas -- el `tipo:` (obligatorio, vocabulario cerrado) y el
         # alias, que es su `nombre:` corto, o su rol si no lo declara.
-        equipo = invitado.get("tipo")
+        equipo = guest.get("tipo")
         if equipo is None:
             errores.append(
                 f"`{etiqueta}` ({rol}): falta `tipo:`. El nombre de un invitado dice qué "
@@ -622,7 +622,7 @@ def declaracion_validar(declaracion, carpeta=None):
                 f"({', '.join(sorted(TIPOS_DE_EQUIPO))}). Un equipo nuevo se pide al motor "
                 "con su ADR: no se inventa un tipo aquí."
             )
-        alias = invitado.get("nombre")
+        alias = guest.get("nombre")
         if alias is not None:
             # Un alias puede llegar como NÚMERO (`nombre: 1`), que es lo natural para
             # numerar puestos, servidores y controles: se lee como texto.
@@ -649,78 +649,78 @@ def declaracion_validar(declaracion, carpeta=None):
 
         # Lo que el motor deriva, prohibido en la declaración.
         for clave in CLAVES_DERIVADAS:
-            if clave in invitado:
+            if clave in guest:
                 errores.append(
                     f"`{etiqueta}` ({rol}) declara `{clave}`: eso lo deriva el motor "
                     "de la identidad (regla 11). Quítalo de la declaración."
                 )
 
-        # Un invitado de VARIAS patas declara `bridges:` (la lista) en vez de `bridge:`.
+        # Un invitado de VARIAS interfaces declara `bridges:` (la lista) en vez de `bridge:`.
         # Las dos formas dicen lo mismo; la lista es la que deja nombrar `ether2`, etc.
-        tiene_patas = isinstance(invitado.get("bridges"), list) and bool(invitado["bridges"])
-        for campo, esperado in CAMPOS_INVITADO.items():
-            if campo not in invitado:
-                if campo == "bridge" and tiene_patas:
+        tiene_interfaces = isinstance(guest.get("bridges"), list) and bool(guest["bridges"])
+        for campo, esperado in CAMPOS_GUEST.items():
+            if campo not in guest:
+                if campo == "bridge" and tiene_interfaces:
                     continue
                 errores.append(f"`{etiqueta}` ({rol}) no declara `{campo}`")
                 continue
-            valor = invitado[campo]
+            valor = guest[campo]
             if esperado is int:
                 if not isinstance(valor, int) or isinstance(valor, bool) or valor <= 0:
                     errores.append(f"`{etiqueta}` ({rol}): `{campo}` tiene que ser un entero > 0 (es {valor!r})")
             elif not isinstance(valor, str) or not valor.strip():
                 errores.append(f"`{etiqueta}` ({rol}): `{campo}` tiene que ser texto no vacío")
 
-        if tiene_patas:
-            if len(set(invitado["bridges"])) != len(invitado["bridges"]):
+        if tiene_interfaces:
+            if len(set(guest["bridges"])) != len(guest["bridges"]):
                 errores.append(f"`{etiqueta}` ({rol}): `bridges` repite un bridge")
-            for nombre in invitado["bridges"]:
+            for nombre in guest["bridges"]:
                 if not isinstance(nombre, str) or nombre not in nombres_bridge:
                     errores.append(
                         f"`{etiqueta}` ({rol}) usa el bridge '{nombre}', "
                         "que el lab no declara en `lab.bridges`"
                     )
-        elif invitado.get("bridge") and invitado["bridge"] not in nombres_bridge:
+        elif guest.get("bridge") and guest["bridge"] not in nombres_bridge:
             errores.append(
-                f"`{etiqueta}` ({rol}) usa el bridge '{invitado['bridge']}', "
+                f"`{etiqueta}` ({rol}) usa el bridge '{guest['bridge']}', "
                 "que el lab no declara en `lab.bridges`"
             )
-        if invitado.get("escalon") is not None and invitado["escalon"] not in escalones:
+        if guest.get("stage") is not None and guest["stage"] not in stages:
             errores.append(
-                f"`{etiqueta}` ({rol}) está en el escalón {invitado['escalon']}, "
-                "que no aparece en `lab.escalones`"
+                f"`{etiqueta}` ({rol}) está en la etapa {guest['stage']}, "
+                "que no aparece en `lab.stages`"
             )
-        if isinstance(invitado.get("escalon"), int):
-            escalones_usados.append(invitado["escalon"])
+        if isinstance(guest.get("stage"), int):
+            stages_usados.append(guest["stage"])
 
         # --- la dirección: tres formas, y la de en medio es `dhcp` -------------
-        direccion = invitado.get("direccion")
+        direccion = guest.get("address")
         if direccion not in (None, ""):
             if not _direccion_valida(direccion):
                 errores.append(
-                    f"`{etiqueta}` ({rol}): `direccion` admite tres formas -- `<ip>/<prefijo>` "
+                    f"`{etiqueta}` ({rol}): `address` admite tres formas -- `<ip>/<prefijo>` "
                     f"(estática), `dhcp` (dinámica) y ausente (equipo sin dirección) -- y "
                     f"esto no es ninguna: {direccion!r}"
                 )
             elif str(direccion) != "dhcp":
                 direcciones.append((rol, _direccion_sin_mascara(direccion)))
 
-        # --- la imagen: sólo para una VM, y es lo que la hace arrancar ---------
-        imagen = invitado.get("imagen")
+        # --- la image: sólo para una VM, y es lo que la hace arrancar ---------
+        imagen = guest.get("image")
         if imagen is not None:
             if tipo != "qemu":
                 errores.append(
-                    f"`{etiqueta}` ({rol}) declara `imagen` y es un contenedor: una imagen "
+                    f"`{etiqueta}` ({rol}) declara `image` y es un contenedor: una imagen "
                     "de fábrica es el disco de una VM (se importa AL CREAR, §9.3)"
                 )
             elif not isinstance(imagen, str) or not imagen.strip():
-                errores.append(f"`{etiqueta}` ({rol}): `imagen` tiene que ser texto no vacío")
+                errores.append(f"`{etiqueta}` ({rol}): `image` tiene que ser texto no vacío")
 
         # --- lo que no se declara nunca: MACs y credenciales -------------------
-        _buscar_prohibidos(invitado, f"{etiqueta}", errores)
+        _buscar_prohibidos(guest, f"{etiqueta}", errores)
         # --- el vocabulario del interior (cerrado) ----------------------------
-        _validar_interior(invitado, etiqueta, rol, errores)
-        if modulo_interior.tiene_camino(invitado):
+        _validar_interior(guest, etiqueta, rol, errores)
+        if modulo_interior.tiene_tunnel(guest):
             puestos_control.append(rol)
 
     repetidos = {r for r in roles if roles.count(r) > 1}
@@ -730,10 +730,10 @@ def declaracion_validar(declaracion, carpeta=None):
             "y sólo a uno: el nombre canónico y la descripción se derivan de él."
         )
 
-    # Un escalón declarado y vacío es una promesa que la declaración no cumple.
-    for escalon in escalones:
-        if isinstance(escalon, int) and escalon not in escalones_usados:
-            errores.append(f"el escalón {escalon} está declarado pero ningún invitado lo usa")
+    # Un etapa declarado y vacío es una promesa que la declaración no cumple.
+    for stage in stages:
+        if isinstance(stage, int) and stage not in stages_usados:
+            errores.append(f"la etapa {stage} está declarado pero ningún invitado lo usa")
 
     # Dos roles con la misma dirección chocan en la red del lab.
     vistas = {}
@@ -743,45 +743,45 @@ def declaracion_validar(declaracion, carpeta=None):
         else:
             vistas[direccion] = rol
 
-    # --- el camino: uno, y sólo uno, y tiene que coincidir con `lab.camino` ----
-    camino = (lab.get("camino") or {}).get("tipo")
-    if camino is not None and camino != "puesto_control":
+    # --- el tunnel: uno, y sólo uno, y tiene que coincidir con `lab.tunnel` ----
+    tunnel = (lab.get("tunnel") or {}).get("tipo")
+    if tunnel is not None and tunnel != "bastion":
         errores.append(
-            f"`lab.camino.tipo` es {camino!r}: el único camino que el motor sabe "
+            f"`lab.tunnel.tipo` es {tunnel!r}: el único túnel que el motor sabe "
             "construir es `puesto_control` (§5). Otra cosa es otra fase, con su ADR."
         )
-    if camino is not None and not puestos_control:
+    if tunnel is not None and not puestos_control:
         errores.append(
-            "`lab.camino` está declarado y ningún invitado declara "
-            "`config.linux.camino`: el camino lo levanta un puesto de control, y sin "
+            "`lab.tunnel` está declarado y ningún invitado declara "
+            "`config.linux.tunnel`: el túnel lo levanta un bastión, y sin "
             "él no hay por dónde entrar en el lab"
         )
-    if camino is None and puestos_control:
+    if tunnel is None and puestos_control:
         errores.append(
-            f"el rol '{puestos_control[0]}' se declara puesto de control "
-            "(`config.linux.camino`) pero el lab no declara `lab.camino`: decláralo, o "
-            "quita el `camino` del invitado"
+            f"el rol '{puestos_control[0]}' se declara bastión "
+            "(`config.linux.tunnel`) pero el lab no declara `lab.tunnel`: decláralo, o "
+            "quita el `tunnel` del invitado"
         )
     if len(puestos_control) > 1:
         errores.append(
-            f"hay más de un puesto de control declarado ({sorted(puestos_control)}): "
-            "el puerto del camino se deriva del vmid y dos puestos en el mismo lab se "
+            f"hay más de un bastión declarado ({sorted(puestos_control)}): "
+            "el puerto del túnel se deriva del vmid y dos puestos en el mismo lab se "
             "pisarían"
         )
 
-    # --- la supernet: todo lo del lab vive dentro, y se puede comprobar --------
-    supernet = _supernet_de(declaracion)
-    if supernet == "":
+    # --- la address_space: todo lo del lab vive dentro, y se puede comprobar --------
+    address_space = _address_space_de(declaracion)
+    if address_space == "":
         errores.append(
-            f"`lab.supernet` ({lab.get('supernet')!r}) no es una red con máscara "
+            f"`lab.espacio de direcciones` ({lab.get('address_space')!r}) no es una red con máscara "
             "(p. ej. 10.40.0.0/16)"
         )
-    elif supernet is not None:
+    elif address_space is not None:
         for ruta_declarada, valor in _direcciones_declaradas(declaracion):
-            if not _ip_en_supernet(valor, supernet):
+            if not _ip_en_address_space(valor, address_space):
                 errores.append(
-                    f"`{ruta_declarada}` ({valor}) se sale de la supernet del lab "
-                    f"({supernet}): todo lo del lab vive dentro, y hay un check que lo "
+                    f"`{ruta_declarada}` ({valor}) se sale de la espacio de direcciones del lab "
+                    f"({address_space}): todo lo del lab vive dentro, y hay un check que lo "
                     "vigila porque es lo que hace imposible que dos labs se pisen"
                 )
 
@@ -793,7 +793,7 @@ def declaracion_validar(declaracion, carpeta=None):
 # ---------------------------------------------------------------------------
 # Un validador que sólo dice "no" obliga a aprender a golpes, y la mitad de los
 # tropiezos de un lab nuevo son legales y silenciosos: un invitado que arranca en
-# el mismo escalón que quien le da la dirección, una dirección estática dentro del
+# el mismo etapa que quien le da la dirección, una dirección estática dentro del
 # rango del DHCP (que un cliente dinámico le puede robar), una pasarela que no es
 # nadie del lab, una VM sin imagen, un bridge declarado por el que no pasa nadie,
 # dos servidores DHCP en el mismo bridge, o una dirección dinámica en un bridge del
@@ -805,23 +805,23 @@ def declaracion_validar(declaracion, carpeta=None):
 # `{codigo, donde, mensaje, remedio}`: el código agrupa (y es lo que se prueba en
 # `test/test_declaracion.py`), `donde` localiza, y `remedio` dice qué escribir.
 CONSEJOS_CONOCIDOS = (
-    "escalones",
+    "stages",
     "dhcp",
-    "pasarela",
-    "imagen",
+    "gateway",
+    "image",
     "bridge-vacio",
     "dos-dhcp",
     "sin-quien-la-dirija",
-    "exterior-sin-dns",
-    "exterior-con-ruta",
+    "uplink-sin-dns",
+    "uplink-con-ruta",
 )
 
 
 def _indice_de_interfaz(interfaz):
-    """`eth0`/`ether1` -> 0; la PRIMERA pata, en los dos vocabularios.
+    """`eth0`/`ether1` -> 0; la PRIMERA interfaz, en los dos vocabularios.
 
     Linux cuenta desde cero (`eth0`) y RouterOS desde uno (`ether1`), y las dos
-    formas nombran la misma posición: la primera pata declarada.
+    formas nombran la misma posición: la primera interfaz declarada.
     """
     texto = str(interfaz or "")
     numero = re.match(r"^ether(\d+)$", texto) or re.match(r"^eth(\d+)$", texto)
@@ -830,19 +830,19 @@ def _indice_de_interfaz(interfaz):
     return int(numero.group(1)) - 1 if texto.startswith("ether") else int(numero.group(1))
 
 
-def _bridge_de_interfaz(invitado, interfaz):
-    """Sobre qué bridge del lab está esa pata, o None si esa pata no existe.
+def _bridge_de_interfaz(guest, interfaz):
+    """Sobre qué bridge del lab está esa interfaz, o None si esa interfaz no existe.
 
-    Sirve para un invitado que declara TODAS sus patas (`bridges:`), que es un
-    RouterOS o una VM. NO sirve para el puesto de control: sus patas extra
-    (`direcciones`) no están en `bridges:` porque una por cada bridge del lab se las
+    Sirve para un invitado que declara TODAS sus interfaces (`bridges:`), que es un
+    RouterOS o una VM. NO sirve para el bastión: sus interfaces extra
+    (`addresses`) no están en `bridges:` porque una por cada bridge del lab se las
     pone el motor. Para ésas está `_bridge_de`, que va por la RED de la dirección.
     """
     indice = _indice_de_interfaz(interfaz)
-    patas = patas_declaradas(invitado)
-    if indice is None or not (0 <= indice < len(patas)):
+    interfaces = interfaces_declaradas(guest)
+    if indice is None or not (0 <= indice < len(interfaces)):
         return None
-    return patas[indice]
+    return interfaces[indice]
 
 
 def _misma_red(una, otra, prefijo):
@@ -864,13 +864,13 @@ def _redes_de_los_bridges(declaracion):
     """[(nombre, direccion-con-mascara)]: la RED de cada bridge es su identidad.
 
     Un bridge del lab se declara con su dirección (`192.0.2.1/24`) y esa dirección es
-    la puerta de su red; por eso es también lo que dice sobre qué bridge cae una
+    la vía de acceso de su red; por eso es también lo que dice sobre qué bridge cae una
     dirección cualquiera del lab.
     """
     return [
-        (bridge["nombre"], str(bridge["direccion"]))
+        (bridge["nombre"], str(bridge["address"]))
         for bridge in (declaracion.get("lab") or {}).get("bridges") or []
-        if isinstance(bridge, dict) and bridge.get("nombre") and bridge.get("direccion")
+        if isinstance(bridge, dict) and bridge.get("nombre") and bridge.get("address")
     ]
 
 
@@ -878,7 +878,7 @@ def _bridge_de(valor, redes):
     """El bridge del lab cuya red contiene esa dirección, o None.
 
     `redes` sale de `_redes_de_los_bridges`. Es la forma de saber el bridge de una
-    dirección declarada SIN depender de qué interfaz la lleva: el puesto de control
+    dirección declarada SIN depender de qué interfaz la lleva: el bastión
     declara `eth1` pero no declara sobre qué bridge está (una por cada bridge del lab
     se la pone el motor),
     y su dirección sí lo dice.
@@ -890,56 +890,56 @@ def _bridge_de(valor, redes):
     return None
 
 
-def _invitados(declaracion):
+def _guests(declaracion):
     """(seccion, indice, rol, tipo, invitado), en orden de declaración."""
     salida = []
     for seccion, tipo in (("vms", "qemu"), ("containers", "lxc")):
-        for indice, invitado in enumerate(declaracion.get(seccion) or []):
-            if isinstance(invitado, dict):
-                salida.append((seccion, indice, invitado.get("rol"), tipo, invitado))
+        for indice, guest in enumerate(declaracion.get(seccion) or []):
+            if isinstance(guest, dict):
+                salida.append((seccion, indice, guest.get("rol"), tipo, guest))
     return salida
 
 
 def _servidores_dhcp(declaracion):
-    """Quién da direcciones, en qué bridge y desde qué escalón.
+    """Quién da direcciones, en qué bridge y desde qué etapa.
 
-    Los dos vocabularios: un puesto de control Linux (`dhcp_servidor`) y un
-    RouterOS (`dhcp`). Sin esto no se puede saber si un invitado con `direccion:
+    Los dos vocabularios: un bastión Linux (`dhcp_server`) y un
+    RouterOS (`dhcp`). Sin esto no se puede saber si un invitado con `address:
     dhcp` tiene quien le conteste, ni si arranca antes de que le contesten.
 
     El bridge se saca de la RED que el servidor reparte (el rango, o la red que
     anuncia), que es lo que de verdad dice sobre qué red está sirviendo; la interfaz
-    queda como segunda vía, porque un RouterOS sí declara todas sus patas.
+    queda como segunda vía, porque un RouterOS sí declara todas sus interfaces.
     """
     redes = _redes_de_los_bridges(declaracion)
     servidores = []
-    for seccion, indice, rol, _tipo, invitado in _invitados(declaracion):
-        config = invitado.get("config") or {}
-        linux = (config.get("linux") or {}).get("dhcp_servidor")
-        if isinstance(linux, dict) and linux.get("interfaz"):
+    for seccion, indice, rol, _tipo, guest in _guests(declaracion):
+        config = guest.get("config") or {}
+        linux = (config.get("linux") or {}).get("dhcp_server")
+        if isinstance(linux, dict) and linux.get("interface"):
             rango = str(linux.get("rango") or "")
             principio = rango.partition("-")[0] if rango else ""
             servidores.append({
                 "rol": rol,
-                "escalon": invitado.get("escalon"),
+                "stage": guest.get("stage"),
                 "bridge": (
                     _bridge_de(principio, redes)
-                    or _bridge_de_interfaz(invitado, linux["interfaz"])
+                    or _bridge_de_interfaz(guest, linux["interface"])
                 ),
                 "rango": rango,
                 "donde": f"`{seccion}[{indice}]` ({rol})",
             })
-        for i, servidor in enumerate((config.get("routeros") or {}).get("dhcp") or []):
-            if not isinstance(servidor, dict) or not servidor.get("interfaz"):
+        for i, servidor in enumerate((config.get("routeros") or {}).get("dhcp_server") or []):
+            if not isinstance(servidor, dict) or not servidor.get("interface"):
                 continue
             rango = str((servidor.get("pool") or {}).get("rango") or "")
             principio = rango.partition("-")[0] if rango else ""
             servidores.append({
                 "rol": rol,
-                "escalon": invitado.get("escalon"),
+                "stage": guest.get("stage"),
                 "bridge": (
-                    _bridge_de((servidor.get("red") or {}).get("prefijo") or principio, redes)
-                    or _bridge_de_interfaz(invitado, servidor["interfaz"])
+                    _bridge_de((servidor.get("network") or {}).get("address") or principio, redes)
+                    or _bridge_de_interfaz(guest, servidor["interface"])
                 ),
                 "rango": rango,
                 "donde": f"`{seccion}[{indice}]`.config.routeros.dhcp[{i}] ({rol})",
@@ -950,7 +950,7 @@ def _servidores_dhcp(declaracion):
 def _direcciones_estaticas(declaracion):
     """Las direcciones que el lab FIJA, con el bridge sobre el que las fija.
 
-    Incluye las de los bridges: la dirección de un bridge es la puerta de los
+    Incluye las de los bridges: la dirección de un bridge es la vía de acceso de los
     invitados que cuelgan de él, y por eso cuenta como "alguien del lab" cuando se
     mira si una pasarela existe. El bridge de cada dirección se deduce de su RED
     (una dirección dice a qué red pertenece), no de la interfaz que la lleva.
@@ -958,38 +958,38 @@ def _direcciones_estaticas(declaracion):
     redes = _redes_de_los_bridges(declaracion)
     estaticas = []
     for indice, bridge in enumerate((declaracion.get("lab") or {}).get("bridges") or []):
-        if isinstance(bridge, dict) and bridge.get("direccion"):
+        if isinstance(bridge, dict) and bridge.get("address"):
             estaticas.append({
                 "rol": None,
                 "bridge": bridge.get("nombre"),
-                "direccion": str(bridge["direccion"]),
+                "address": str(bridge["address"]),
                 "donde": f"`lab.bridges[{indice}]`",
             })
-    for seccion, indice, rol, _tipo, invitado in _invitados(declaracion):
-        direccion = invitado.get("direccion")
+    for seccion, indice, rol, _tipo, guest in _guests(declaracion):
+        direccion = guest.get("address")
         if direccion not in (None, "") and str(direccion) != "dhcp":
             estaticas.append({
                 "rol": rol,
                 "bridge": (
                     _bridge_de(direccion, redes)
                     or _bridge_de_interfaz(
-                        invitado, "eth0" if invitado.get("bridge") else "ether1"
+                        guest, "eth0" if guest.get("bridge") else "ether1"
                     )
                 ),
-                "direccion": str(direccion),
+                "address": str(direccion),
                 "donde": f"`{seccion}[{indice}]` ({rol})",
             })
-        config = invitado.get("config") or {}
-        for vocabulario, clave in (("routeros", "direcciones"), ("linux", "direcciones")):
-            for i, pata in enumerate((config.get(vocabulario) or {}).get(clave) or []):
-                if isinstance(pata, dict) and pata.get("direccion"):
+        config = guest.get("config") or {}
+        for vocabulario, clave in (("routeros", "addresses"), ("linux", "addresses")):
+            for i, interface in enumerate((config.get(vocabulario) or {}).get(clave) or []):
+                if isinstance(interface, dict) and interface.get("address"):
                     estaticas.append({
                         "rol": rol,
                         "bridge": (
-                            _bridge_de(pata["direccion"], redes)
-                            or _bridge_de_interfaz(invitado, pata.get("interfaz"))
+                            _bridge_de(interface["address"], redes)
+                            or _bridge_de_interfaz(guest, interface.get("interface"))
                         ),
-                        "direccion": str(pata["direccion"]),
+                        "address": str(interface["address"]),
                         "donde": f"`{seccion}[{indice}]`.config.{vocabulario}.{clave}[{i}] ({rol})",
                     })
     return estaticas
@@ -998,24 +998,24 @@ def _direcciones_estaticas(declaracion):
 def _pasarelas(declaracion):
     """Las pasarelas que el lab nombra: rutas y la que anuncia su DHCP."""
     salida = []
-    for seccion, indice, rol, _tipo, invitado in _invitados(declaracion):
-        routeros = (invitado.get("config") or {}).get("routeros") or {}
-        for i, ruta in enumerate(routeros.get("rutas") or []):
-            if isinstance(ruta, dict) and ruta.get("pasarela"):
+    for seccion, indice, rol, _tipo, guest in _guests(declaracion):
+        routeros = (guest.get("config") or {}).get("routeros") or {}
+        for i, ruta in enumerate(routeros.get("routes") or []):
+            if isinstance(ruta, dict) and ruta.get("gateway"):
                 salida.append({
                     "rol": rol,
-                    "valor": str(ruta["pasarela"]),
-                    "donde": f"`{seccion}[{indice}]`.config.routeros.rutas[{i}] ({rol})",
+                    "valor": str(ruta["gateway"]),
+                    "donde": f"`{seccion}[{indice}]`.config.routeros.routes[{i}] ({rol})",
                 })
-        for i, servidor in enumerate(routeros.get("dhcp") or []):
+        for i, servidor in enumerate(routeros.get("dhcp_server") or []):
             if not isinstance(servidor, dict):
                 continue
-            pasarela = (servidor.get("red") or {}).get("pasarela")
+            pasarela = (servidor.get("network") or {}).get("gateway")
             if pasarela:
                 salida.append({
                     "rol": rol,
                     "valor": str(pasarela),
-                    "donde": f"`{seccion}[{indice}]`.config.routeros.dhcp[{i}].red ({rol})",
+                    "donde": f"`{seccion}[{indice}]`.config.routeros.dhcp[{i}].network ({rol})",
                 })
     return salida
 
@@ -1062,10 +1062,10 @@ def declaracion_consejos(declaracion, carpeta=None):
             {"codigo": codigo, "donde": donde, "mensaje": mensaje, "remedio": remedio}
         )
 
-    invitados = _invitados(declaracion)
+    guests = _guests(declaracion)
     servidores = _servidores_dhcp(declaracion)
     estaticas = _direcciones_estaticas(declaracion)
-    supernet = _supernet_de(declaracion)
+    address_space = _address_space_de(declaracion)
     bridges = [
         b["nombre"]
         for b in (declaracion["lab"].get("bridges") or [])
@@ -1074,32 +1074,32 @@ def declaracion_consejos(declaracion, carpeta=None):
     # Quién cuelga de cada bridge: sirve para el bridge vacío y para saber sobre qué
     # red cae una dirección estática.
     por_bridge = {nombre: [] for nombre in bridges}
-    for seccion, indice, rol, _tipo, invitado in invitados:
-        for nombre in patas_declaradas(invitado):
+    for seccion, indice, rol, _tipo, guest in guests:
+        for nombre in interfaces_declaradas(guest):
             por_bridge.setdefault(nombre, []).append(f"`{seccion}[{indice}]` ({rol})")
 
-    # --- 1. el escalón: nadie arranca antes que quien le da la dirección -------
+    # --- 1. la etapa: nadie arranca antes que quien le da la dirección -------
     for servidor in servidores:
-        for seccion, indice, rol, tipo, invitado in invitados:
-            if str(invitado.get("direccion")) != "dhcp":
+        for seccion, indice, rol, tipo, guest in guests:
+            if str(guest.get("address")) != "dhcp":
                 continue
-            if servidor["bridge"] not in patas_declaradas(invitado):
+            if servidor["bridge"] not in interfaces_declaradas(guest):
                 continue
-            if tipo == "lxc" and modulo_interior.tiene_camino(invitado):
-                continue  # el puesto de control no se pide la dirección a sí mismo
-            escalon, del_servidor = invitado.get("escalon"), servidor["escalon"]
-            if not isinstance(escalon, int) or not isinstance(del_servidor, int):
+            if tipo == "lxc" and modulo_interior.tiene_tunnel(guest):
+                continue  # el bastión no se pide la dirección a sí mismo
+            stage, del_servidor = guest.get("stage"), servidor["stage"]
+            if not isinstance(stage, int) or not isinstance(del_servidor, int):
                 continue
-            if escalon <= del_servidor:
+            if stage <= del_servidor:
                 aconsejar(
-                    "escalones",
+                    "stages",
                     f"`{seccion}[{indice}]` ({rol})",
                     f"pide su dirección por DHCP en `{servidor['bridge']}`, donde se la da "
-                    f"{servidor['donde']} (escalón {del_servidor}), y está en el escalón "
-                    f"{escalon}: arrancarían a la vez, y quién contesta primero es una "
+                    f"{servidor['donde']} (etapa {del_servidor}), y está en la etapa "
+                    f"{stage}: arrancarían a la vez, y quién contesta primero es una "
                     "carrera, no un diseño",
-                    f"pon a '{rol}' en un escalón POSTERIOR al {del_servidor} (regla 18: "
-                    "nunca se arranca un escalón antes de que el anterior sirva)",
+                    f"pon a '{rol}' en una etapa POSTERIOR al {del_servidor} (regla 18: "
+                    "nunca se arranca una etapa antes de que el anterior sirva)",
                 )
 
     # --- 2. una dirección estática dentro del rango del DHCP ------------------
@@ -1109,45 +1109,45 @@ def declaracion_consejos(declaracion, carpeta=None):
         for estatica in estaticas:
             if estatica["bridge"] != servidor["bridge"]:
                 continue
-            if _ip_en_rango(estatica["direccion"], servidor["rango"]):
+            if _ip_en_rango(estatica["address"], servidor["rango"]):
                 aconsejar(
                     "dhcp",
                     estatica["donde"],
-                    f"fija {_direccion_sin_mascara(estatica['direccion'])} y esa dirección "
+                    f"fija {_direccion_sin_mascara(estatica['address'])} y esa dirección "
                     f"cae DENTRO del rango que reparte {servidor['donde']} "
                     f"({servidor['rango']}) en el mismo bridge: un cliente dinámico puede "
                     "pedirla antes y dejarla ocupada",
                     "saca la dirección del rango del pool (los estáticos van fuera), o "
-                    "declara `reservas: derivadas` para que el DHCP la respete",
+                    "declara `static_leases: derived` para que el DHCP la respete",
                 )
 
     # --- 3. una pasarela que no es nadie del lab ------------------------------
-    if supernet:
-        conocidas = {_direccion_sin_mascara(e["direccion"]) for e in estaticas}
+    if address_space:
+        conocidas = {_direccion_sin_mascara(e["address"]) for e in estaticas}
         for pasarela in _pasarelas(declaracion):
             valor = pasarela["valor"]
-            if valor in conocidas or not _ip_en_supernet(valor, supernet):
+            if valor in conocidas or not _ip_en_address_space(valor, address_space):
                 continue
             aconsejar(
-                "pasarela",
+                "gateway",
                 pasarela["donde"],
                 f"usa {valor} como pasarela y esa dirección no es de nadie del lab, "
-                f"aunque cae dentro de su supernet ({supernet}): o es un número mal "
+                f"aunque cae dentro de su espacio de direcciones ({address_space}): o es un número mal "
                 "escrito, o falta el equipo que la tiene",
                 "revisa el número, o declara el invitado (o el bridge) que tiene esa "
                 "dirección",
             )
 
     # --- 4. una VM con configuración y sin imagen ------------------------------
-    for seccion, indice, rol, tipo, invitado in invitados:
-        if tipo == "qemu" and invitado.get("config") and not invitado.get("imagen"):
+    for seccion, indice, rol, tipo, guest in guests:
+        if tipo == "qemu" and guest.get("config") and not guest.get("image"):
             aconsejar(
-                "imagen",
+                "image",
                 f"`{seccion}[{indice}]` ({rol})",
-                "es una VM que declara `config` y no declara `imagen`: nacerá sin disco, "
+                "es una VM que declara `config` y no declara `image`: nacerá sin disco, "
                 "así que no arrancará nada que configurar (y la imagen sólo se puede "
                 "adjuntar AL CREAR: después habría que recrear la máquina)",
-                "declara `imagen:` con la imagen de fábrica de ese invitado",
+                "declara `image:` con la imagen de fábrica de ese invitado",
             )
 
     # --- 5. un bridge por el que no pasa nadie --------------------------------
@@ -1180,12 +1180,12 @@ def declaracion_consejos(declaracion, carpeta=None):
 
     # --- 7. una dirección dinámica donde no hay quien la dé --------------------
     servidos = {s["bridge"] for s in servidores if s["bridge"]}
-    for seccion, indice, rol, tipo, invitado in invitados:
-        if str(invitado.get("direccion")) != "dhcp":
+    for seccion, indice, rol, tipo, guest in guests:
+        if str(guest.get("address")) != "dhcp":
             continue
-        if tipo == "lxc" and modulo_interior.tiene_camino(invitado):
+        if tipo == "lxc" and modulo_interior.tiene_tunnel(guest):
             continue
-        for nombre in patas_declaradas(invitado):
+        for nombre in interfaces_declaradas(guest):
             if nombre in bridges and nombre not in servidos:
                 aconsejar(
                     "sin-quien-la-dirija",
@@ -1194,52 +1194,52 @@ def declaracion_consejos(declaracion, carpeta=None):
                     "y no hay ningún servidor DHCP declarado que sirva en él: nadie le "
                     "va a contestar",
                     f"declara un servidor DHCP en '{nombre}' (el router de esa red o el "
-                    "puesto de control), o dale una dirección estática",
+                    "bastión), o dale una dirección estática",
                 )
 
     # --- 8. la salida del lab, pero sin quién resuelva nombres ----------------
-    # Un router con `exterior` da SALIDA a internet. Pero un invitado que lo tiene de
+    # Un router con `uplink` da SALIDA a internet. Pero un invitado que lo tiene de
     # pasarela pregunta por NOMBRES a quien le dio la dirección -- el servidor DHCP de su
     # red --, y si ese servidor no anuncia DNS el lab sale a internet y no resuelve nada.
     # Es el fallo que más veces se lee como "no tiene salida", y no lo es.
     salidas = []
     anuncian_dns = []
-    for seccion, indice, rol, _tipo, invitado in invitados:
-        config = invitado.get("config") or {}
+    for seccion, indice, rol, _tipo, guest in guests:
+        config = guest.get("config") or {}
         routeros = config.get("routeros") or {}
-        if "exterior" in routeros:
+        if "uplink" in routeros:
             salidas.append(f"`{seccion}[{indice}]` ({rol})")
             # Y una ruta por defecto declarada en el que es la salida es una de dos: su
             # cliente de fuera ya le enseña una (la aprende por DHCP), así que las dos
             # compiten por el mismo destino -- y la declarada obliga al lab a saber la
-            # pasarela de FUERA, que es justo lo que `exterior` evita tener que saber.
+            # pasarela de FUERA, que es justo lo que `uplink` evita tener que saber.
             por_defecto = [
                 ruta
-                for ruta in routeros.get("rutas") or []
-                if isinstance(ruta, dict) and str(ruta.get("destino")) in ("0.0.0.0/0", "::/0")
+                for ruta in routeros.get("routes") or []
+                if isinstance(ruta, dict) and str(ruta.get("dst_address")) in ("0.0.0.0/0", "::/0")
             ]
             if por_defecto:
                 aconsejar(
-                    "exterior-con-ruta",
-                    f"`{seccion}[{indice}]`.config.routeros.rutas ({rol})",
+                    "uplink-con-ruta",
+                    f"`{seccion}[{indice}]`.config.routeros.routes ({rol})",
                     "este router es la salida del lab y además le declaras una ruta por "
-                    "defecto: la que pone el motor por la puerta de fuera y la tuya compiten "
+                    "defecto: la que pone el motor por la pasarela de fuera y la tuya compiten "
                     "por el mismo destino",
                     "quita la ruta por defecto declarada: la salida la pone el motor por la "
-                    "puerta de fuera, y así el lab no necesita saber la pasarela de la red de "
+                    "vía de acceso de fuera, y así el lab no necesita saber la pasarela de la red de "
                     "casa",
                 )
-        for servidor in (config.get("routeros") or {}).get("dhcp") or []:
-            if isinstance(servidor, dict) and (servidor.get("red") or {}).get("dns"):
+        for servidor in (config.get("routeros") or {}).get("dhcp_server") or []:
+            if isinstance(servidor, dict) and (servidor.get("network") or {}).get("dns"):
                 anuncian_dns.append(f"`{seccion}[{indice}]`.config.routeros.dhcp ({rol})")
-        servidor_linux = (config.get("linux") or {}).get("dhcp_servidor")
-        if isinstance(servidor_linux, dict) and (servidor_linux.get("red") or {}).get("dns"):
+        servidor_linux = (config.get("linux") or {}).get("dhcp_server")
+        if isinstance(servidor_linux, dict) and (servidor_linux.get("network") or {}).get("dns"):
             anuncian_dns.append(
-                f"`{seccion}[{indice}]`.config.linux.dhcp_servidor ({rol})"
+                f"`{seccion}[{indice}]`.config.linux.dhcp_server ({rol})"
             )
     if salidas and not anuncian_dns:
         aconsejar(
-            "exterior-sin-dns",
+            "uplink-sin-dns",
             ", ".join(salidas),
             "este router es la salida del lab, y ningún servidor DHCP del lab anuncia DNS: "
             "los invitados que salgan por él tendrán salida y no resolverán ningún nombre "
@@ -1265,66 +1265,66 @@ def declaracion_normalizar(declaracion, carpeta=None):
         )
 
     lab = declaracion["lab"]
-    invitados = []
+    guests = []
     for seccion, tipo in (("vms", "qemu"), ("containers", "lxc")):
-        for invitado in declaracion.get(seccion, []) or []:
-            invitados.append(
+        for guest in declaracion.get(seccion, []) or []:
+            guests.append(
                 {
-                    "rol": invitado["rol"],
+                    "rol": guest["rol"],
                     "tipo": tipo,
                     # El nombre se deriva de estas dos (ADR 0015): `equipo` es el `tipo:` que
                     # declara el lab (rt/srv/ws/sw/ctl) y `alias`, su `nombre:` corto. Aquí se
                     # llaman así para no confundirlos con `tipo` -- que en esta normalización
                     # es la VIRTUALIZACIÓN (`qemu`/`lxc`) -- ni con `nombre`, que es el nombre
                     # ya derivado que cuelga de la identidad.
-                    "equipo": invitado.get("tipo"),
+                    "equipo": guest.get("tipo"),
                     # El alias llega como texto (`nombre: srv`) o como número (`nombre: 1`):
                     # la declaración admite las dos formas, y aquí se unifican.
                     "alias": (
-                        None if invitado.get("nombre") is None else str(invitado["nombre"])
+                        None if guest.get("nombre") is None else str(guest["nombre"])
                     ),
-                    "escalon": invitado["escalon"],
-                    "cores": invitado["cores"],
-                    "memoria": invitado["memoria"],
-                    "disco": invitado["disco"],
-                    # Las patas declaradas, EN ORDEN: `bridges:` (varias) o `bridge:`
+                    "stage": guest["stage"],
+                    "cores": guest["cores"],
+                    "memory": guest["memory"],
+                    "disk": guest["disk"],
+                    # Las interfaces declaradas, EN ORDEN: `bridges:` (varias) o `bridge:`
                     # (una). `bridge` se mantiene (la primera) porque el resto del motor
                     # lee ese campo desde la fase 1.
-                    "bridges": patas_declaradas(invitado),
-                    "bridge": (invitado.get("bridge") or patas_declaradas(invitado)[0]),
-                    # `direccion` puede NO estar declarada (equipo sin dirección: un
+                    "bridges": interfaces_declaradas(guest),
+                    "bridge": (guest.get("bridge") or interfaces_declaradas(guest)[0]),
+                    # `address` puede NO estar declarada (equipo sin dirección: un
                     # conmutador puro). Se normaliza a None para que nadie tenga que
                     # distinguir "no está la clave" de "está vacía". Y puede ser `dhcp`:
                     # una ESTACIÓN, que al conectar pide dirección -- como una máquina
-                    # de verdad. `puerta` es SU puerta, y sólo se declara cuando la
+                    # de verdad. `gateway` es SU vía de acceso, y sólo se declara cuando la
                     # dirección es fija (un SERVIDOR real la lleva puesta a mano): el
                     # motor no la adivina ni la reparte.
-                    "direccion": invitado.get("direccion") or None,
-                    "puerta": invitado.get("puerta") or None,
+                    "address": guest.get("address") or None,
+                    "gateway": guest.get("gateway") or None,
                     # El interior se copia TAL CUAL: el vocabulario ya está validado, y
                     # normalizarlo aquí sería una segunda traducción que podría
                     # discrepar de la del driver.
-                    "config": invitado.get("config") or None,
-                    "imagen": invitado.get("imagen") or None,
+                    "config": guest.get("config") or None,
+                    "image": guest.get("image") or None,
                 }
             )
 
-    # Orden de arranque: por escalón, y dentro del escalón, estable por rol.
+    # Orden de arranque: por etapa, y dentro de la etapa, estable por rol.
     # Es el orden que seguirá el plan; tenerlo aquí evita que cada verbo lo
     # invente por su cuenta.
-    invitados.sort(key=lambda i: (i["escalon"], i["rol"]))
+    guests.sort(key=lambda i: (i["stage"], i["rol"]))
 
     return {
         "lab": lab["nombre"],
-        "escalones": sorted(set(lab["escalones"])),
+        "stages": sorted(set(lab["stages"])),
         "bridges": [
-            {"nombre": b["nombre"], "direccion": b.get("direccion")} for b in lab["bridges"]
+            {"nombre": b["nombre"], "address": b.get("address")} for b in lab["bridges"]
         ],
-        "invitados": invitados,
-        # La supernet es opcional (un lab de la fase 1 no la declara) y el camino
+        "guests": guests,
+        # La espacio de direcciones es opcional (un lab de la fase 1 no la declara) y el túnel
         # también: sin ellos, el plan sale exactamente como salía antes de la fase 2.
-        "supernet": lab.get("supernet") or None,
-        "camino": lab.get("camino") or None,
+        "address_space": lab.get("address_space") or None,
+        "tunnel": lab.get("tunnel") or None,
     }
 
 
@@ -1335,6 +1335,6 @@ class FilterModule:
         return {
             "declaracion_validar": declaracion_validar,
             "declaracion_normalizar": declaracion_normalizar,
-            "declaracion_supernet": declaracion_supernet,
+            "declaracion_address_space": declaracion_address_space,
             "declaracion_consejos": declaracion_consejos,
         }

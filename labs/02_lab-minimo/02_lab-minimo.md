@@ -13,7 +13,7 @@ si los editas a mano, `./lab check docs` falla._
 
 ## Invitados declarados
 
-| rol | tipo | escalón | cores | memoria (MB) | disco (GB) | bridge | dirección |
+| rol | tipo | stage | cores | memory (MB) | disk (GB) | bridge | address |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | workstation-1 | LXC | 1 | 1 | 256 | 4 | vmb_lab_minimo | 198.51.100.11/24 |
 
@@ -23,9 +23,9 @@ si los editas a mano, `./lab check docs` falla._
 | --- | --- |
 | vmb_lab_minimo | 198.51.100.1/24 |
 
-## Orden de arranque (escalones)
+## Orden de arranque (etapas)
 
-| escalón | roles |
+| stage | roles |
 | --- | --- |
 | 1 | workstation-1 |
 
@@ -68,7 +68,7 @@ bridge ya cumple el formato que el núcleo exige (sin guiones, ≤15 caracteres)
 
 ## Por qué así
 
-Un solo escalón: no hay nada que esperar antes del contenedor. No hay VM, así que
+Un solo etapa: no hay nada que esperar antes del contenedor. No hay VM, así que
 este lab no ejercita la rama QEMU del plan; para eso está el otro ejemplo.
 
 - **Lo verificado aquí:** el plan derivado de esta declaración es distinto del de
@@ -77,9 +77,9 @@ este lab no ejercita la rama QEMU del plan; para eso está el otro ejemplo.
 
 ## Ver también (punteros al código)
 
-- El asignador de identidad:
+- El asignador de identity:
   [deployment_engine/filter_plugins/identidad.py](../../deployment_engine/filter_plugins/identidad.py)
 - La comprobación de colisiones entre labs (este lab es su caso de prueba):
   [deployment_engine/tools/framework_check.py](../../deployment_engine/tools/framework_check.py)
-- La puerta a la API de Proxmox:
+- La vía de acceso a la API de Proxmox:
   [deployment_engine/tasks/pve_api.yml](../../deployment_engine/tasks/pve_api.yml)

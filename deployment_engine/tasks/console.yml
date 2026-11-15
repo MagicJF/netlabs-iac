@@ -2,99 +2,99 @@
 # PROPÓSITO:   LA PUERTA DE CONSOLA. Es el único fichero del motor que habla el
 #              protocolo de la consola de Proxmox (termproxy + vncwebsocket), y lo
 #              usa para UNA sola cosa: mandar UNA línea a un invitado que todavía no
-#              tiene ninguna red por la que recibirla (el arranque del camino, §5).
-#              El protocolo vive en tools/consola.py; aquí se le llama y se deja la
-#              línea del diario, igual que la puerta REST deja la suya.
+#              tiene ninguna red por la que recibirla (el arranque del túnel, §5).
+#              El protocolo vive en tools/console.py; aquí se le llama y se deja la
+#              línea del diario, igual que la vía de acceso REST deja la suya.
 # INVARIANTES: el token NUNCA se escribe en el diario (y va con `no_log`, así que
 #              tampoco aparece en la salida de Ansible). Una llamada = una línea en
-#              `logs/camino.jsonl`, salga bien o mal: si una ejecución no dejó diario,
+#              `logs/console.jsonl`, salga bien o mal: si una ejecución no dejó diario,
 #              no ocurrió. La consola no configura equipos: manda UNA línea y lee el
 #              eco. Nada más se hace por aquí, nunca.
 # LÍMITES:     una consola NO devuelve código de salida -- se reconoce el eco, y por
 #              eso el guion termina imprimiendo una MARCA. Si no se lee ninguna marca,
 #              esto NO se da por bueno: para y lo dice. El billete de consola vive 40
 #              segundos (medido en PVE 9.2): pedirlo y abrir el websocket son el mismo
-#              paso, dentro de consola.py.
-# VER:         docs/camino-del-puesto-de-control.md; docs/decisiones/0004-*.md;
-#              docs/decisiones/0006-*.md; ./lab check puerta
+#              paso, dentro de console.py.
+# VER:         docs/tunnel-del-bastion.md; docs/decisiones/0004-*.md;
+#              docs/decisiones/0006-*.md; ./lab check access
 
-# Entradas (las pone tasks/camino.yml, nunca un lab):
-#   camino_consola_tipo      lxc | qemu
-#   camino_consola_vmid      el invitado al que se le habla
-#   camino_consola_linea     lo que se manda, en base64 (una sola palabra)
-#   camino_consola_marca_ok  lo que el guion imprime si salió bien
-#   camino_consola_marca_fallo  lo que imprime si salió mal
-#   camino_consola_etiqueta  para el diario y para el mensaje de error
+# Entradas (las pone tasks/tunnel.yml, nunca un lab):
+#   túnel_consola_tipo      lxc | qemu
+#   túnel_consola_vmid      el invitado al que se le habla
+#   túnel_consola_linea     lo que se manda, en base64 (una sola palabra)
+#   túnel_consola_marca_ok  lo que el guion imprime si salió bien
+#   túnel_consola_marca_fallo  lo que imprime si salió mal
+#   túnel_consola_etiqueta  para el diario y para el mensaje de error
 
-- name: "CONSOLA · cronometrar el envío de la línea al invitado {{ camino_consola_vmid }}"
+- name: "CONSOLA · cronometrar el envío de la línea al invitado {{ tunnel_consola_vmid }}"
   ansible.builtin.set_fact:
-    camino_consola_t0: "{{ lookup('pipe', 'date -Iseconds') }}"
+    tunnel_consola_t0: "{{ lookup('pipe', 'date -Iseconds') }}"
   changed_when: false
 
 # La línea se le pasa en base64 (`--base64`): así lo que viaja en la línea de órdenes
 # es UNA palabra sin espacios, sin comillas y sin nada que un intérprete pueda
 # malinterpretar. Lo que el invitado ejecuta lo decide el guion, no la shell de nadie.
-- name: "CONSOLA · mandar la línea al invitado {{ camino_consola_vmid }} (y leer el eco)"
+- name: "CONSOLA · mandar la línea al invitado {{ tunnel_consola_vmid }} (y leer el eco)"
   ansible.builtin.command:
     argv:
       - "{{ ansible_playbook_python }}"
-      - "{{ playbook_dir }}/../tools/consola.py"
+      - "{{ playbook_dir }}/../tools/console.py"
       - "--url-base=https://{{ pve_nodo }}:{{ pve_puerto }}"
       - "--token-id={{ pve_token_id }}"
       - "--token-secreto={{ pve_token_secreto }}"
       - "--verificar-tls={{ pve_verificar_tls | default(false) }}"
       - "--nodo={{ pve_nombre_nodo | default(pve_nodo) }}"
-      - "--tipo={{ camino_consola_tipo }}"
-      - "--vmid={{ camino_consola_vmid }}"
-      - "--marca-ok={{ camino_consola_marca_ok }}"
-      - "--marca-fallo={{ camino_consola_marca_fallo }}"
-      - "--espera={{ engine_camino_espera }}"
+      - "--tipo={{ tunnel_consola_tipo }}"
+      - "--vmid={{ tunnel_consola_vmid }}"
+      - "--marca-ok={{ tunnel_consola_marca_ok }}"
+      - "--marca-fallo={{ tunnel_consola_marca_fallo }}"
+      - "--espera={{ engine_tunnel_espera }}"
       - "--base64"
-      - "--linea={{ camino_consola_linea }}"
-  register: camino_consola_crudo
-  changed_when: camino_consola_crudo.rc == 0
+      - "--linea={{ tunnel_consola_linea }}"
+  register: tunnel_consola_crudo
+  changed_when: tunnel_consola_crudo.rc == 0
   failed_when: false
   no_log: true
 
-# El resultado de consola.py es UNA línea JSON. Si no se puede leer, es que el propio
+# El resultado de console.py es UNA línea JSON. Si no se puede leer, es que el propio
 # cliente se rompió: se dice, no se interpreta a la ligera.
 - name: "CONSOLA · leer el resultado del cliente de consola"
   ansible.builtin.set_fact:
-    camino_consola_resultado: >-
-      {{ (camino_consola_crudo.stdout | default('') | trim | from_json)
-         if (camino_consola_crudo.stdout | default('') | trim).startswith('{')
-         else {'motivo': (camino_consola_crudo.stderr | default('') | trim)[:400] or 'el cliente no devolvió nada'} }}
+    tunnel_consola_resultado: >-
+      {{ (tunnel_consola_crudo.stdout | default('') | trim | from_json)
+         if (tunnel_consola_crudo.stdout | default('') | trim).startswith('{')
+         else {'motivo': (tunnel_consola_crudo.stderr | default('') | trim)[:400] or 'el cliente no devolvió nada'} }}
   changed_when: false
 
 - name: "CONSOLA · guardar el resultado (lo lee quien la haya llamado)"
   ansible.builtin.set_fact:
-    camino_consola_rc: "{{ camino_consola_crudo.rc | default(1) }}"
+    tunnel_consola_rc: "{{ tunnel_consola_crudo.rc | default(1) }}"
   changed_when: false
 
 # La línea del diario va SIEMPRE, antes de decidir nada: un 403 de consola (falta
 # `VM.Console`) tiene que quedar registrado con la misma fidelidad que un envío bueno.
-- name: "DIARIO · consola de {{ camino_consola_tipo }} {{ camino_consola_vmid }}"
+- name: "DIARIO · consola de {{ tunnel_consola_tipo }} {{ tunnel_consola_vmid }}"
   ansible.builtin.lineinfile:
-    path: "{{ pve_carpeta_logs }}/camino.jsonl"
+    path: "{{ pve_carpeta_logs }}/console.jsonl"
     line: "{{ diario | to_json }}"
     create: true
     mode: '0640'
     insertafter: EOF
   vars:
     diario:
-      ts: "{{ camino_consola_t0 }}"
+      ts: "{{ tunnel_consola_t0 }}"
       verb: "{{ pve_verb }}"
       lab: "{{ pve_lab }}"
-      puerta: consola
-      accion: "enviar la linea del arranque del camino"
-      vmid: "{{ camino_consola_vmid }}"
-      tipo: "{{ camino_consola_tipo }}"
-      etiqueta: "{{ camino_consola_etiqueta | default('') }}"
-      intento: "{{ camino_consola_intento | default(1) }}"
-      marca: "{{ camino_consola_marca_ok }}"
-      resultado: "{{ camino_consola_rc }}"
-      eco: "{{ (camino_consola_resultado.eco | default('') | string)[: (engine_diario_max_cuerpo | default(0) | int)] }}"
-      motivo: "{{ camino_consola_resultado.motivo | default('') | string }}"
+      access: console
+      accion: "enviar la linea del arranque del túnel"
+      vmid: "{{ tunnel_consola_vmid }}"
+      tipo: "{{ tunnel_consola_tipo }}"
+      etiqueta: "{{ tunnel_consola_etiqueta | default('') }}"
+      intento: "{{ tunnel_consola_intento | default(1) }}"
+      marca: "{{ tunnel_consola_marca_ok }}"
+      resultado: "{{ tunnel_consola_rc }}"
+      eco: "{{ (tunnel_consola_resultado.eco | default('') | string)[: (engine_diario_max_cuerpo | default(0) | int)] }}"
+      motivo: "{{ tunnel_consola_resultado.motivo | default('') | string }}"
   changed_when: false
 
 # Y ahora sí: si el eco no trajo la marca de éxito, esto PARA. El mensaje dice qué
@@ -104,21 +104,21 @@
 # arranque para dar shell, y machacarla no adelanta nada.
 - name: "CONSOLA · esperar antes de volver a intentarlo"
   ansible.builtin.pause:
-    seconds: "{{ engine_camino_reintento }}"
+    seconds: "{{ engine_tunnel_reintento }}"
   when:
-    - (camino_consola_rc | int) != 0
-    - (camino_consola_intento | default(1) | int) < (engine_camino_intentos | int)
+    - (tunnel_consola_rc | int) != 0
+    - (tunnel_consola_intento | default(1) | int) < (engine_tunnel_intentos | int)
 
 # Y sólo se PARA cuando ya no quedan intentos: si el primer intento falló, el bucle de
 # arriba vuelve a mandar la MISMA línea.
 - name: "CONSOLA · parar si la consola no trajo la marca de éxito"
   ansible.builtin.fail:
     msg: |-
-      La consola del invitado {{ camino_consola_vmid }} no ha dado la marca de éxito
-      ({{ camino_consola_marca_ok }}) en {{ engine_camino_intentos }} intentos; el último
-      intento devolvió el código {{ camino_consola_rc }}:
-        {{ camino_consola_resultado.motivo | default('sin motivo') }}
-      {% if camino_consola_rc | int == 1 and '403' in (camino_consola_resultado.motivo | default('')) %}
+      La consola del invitado {{ tunnel_consola_vmid }} no ha dado la marca de éxito
+      ({{ tunnel_consola_marca_ok }}) en {{ engine_tunnel_intentos }} intentos; el último
+      intento devolvió el código {{ tunnel_consola_rc }}:
+        {{ tunnel_consola_resultado.motivo | default('sin motivo') }}
+      {% if tunnel_consola_rc | int == 1 and '403' in (tunnel_consola_resultado.motivo | default('')) %}
       La API respondió 403 al pedir el billete de consola: al token le falta `VM.Console`
       sobre /vms. Lo que hay que hacer, UNA vez, en el nodo:
         pveum acl modify /vms --roles {{ engine_privilegios_por_rol.keys() | list | first }} \
@@ -127,8 +127,8 @@
               --users {{ pve_token_id.split('!') | first }} --propagate 1
       El motor no se concede privilegios a sí mismo: los pide y para.
       {% else %}
-      El detalle está en {{ pve_carpeta_logs }}/camino.jsonl (campo `eco`).
+      El detalle está en {{ pve_carpeta_logs }}/console.jsonl (campo `eco`).
       {% endif %}
   when:
-    - (camino_consola_rc | int) != 0
-    - (camino_consola_intento | default(1) | int) >= (engine_camino_intentos | int)
+    - (tunnel_consola_rc | int) != 0
+    - (tunnel_consola_intento | default(1) | int) >= (engine_tunnel_intentos | int)

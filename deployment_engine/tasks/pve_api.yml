@@ -1,8 +1,8 @@
 ---
-# PROPÓSITO:   LA PUERTA REST A PROXMOX. Es la puerta del motor a la API de Proxmox
+# PROPÓSITO:   LA PUERTA REST A PROXMOX. Es la vía de acceso del motor a la API de Proxmox
 #              --y la que escribe la línea del diario--: hacer la petición y
-#              diarizarla son UNA sola cosa. El cliente de consola (`tools/consola.py`)
-#              viaja por la MISMA puerta (mismo host, puerto y token) para pedir su
+#              diarizarla son UNA sola cosa. El cliente de consola (`tools/console.py`)
+#              viaja por la MISMA vía de acceso (mismo host, puerto y token) para pedir su
 #              billete de consola; fuera de eso, nadie más llama a la API.
 # INVARIANTES: una línea JSON por petición, SIEMPRE, salga bien o mal (regla 5:
 #              "si una ejecución no dejó diario, no ocurrió"). La cabecera
@@ -13,7 +13,7 @@
 #              qué orden (eso es el plan) y no interpreta el resultado (eso son los
 #              filtros de estado). Si la API no está, no lo arregla: lo diariza y lo
 #              dice en claro.
-# VER:         README.md §Las cuatro puertas, y un diario de cada una; ./lab check puerta
+# VER:         README.md §Las cuatro vías de acceso, y un diario de cada una; ./lab check access
 #
 # Variables que espera:
 #   pve_api_metodo   GET | POST | PUT | DELETE
@@ -31,7 +31,7 @@
 #   pve_api_tolerar_error  (opcional) no fallar en error: el llamante decide
 # Y deja en `pve_api_ultimo_*` el status, el cuerpo, los datos y el error legible.
 
-- name: "PUERTA · cronometrar {{ pve_api_metodo }} {{ pve_api_ruta }}"
+- name: "ACCESO · cronometrar {{ pve_api_metodo }} {{ pve_api_ruta }}"
   ansible.builtin.set_fact:
     pve_api_t0: "{{ now() }}"
 
@@ -66,7 +66,7 @@
   # escriba un fichero), así que se declara aquí, que es donde se sabe el método.
   changed_when: "{{ pve_api_metodo | upper not in ['GET', 'HEAD'] }}"
 
-- name: "PUERTA · clasificar la respuesta de {{ pve_api_ruta }}"
+- name: "ACCESO · clasificar la respuesta de {{ pve_api_ruta }}"
   ansible.builtin.set_fact:
     # Sin conexión no hay `status`: -1 lo representa y es legible en el diario.
     pve_api_ultimo_status: "{{ pve_api_respuesta.status | default(-1) | int }}"
@@ -75,7 +75,7 @@
     pve_api_duracion_ms: "{{ ((now() - pve_api_t0).total_seconds() * 1000) | round(0) | int }}"
   no_log: false
 
-- name: "PUERTA · extraer los datos de {{ pve_api_ruta }}"
+- name: "ACCESO · extraer los datos de {{ pve_api_ruta }}"
   ansible.builtin.set_fact:
     pve_api_ultimo_datos: "{{ (pve_api_ultimo_json.get('data') if pve_api_ultimo_json is mapping else {}) or {} }}"
     # El error legible sale de una TABLA, no de una cadena de if/elif: se lee de un
@@ -123,30 +123,30 @@
 # Acumulación opcional: la lectura de la config de cada invitado se hace en bucle,
 # así que el llamante pide aquí que la respuesta se guarde bajo su vmid. Es un
 # gancho explícito y con nombre, no un efecto colateral.
-- name: "PUERTA · acumular la config del vmid {{ pve_api_vmid | default('?') }}"
+- name: "ACCESO · acumular la config del vmid {{ pve_api_vmid | default('?') }}"
   ansible.builtin.set_fact:
     pve_configs: "{{ (pve_configs | default({})) | combine({(pve_api_vmid | string): pve_api_ultimo_datos}) }}"
   when: pve_api_acumular_configs | default(false) | bool
 
 # El mismo gancho, pero para los invitados AJENOS, y en su propio acumulador: las
 # configs del lab y las de fuera no se mezclan nunca (ver la cabecera).
-- name: "PUERTA · acumular la config ajena del vmid {{ pve_api_vmid | default('?') }}"
+- name: "ACCESO · acumular la config ajena del vmid {{ pve_api_vmid | default('?') }}"
   ansible.builtin.set_fact:
     pve_configs_ajenas: "{{ (pve_configs_ajenas | default({})) | combine({(pve_api_vmid | string): pve_api_ultimo_datos}) }}"
   when: pve_api_acumular_configs_ajenas | default(false) | bool
 
 # El mismo patrón, para las direcciones que un contenedor tiene puestas: es lo que
-# permite elegir una dirección LIBRE para la pata de gestión del puesto de control
+# permite elegir una dirección LIBRE para la interfaz de gestión del bastión
 # sin guardar nada (regla 11) ni tocar el hipervisor.
-- name: "PUERTA · acumular las interfaces del vmid {{ pve_api_vmid | default('?') }}"
+- name: "ACCESO · acumular las interfaces del vmid {{ pve_api_vmid | default('?') }}"
   ansible.builtin.set_fact:
     pve_interfaces: "{{ (pve_interfaces | default({})) | combine({(pve_api_vmid | string): pve_api_ultimo_datos}) }}"
   when: pve_api_acumular_interfaces | default(false) | bool
 
 # Salvo que el llamante pida tolerar errores (para poder explicar por su cuenta qué
 # pasa), una respuesta de error PARA el verbo. El mensaje es legible y lleva el
-# camino de vuelta: nunca un traceback.
-- name: "PUERTA · parar si la API respondió con error"
+# túnel de vuelta: nunca un traceback.
+- name: "ACCESO · parar si la API respondió con error"
   ansible.builtin.fail:
     msg: |-
       La llamada a la API de Proxmox ha fallado: {{ pve_api_metodo }} {{ pve_api_ruta }}
@@ -161,7 +161,7 @@
 # por omisión. (Quien tolera se hace responsable: `destroy` tolera el fallo de un PARO
 # porque el BORRADO que viene después, ese sí sin tolerancia, es la guarda de verdad:
 # Proxmox no deja borrar un invitado arrancado.)
-- name: "PUERTA · apuntar el error tolerado"
+- name: "ACCESO · apuntar el error tolerado"
   ansible.builtin.set_fact:
     pve_errores_tolerados: "{{ (pve_errores_tolerados | default([])) + [{'metodo': pve_api_metodo, 'ruta': pve_api_ruta, 'error': pve_api_ultimo_error | trim}] }}"
   when:

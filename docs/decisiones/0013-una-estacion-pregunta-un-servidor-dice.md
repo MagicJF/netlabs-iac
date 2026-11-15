@@ -1,11 +1,11 @@
 # 0013 — Una estación pregunta, un servidor dice
 
-*Fecha: 15-nov-2026 — Estado: aceptada — Ámbito: la dirección de una pata y el interior del
+*Fecha: 15-nov-2026 — Estado: aceptada — Ámbito: la dirección de una interfaz y el interior del
 invitado (`deployment_engine/tools/plan.py`, `deployment_engine/filter_plugins/declaracion.py`)*
 
 ## El problema
 
-Las patas de un contenedor nacían **sin dirección**: la cadena de red era
+Las interfaces de un contenedor nacían **sin dirección**: la cadena de red era
 `name=eth0,bridge=…,hwaddr=…`, y punto. Con un invitado que declara interior (`config:`) eso no
 es una máquina: es un cable enchufado a nada. El motor no pedía dirección porque no declaraba
 el `ip=`, y el contenedor nunca llegaba a preguntar: se quedaba con `eth0` vacío.
@@ -26,19 +26,19 @@ repartidor.
 
 ## La decisión
 
-**La dirección de una pata se declara como se declara en la vida: por lo que el equipo es.**
+**La dirección de una interfaz se declara como se declara en la vida: por lo que el equipo es.**
 
 | lo que el lab declara | lo que nace | qué hace el equipo |
 | --- | --- | --- |
-| `direccion: dhcp` | `ip=dhcp` | pregunta: dirección, puerta y DNS se los da el router de su red |
-| `direccion: 10.42.1.10/24` + `puerta: 10.42.1.1` | `ip=…,gw=…` | no pregunta: lleva lo suyo puesto a mano |
+| `address: dhcp` | `ip=dhcp` | pregunta: dirección, vía de acceso y DNS se los da el router de su red |
+| `address: 10.42.1.10/24` + `gateway: 10.42.1.1` | `ip=…,gw=…` | no pregunta: lleva lo suyo puesto a mano |
 | nada, con interior (`config:`) | `ip=dhcp` | lo que hace cualquier equipo al conectarlo |
 | nada, sin interior | sin dirección | los invitados de la fase 1, que no se tocan |
 
-`puerta` es **la puerta de ese invitado**, y sólo tiene sentido con una dirección fija. El
+`gateway` es **la vía de acceso de ese invitado**, y sólo tiene sentido con una dirección fija. El
 motor **no la adivina ni la reparte**: la declara el lab, como la pondría una persona en el
 equipo (regla 7: el motor no sabe qué dirección tiene la red de un lab). Y el valor se
-normaliza (`invitado.puerta`) para que `plan.py` lo use al crear y al actualizar: tenerlo en
+normaliza (`invitado.vía de acceso`) para que `plan.py` lo use al crear y al actualizar: tenerlo en
 dos sitios distintos es tener dos verdades.
 
 **El DNS no se declara todavía, y se dice.** Un puesto lo recibe por DHCP (por eso funciona sin
@@ -51,12 +51,12 @@ aparentar que ya está.
 ## Por qué así, y no de otra forma
 
 **No se inventa la dirección.** Habría sido fácil que el motor numerase los puestos por su
-cuenta (como hace con la pata de fuera, 0012). Pero el DHCP **es el escenario**: si el lab
+cuenta (como hace con la interfaz de fuera, 0012). Pero el DHCP **es el escenario**: si el lab
 declara `dhcp`, lo que se quiere probar es que el router reparta. Numerar por dentro se lo
 comería. Cada equipo recibe del mecanismo que le toca, y eso es lo que se comprueba.
 
-**La puerta no se deriva.** Para la pata de *gestión* del puesto de control el motor sí la
-deriva (es del nodo, no del lab). Aquí no: la puerta de un servidor de un lab la pone quien
+**La vía de acceso no se deriva.** Para la interfaz de *gestión* del bastión el motor sí la
+deriva (es del nodo, no del lab). Aquí no: la vía de acceso de un servidor de un lab la pone quien
 monta el lab, y el motor sólo la escribe donde va. Derivarla sería que el motor supiera la
 topología del lab, que es exactamente lo que la regla 7 prohíbe.
 
@@ -66,7 +66,7 @@ pedían.
 
 ## Cómo se comprueba
 
-- Un invitado con `direccion: dhcp` nace con `ip=dhcp`; uno con dirección y puerta, con
+- Un invitado con `address: dhcp` nace con `ip=dhcp`; uno con dirección y vía de acceso, con
   `ip=…,gw=…`; uno sin nada y con interior, con `ip=dhcp`.
 - La lectura de dentro (`/interfaces`) enseña la dirección que el equipo **consiguió**, no la
   que el motor quería: si el CHR no reparte, no aparece, y eso es el fallo — no un verde.

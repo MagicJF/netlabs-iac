@@ -7,61 +7,61 @@
 #
 #              Lo que cambia respecto de Linux es la PUERTA: a un RouterOS no se entra
 #              por SSH (regla 13), se le habla por su REST (`tasks/ros_api.yml`). Y esa
-#              llamada la hace el MOTOR, en esta misma máquina: el puesto de control le
-#              deja abierto el camino --reenvía el puerto 80 del router por el MISMO
-#              túnel del camino-- y a este driver sólo le queda decir POR QUÉ PUERTO. El
+#              llamada la hace el MOTOR, en esta misma máquina: el bastión le
+#              deja abierto el túnel --reenvía el puerto 80 del router por el MISMO
+#              túnel del túnel-- y a este driver sólo le queda decir POR QUÉ PUERTO. El
 #              puesto NO entra en el inventario de esta ejecución: aquí no se delega
 #              nada (era el único `delegate_to` del motor).
 #
-# INVARIANTES: se escribe SÓLO por la puerta del REST, y se relee lo mismo que se leyó:
+# INVARIANTES: se escribe SÓLO por la vía de acceso del REST, y se relee lo mismo que se leyó:
 #              un paso que escribe y no comprueba es una promesa, no una convergencia.
 #              Nunca se escribe a ciegas: si al equipo no se le pudo preguntar, PARA.
-#              La credencial del motor se pone la ÚLTIMA (el área `identidad` va al final
+#              La credencial del motor se pone la ÚLTIMA (el área `identity` va al final
 #              del plan del invitado): hasta ese momento el equipo contesta con la de
-#              fábrica, y si algo fallara a mitad, el equipo sigue teniendo su camino de
+#              fábrica, y si algo fallara a mitad, el equipo sigue teniendo su túnel de
 #              vuelta en vez de quedarse con una contraseña que nadie conoce.
-# LÍMITES:     no se toca el servicio `www`: es donde vive el REST, o sea el camino de
+# LÍMITES:     no se toca el servicio `www`: es donde vive el REST, o sea el túnel de
 #              vuelta del motor. Y no se adivinan contraseñas: si el equipo no acepta ni
 #              la del motor ni la de fábrica, se para y se dice (regla 16).
 #              El HTTP va en claro porque un CHR de fábrica no trae certificado
-#              (docs/decisiones/0006-*.md); cuando el lab lo declare, esta puerta es la
+#              (docs/decisiones/0006-*.md); cuando el lab lo declare, esta vía de acceso es la
 #              primera que cambia.
 # VER:         docs/decisiones/0006-*.md; filter_plugins/interior.py (escrituras_routeros);
-#              tasks/ros_api.yml; tasks/inventario_invitados.yml
+#              tasks/ros_api.yml; tasks/guest_inventory.yml
 
 # --- 0. POR DÓNDE SE ENTRA, y qué declara este invitado ------------------------------
 - name: "DRIVER ROUTEROS · por dónde se entra a '{{ interior_rol }}' y qué declara"
-  ansible.builtin.include_tasks: inventario_invitados.yml
+  ansible.builtin.include_tasks: guest_inventory.yml
 
 - name: "DRIVER ROUTEROS · qué áreas hay que leer en '{{ interior_rol }}'"
   ansible.builtin.set_fact:
-    interior_areas_declaradas: "{{ interior_declarado_invitado | interior_areas }}"
+    interior_areas_declaradas: "{{ interior_declarado_guest | interior_areas }}"
   changed_when: false
 
-# La pata de FUERA (área `exterior`): por dónde sale este nodo y qué dirección libre hay en
+# La interfaz de FUERA (área `uplink`): por dónde sale este nodo y qué dirección libre hay en
 # esa red. Son valores del ENTORNO -- el lab no declara ni una dirección de casa --, así que
 # los DERIVA el motor del estado y viajan en los parámetros del interior. Sólo se derivan si
 # este invitado declara la salida: en cualquier otro caso no hay nada que preguntar (y un lab
 # sin salida no debe ni tocar el bridge del nodo).
-- name: "DRIVER ROUTEROS · la salida del lab, si '{{ interior_rol }}' la declara (puerta y dirección, derivadas)"
+- name: "DRIVER ROUTEROS · la salida del lab, si '{{ interior_rol }}' la declara (vía de acceso y dirección, derivadas)"
   ansible.builtin.set_fact:
     parametros_motor: "{{ parametros_motor | combine(estado | interior_salida(parametros_motor)) }}"
   changed_when: false
-  when: "'exterior' in interior_areas_declaradas"
+  when: "'uplink' in interior_areas_declaradas"
 
-# AQUÍ no se pone el puesto de control en el inventario. Antes sí, porque la llamada se le
-# delegaba; ahora la hace el motor y el puesto sólo hace de camino (el túnel ya reenvía el
+# AQUÍ no se pone el bastión en el inventario. Antes sí, porque la llamada se le
+# delegaba; ahora la hace el motor y el puesto sólo hace de túnel (el túnel ya reenvía el
 # REST de este router), así que lo único que hace falta es POR QUÉ PUERTO se llama: eso se
 # calcula en el paso siguiente, del vmid del invitado (nada que guardar, regla 11).
 
 - name: "DRIVER ROUTEROS · con qué se llama, y por dónde"
   ansible.builtin.set_fact:
-    # El puerto local del nodo de control por el que el camino tiene abierto el REST de
-    # ESTE router. Es hermano del puerto del camino: sale del vmid del invitado, y el
-    # motor llama a `127.0.0.1:<este puerto>`. Sin camino construido no hay puerto, y la
-    # puerta lo dice con el remedio (regla 16).
+    # El puerto local del nodo de control por el que el túnel tiene abierto el REST de
+    # ESTE router. Es hermano del puerto del tunnel: sale del vmid del invitado, y el
+    # motor llama a `127.0.0.1:<este puerto>`. Sin túnel construido no hay puerto, y la
+    # vía de acceso lo dice con el remedio (regla 16).
     ros_puerto: >-
-      {{ (parametros_motor.camino_rest_puerto_base | int) + (identidad.invitados
+      {{ (parametros_motor.tunnel_rest_puerto_base | int) + (identidad.guests
          | selectattr('rol', 'equalto', interior_rol) | list | first).vmid | int }}
     # La dirección DECLARADA del invitado, y la única por la que se habla: el intercambio de
     # la dirección de gestión no da pasos desde fuera --lo hace el router entero y de una
@@ -69,14 +69,14 @@
     # se queda hablando a una dirección que ya no es.
     ros_direccion_declarada: "{{ interior_direccion }}"
     ros_direccion: "{{ interior_direccion }}"
-    ros_invitado: "{{ interior_rol }}"
+    ros_guest: "{{ interior_rol }}"
     ros_usuario_motor: "{{ engine_routeros_usuario }}"
     ros_clave_motor: "{{ routeros_clave | default('') }}"
     # El vacío es un VALOR, no un descuido: un RouterOS de fábrica tiene el usuario
     # `admin` sin contraseña (medido en un CHR 7.25). Se declara aquí para que el día
     # que cambie se cambie en un sitio.
     ros_clave_fabrica: "{{ engine_routeros_clave_fabrica | default('') }}"
-    ros_clave_publica: "{{ camino_clave_publica | default('') }}"
+    ros_clave_publica: "{{ tunnel_clave_publica | default('') }}"
     ros_leidos: {}
 
 # --- 1. CON QUÉ CREDENCIAL SE CONVERGE ------------------------------------------------
@@ -118,8 +118,8 @@
       {% if (ros_ultimo_status | int) == -1 %}
       No se llegó a preguntarle. El motor no sigue a ciegas (regla 16). Lo que hay que
       mirar, en orden: que el paso anterior del plan lo haya arrancado y le haya puesto
-      su dirección, que su bridge sea el que declara el lab, y que el camino esté en pie
-      y reenvíe el REST de este router (el camino se construye con
+      su dirección, que su bridge sea el que declara el lab, y que el túnel esté en pie
+      y reenvíe el REST de este router (el túnel se construye con
       `./lab --lab {{ pve_lab }} apply`).
       {% else %}
       El equipo CONTESTA, pero no acepta ni la credencial del motor
@@ -146,10 +146,10 @@
       {{ ros_clave_motor if ros_credencial == 'motor' else ros_clave_fabrica }}
   changed_when: false
 
-# --- 2. LEER (todo por la puerta del REST) --------------------------------------------
+# --- 2. LEER (todo por la vía de acceso del REST) --------------------------------------------
 - name: "DRIVER ROUTEROS · leer dentro de '{{ interior_rol }}' por su REST"
   ansible.builtin.include_tasks: ros_api.yml
-  loop: "{{ interior_declarado_invitado | interior_lecturas_routeros }}"
+  loop: "{{ interior_declarado_guest | interior_lecturas_routeros }}"
   loop_control:
     loop_var: ros_llamada
     label: "leer {{ ros_llamada.area }}: {{ ros_llamada.ruta }}"
@@ -169,7 +169,7 @@
 - name: "DRIVER ROUTEROS · qué se encontró dentro de '{{ interior_rol }}'"
   ansible.builtin.set_fact:
     interior_leido: >-
-      {{ ros_leidos | interior_leido_routeros(interior_declarado_invitado,
+      {{ ros_leidos | interior_leido_routeros(interior_declarado_guest,
          engine_routeros_usuario, ros_clave_publica, ros_credencial) }}
   changed_when: false
 
@@ -188,27 +188,27 @@
       su REST: {{ interior_leido.motivo }}
 
       El motor no escribe a ciegas (regla 16). Un RouterOS de este motor se configura
-      por su REST, y a ese REST se llega por el camino que el puesto de control deja
+      por su REST, y a ese REST se llega por el túnel que el bastión deja
       abierto: si no contesta, lo primero es comprobar que el router está arrancado con
-      su dirección y que el camino está en pie y reenvía su puerto
-      (`./lab --lab {{ pve_lab }} apply` reconstruye el camino).
+      su dirección y que el túnel está en pie y reenvía su puerto
+      (`./lab --lab {{ pve_lab }} apply` reconstruye el túnel).
   when: not interior_leido.alcanzable and not (interior_solo_leer | default(false))
 
 # --- 3. DECIDIR (función pura) --------------------------------------------------------
 - name: "DRIVER ROUTEROS · (declarado, leído) -> lo que hay que cambiar"
   ansible.builtin.set_fact:
     interior_pasos: >-
-      {{ interior_declarado_invitado
+      {{ interior_declarado_guest
          | interior_pasos(identidad, declaracion, interior_leido, parametros_motor) }}
     ros_operaciones: >-
-      {{ (interior_declarado_invitado
+      {{ (interior_declarado_guest
           | interior_pasos(identidad, declaracion, interior_leido, parametros_motor)
           | interior_operaciones) }}
     ros_escrituras: >-
-      {{ (interior_declarado_invitado
+      {{ (interior_declarado_guest
           | interior_pasos(identidad, declaracion, interior_leido, parametros_motor)
           | interior_operaciones)
-         | interior_escrituras_routeros(interior_declarado_invitado, declaracion,
+         | interior_escrituras_routeros(interior_declarado_guest, declaracion,
                                        identidad, parametros_routeros, interior_leido) }}
   vars:
     parametros_routeros:
@@ -221,7 +221,7 @@
 # Antes de tocar nada: lo que el plan pide y esta traducción NO sabe pedir. Una llamada
 # sin traducir se marcaría como hecha y el motor diría «convergido» habiendo ignorado
 # algo -- la forma más silenciosa de mentir. Se para ANTES de escribir.
-- name: "DRIVER ROUTEROS · parar si el plan pide algo que esta puerta no sabe pedir"
+- name: "DRIVER ROUTEROS · parar si el plan pide algo que esta vía de acceso no sabe pedir"
   ansible.builtin.fail:
     msg: |-
       El plan pide operaciones del interior de '{{ interior_rol }}' que la traducción a
@@ -260,7 +260,7 @@
     ros_usuario: "{{ ros_usuario_efectivo }}"
     ros_clave: "{{ ros_clave_efectiva }}"
     ros_etiqueta: "escribir {{ ros_llamada.area }}: {{ ros_llamada.descripcion }}"
-    ros_direccion: "{{ ros_llamada.direccion | default(ros_direccion_declarada) }}"
+    ros_direccion: "{{ ros_llamada.address | default(ros_direccion_declarada) }}"
     # Y al escribir se toleran errores SOLO en las llamadas que la capa pura marcó
     # (`tolerar_sin_respuesta`): es el guion del intercambio de la dirección de gestión, que
     # puede dejar al equipo sin contestar un instante. No es seguir a ciegas: la
@@ -271,25 +271,25 @@
 
 # --- 5. RELEER y comprobar ------------------------------------------------------------
 # Se vuelve a preguntar lo MISMO, y con la credencial que debe valer al final: si el área
-# `identidad` se declaró, el contrato es que el equipo acepte ya la del motor -- y
+# `identity` se declaró, el contrato es que el equipo acepte ya la del motor -- y
 # releerlo CON ELLA es la prueba de que la credencial quedó puesta (no hay otra forma de
 # medirlo sin escribir). Si no se declaró, se sigue con la que funcionaba.
 - name: "DRIVER ROUTEROS · releer '{{ interior_rol }}' después de escribir"
   ansible.builtin.set_fact:
     ros_leidos: {}
-    ros_credencial_final: "{{ 'motor' if 'identidad' in interior_areas_declaradas else ros_credencial }}"
+    ros_credencial_final: "{{ 'motor' if 'identity' in interior_areas_declaradas else ros_credencial }}"
     ros_usuario_relectura: >-
-      {{ ros_usuario_motor if ('identidad' in interior_areas_declaradas or ros_credencial == 'motor')
+      {{ ros_usuario_motor if ('identity' in interior_areas_declaradas or ros_credencial == 'motor')
          else engine_routeros_usuario }}
     ros_clave_relectura: >-
-      {{ ros_clave_motor if ('identidad' in interior_areas_declaradas or ros_credencial == 'motor')
+      {{ ros_clave_motor if ('identity' in interior_areas_declaradas or ros_credencial == 'motor')
          else ros_clave_fabrica }}
   changed_when: false
   when: (not (interior_solo_leer | default(false))) and ros_escrituras | length > 0
 
 - name: "DRIVER ROUTEROS · releer por el REST lo mismo que se leyó"
   ansible.builtin.include_tasks: ros_api.yml
-  loop: "{{ interior_declarado_invitado | interior_lecturas_routeros }}"
+  loop: "{{ interior_declarado_guest | interior_lecturas_routeros }}"
   loop_control:
     loop_var: ros_llamada
     label: "releer {{ ros_llamada.area }}: {{ ros_llamada.ruta }}"
@@ -307,9 +307,9 @@
 - name: "DRIVER ROUTEROS · comprobar que quedó como se declaró"
   ansible.builtin.set_fact:
     interior_pendiente: >-
-      {{ (interior_declarado_invitado
+      {{ (interior_declarado_guest
           | interior_pasos(identidad, declaracion,
-             (ros_leidos | interior_leido_routeros(interior_declarado_invitado,
+             (ros_leidos | interior_leido_routeros(interior_declarado_guest,
                engine_routeros_usuario, ros_clave_publica, ros_credencial_final)),
              parametros_motor)
           | interior_operaciones) }}
@@ -335,11 +335,11 @@
 
         {{ ((ros_leidos | default({})).get('/ip/address') or {}).get('json') | to_json }}
 
-      Lo que pasó en cada llamada está en {{ pve_carpeta_logs }}/api.jsonl (las rutas
+      Lo que pasó en cada llamada está en {{ pve_carpeta_logs }}/api.jsonl (las routes
       su REST son de RouterOS). No se repite a ciegas: se mira el diario y se arregla la
       causa. Un caso MEDIDO y conocido: un RouterOS de fábrica que ha tenido un cliente
       DHCP conserva su dirección y su ruta dinámicas aunque se le deshabilite el
-      cliente -- la API no las borra, y eso lo resuelve el paso `reiniciar_invitado`
+      cliente -- la API no las borra, y eso lo resuelve el paso `reiniciar_guest`
       que el plan emite para el residuo.
     success_msg: >-
       '{{ interior_rol }}': comprobado releyendo por su REST, y coincide con lo declarado.

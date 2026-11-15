@@ -12,13 +12,13 @@
 # INVARIANTES: el cuerpo que se manda es EXACTAMENTE el que el rol ya tiene (sale de
 #              vars/engine.yml, que es lo que la guarda acaba de comparar contra el
 #              nodo): así, si algún día esto devolviera 200, no habría cambiado nada
-#              -- y aun así sería un fallo, porque abriría la puerta a cambiarlo.
+#              -- y aun así sería un fallo, porque abriría la vía de acceso a cambiarlo.
 # LÍMITES:     es una petición de ESCRITURA que se espera PROHIBIDA. Si el nodo
 #              respondiera 5xx en vez de 403, esto no se da por bueno: un fallo del
 #              nodo no es una garantía.
 # VER:         docs/decisiones/0004-*.md; tasks/guardia_privilegios.yml
 
-# `pve_api_tolerar_error` porque un 403 aquí NO es un fallo de la puerta: es
+# `pve_api_tolerar_error` porque un 403 aquí NO es un fallo de la gateway: es
 # EXACTAMENTE lo que se espera, y hay que poder diarizarlo y decidirlo en la tarea
 # siguiente.
 - name: "PRIVILEGIOS · operación nula sobre «{{ pve_rol_vigilado }}» (debe ser 403)"
@@ -56,7 +56,7 @@
 
       Nota medida en Proxmox VE 9.2: con `privsep=1` los privilegios efectivos del
       token son la INTERSECCIÓN de los suyos y los de su usuario dueño, así que la
-      ACL hay que darla a los DOS (y quitarla también a los dos). Las rutas, los
+      ACL hay que darla a los DOS (y quitarla también a los dos). Las routes, los
       privilegios exactos y por qué cada uno está donde está, en
       docs/decisiones/0004-*.md.
     success_msg: >-

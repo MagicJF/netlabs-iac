@@ -1,19 +1,19 @@
 ---
 # PROPÓSITO:   declarar la topología del lab `06_conectividad-exterior`: el mismo lab que
-#              `04_lab-red-routeros` -- dos CHR encadenados y un puesto de control, con
+#              `04_lab-red-routeros` -- dos CHR encadenados y un bastión, con
 #              servidores y puestos como contenedores -- pero con el router de arriba
-#              declarado como SALIDA a internet (`exterior`), para poder demostrar que
+#              declarado como SALIDA a internet (`uplink`), para poder demostrar que
 #              los contenedores que cuelgan de las redes de los CHR tienen salida de
 #              verdad: dirección, pasarela, resolución de nombres y NAT.
 # INVARIANTES: esta es la FUENTE DE VERDAD del lab. Aquí NO hay ningún vmid, ninguna
 #              MAC, ninguna credencial y NINGUNA dirección de la red de casa: la
 #              identidad la deriva el motor (regla 11), la MAC de cada reserva DHCP se
-#              deriva del vmid (regla 14), y la pata de fuera del router de salida
+#              deriva del vmid (regla 14), y la interfaz de fuera del router de salida
 #              toma su dirección por DHCP -- por eso este lab no declara ni la
-#              pasarela ni los DNS de fuera, que es justo lo que `exterior` evita.
+#              pasarela ni los DNS de fuera, que es justo lo que `uplink` evita.
 # LÍMITES:     el interior que este lab declara está en el vocabulario CERRADO del
 #              motor: para RouterOS, identidad, servicios, cliente del DHCP de fábrica,
-#              direcciones, rutas, servidor DHCP y exterior; para Linux, el camino, la
+#              direcciones, rutas, servidor DHCP y exterior; para Linux, el túnel, la
 #              dirección, el reenvío y el servidor DHCP. Las áreas que el encargo nombra
 #              y el motor todavía no converge (puentes y cortafuegos de RouterOS;
 #              pasarela, rutas, dns y claves de Linux) están DECLARADAS como pendientes
@@ -22,7 +22,7 @@
 #              aplicaciones dentro de los invitados.
 # VER:         labs/06_conectividad-exterior/06_conectividad-exterior.md;
 #              docs/decisiones/0012-la-salida-del-lab.md (por qué así);
-#              docs/crear-un-lab.md (las decisiones, en orden); interior.py (`exterior`)
+#              docs/crear-un-lab.md (las decisiones, en orden); interior.py (`uplink`)
 #
 # EL NOMBRE de cada invitado dice QUÉ ES, no de qué lab es (ADR 0015): aquí se leen
 # `rt-borde`, `rt-nucleo`, `ctl-1`, `srv-1`, `ws-1` y `ws-2`.
@@ -30,16 +30,16 @@
 lab:
   nombre: 06_conectividad-exterior
 
-  # Los mismos tres escalones que el lab de aceptación, y por la misma razón: primero el
-  # puesto de control con el primer CHR, después el segundo escalón de la red, y sólo
-  # entonces los puestos dinámicos. Nunca se arranca un escalón antes de que el anterior
+  # Los mismos tres etapas que el lab de aceptación, y por la misma razón: primero el
+  # bastión con el primer CHR, después el segundo etapa de la red, y sólo
+  # entonces los puestos dinámicos. Nunca se arranca un etapa antes de que el anterior
   # esté convergido y sirviendo (regla 18).
-  escalones: [1, 2, 3]
+  stages: [1, 2, 3]
 
-  # Todo lo del lab vive aquí. Lo vigila `./lab check supernet`. No se solapa con el del
+  # Todo lo del lab vive aquí. Lo vigila `./lab check address-space`. No se solapa con el del
   # lab de aceptación (10.40.0.0/16) ni con el de `05_research` (10.41.0.0/16): lo que
   # hace imposible que dos labs se pisen.
-  supernet: 10.42.0.0/16
+  address_space: 10.42.0.0/16
 
   # Los bridges son del NODO, no del lab (Proxmox no mete interfaces en pools): el motor
   # crea los que falten, los marca al crearlos y `destroy` sólo borra los que llevan su
@@ -48,21 +48,21 @@ lab:
   # ajeno no se adopta, y con razón.
   bridges:
     - nombre: vmb_ext_gestion
-      direccion: 10.42.0.1/24
+      address: 10.42.0.1/24
     - nombre: vmb_ext_lan1
-      direccion: 10.42.1.1/24
+      address: 10.42.1.1/24
     - nombre: vmb_ext_lan2
-      direccion: 10.42.2.1/24
+      address: 10.42.2.1/24
 
-  # El camino lo construye el motor: un invitado con `config.linux.camino` sale hacia
+  # El túnel lo construye el motor: un invitado con `config.linux.túnel` sale hacia
   # casa por su cuenta y hace de bastión del lab. Por dónde sale (host y puerto) es
   # ENTORNO -- la casa es una y los labs son muchos -- así que vive en secrets.yml.
-  camino: {tipo: puesto_control}
+  tunnel: {tipo: bastion}
 
 vms:
-  # El primer CHR: la puerta de entrada del lab Y su salida a internet.
+  # El primer CHR: la vía de acceso de entrada del lab Y su salida a internet.
   #
-  # Tres patas, y la tercera no se declara: `exterior` la pide al motor, que la tiende
+  # Tres interfaces, y la tercera no se declara: `uplink` la pide al motor, que la tiende
   # al nacer sobre el bridge del nodo que tiene salida (valor de entorno,
   # `pve_bridge_gestion` en secrets.yml, no de este lab). Por eso son `ether1` y
   # `ether2` las declaradas -- `vmb_ext_gestion` y `vmb_ext_lan1` -- y `ether3` es la de
@@ -74,39 +74,39 @@ vms:
   # mismo destino (lo avisa el consejo `exterior-con-ruta`).
   - rol: borde
     tipo: rt          # es un router CHR -> 'rt-borde' (el alias es su rol)
-    escalon: 1
+    stage: 1
     cores: 2
-    memoria: 512
-    disco: 1
-    imagen: chr-7.25.1.raw
+    memory: 512
+    disk: 1
+    image: chr-7.25.1.raw
     bridges: [vmb_ext_gestion, vmb_ext_lan1]
-    direccion: 10.42.0.11/24
+    address: 10.42.0.11/24
     config:
       routeros:
-        identidad: rt-borde-salida
-        servicios: {deshabilitar: [telnet, ftp, api, api-ssl]}
-        cliente_dhcp: {deshabilitar: true}
-        direcciones:
-          - {interfaz: ether2, direccion: 10.42.1.1/24}
+        identity: rt-borde-salida
+        ip_services: {deshabilitar: [telnet, ftp, api, api-ssl]}
+        dhcp_client: {deshabilitar: true}
+        addresses:
+          - {interface: ether2, address: 10.42.1.1/24}
         # La vuelta a la SEGUNDA red del lab. El router de salida traduce (masquerade)
         # lo que sale, pero la respuesta tiene que poder volver: con esta ruta, el
-        # destino 10.42.2.0/24 se busca al otro router, en vez de quedarse sin camino.
+        # destino 10.42.2.0/24 se busca al otro router, en vez de quedarse sin túnel.
         # Es un valor DEL LAB (una red suya), no de casa: se declara.
-        rutas:
-          - {destino: 10.42.2.0/24, pasarela: 10.42.1.11}
-        dhcp:
-          - interfaz: ether2
+        routes:
+          - {dst_address: 10.42.2.0/24, gateway: 10.42.1.11}
+        dhcp_server:
+          - interface: ether2
             pool: {rango: 10.42.1.100-10.42.1.200}
-            # La pasarela es este router, y el DNS también: con `exterior` declarado su
+            # La pasarela es este router, y el DNS también: con `uplink` declarado su
             # resolutor queda encendido, así que los invitados de esta red le preguntan
             # a él los nombres y él reenvía a los DNS que aprendió de fuera.
-            red: {prefijo: 10.42.1.0/24, pasarela: 10.42.1.1, dns: [10.42.1.1]}
-            reservas: derivadas
-        # LA SALIDA: una marca, sin opciones. La pata de fuera y su dirección las deriva
-        # el motor (`plan` tiende la pata, el router pide la dirección desde dentro).
+            network: {address: 10.42.1.0/24, gateway: 10.42.1.1, dns: [10.42.1.1]}
+            static_leases: derived
+        # LA SALIDA: una marca, sin opciones. La interfaz de fuera y su dirección las deriva
+        # el motor (`plan` tiende la interfaz, el router pide la dirección desde dentro).
         # Lo que esto significa, en tres cosas y ninguna más: un cliente DHCP en la
         # interfaz de fuera, MASQUERADE por ella, y el resolutor DNS encendido.
-        exterior: {}
+        uplink: {}
 
   # El segundo CHR: cuelga de la LAN del primero. No tiene salida propia -- enruta hacia
   # el router de salida, que es lo que hace un lab honesto: se enruta, no se traduce dos
@@ -114,89 +114,88 @@ vms:
   # MAC derivada, así que el encadenamiento funciona sin que nadie escriba una MAC.
   - rol: nucleo
     tipo: rt          # el otro router del lab -> 'rt-nucleo'
-    escalon: 2
+    stage: 2
     cores: 1
-    memoria: 512
-    disco: 1
-    imagen: chr-7.25.1.raw
+    memory: 512
+    disk: 1
+    image: chr-7.25.1.raw
     bridges: [vmb_ext_lan1, vmb_ext_lan2]
-    direccion: 10.42.1.11/24
+    address: 10.42.1.11/24
     config:
       routeros:
-        identidad: rt-nucleo
-        servicios: {deshabilitar: [telnet, ftp, api, api-ssl]}
-        cliente_dhcp: {deshabilitar: true}
-        direcciones:
-          - {interfaz: ether2, direccion: 10.42.2.1/24}
-        rutas:
-          - {destino: 0.0.0.0/0, pasarela: 10.42.1.1}
-        dhcp:
-          - interfaz: ether2
+        identity: rt-nucleo
+        ip_services: {deshabilitar: [telnet, ftp, api, api-ssl]}
+        dhcp_client: {deshabilitar: true}
+        addresses:
+          - {interface: ether2, address: 10.42.2.1/24}
+        routes:
+          - {dst_address: 0.0.0.0/0, gateway: 10.42.1.1}
+        dhcp_server:
+          - interface: ether2
             pool: {rango: 10.42.2.100-10.42.2.200}
             # El DNS que se anuncia es el del router de SALIDA (10.42.1.1), no este:
             # este router no resuelve (no tiene resolutor ni servidores propios), y el
-            # de salida sí. Un solo resolutor en el lab, en la puerta.
-            red: {prefijo: 10.42.2.0/24, pasarela: 10.42.2.1, dns: [10.42.1.1]}
-            reservas: derivadas
-
+            # de salida sí. Un solo resolutor en el lab, en la vía de acceso.
+            network: {address: 10.42.2.0/24, gateway: 10.42.2.1, dns: [10.42.1.1]}
+            static_leases: derived
 containers:
-  # El puesto de control: la única pata que el motor necesita para ENTRAR en el lab.
-  # Nace con una pata en el bridge de gestión del NODO (valor de entorno, no del lab)
-  # y una por cada bridge del lab, todas al nacer (cambiarle las patas a un invitado en
+  # El bastión: la única interfaz que el motor necesita para ENTRAR en el lab.
+  # Nace con una interfaz en el bridge de gestión del NODO (valor de entorno, no del lab)
+  # y una por cada bridge del lab, todas al nacer (cambiarle las interfaces a un invitado en
   # marcha obliga a reiniciarlo, y aquí no se reinicia la máquina que trabaja). Su
   # dirección en el bridge del nodo la DERIVA el motor de entre las libres.
   - rol: control
-    tipo: ctl         # un puesto de control (el bastión del lab) -> el nombre empieza por 'ctl-'
+    tipo: ctl         # un bastión (el bastión del lab) -> el nombre empieza por 'ctl-'
     nombre: 1         # -> 'ctl-1'
-    escalon: 1
+    stage: 1
     cores: 1
-    memoria: 512
-    disco: 4
+    memory: 512
+    disk: 4
     bridge: vmb_ext_gestion
-    direccion: 10.42.0.10/24
+    address: 10.42.0.10/24
     config:
       linux:
-        camino: {}
-        direcciones:
-          - interfaz: eth1
-            direccion: 10.42.1.2/24
-        dhcp_servidor:
-          interfaz: eth0
+        tunnel: {}
+        addresses:
+          - interface: eth1
+            address: 10.42.1.2/24
+        dhcp_server:
+          interface: eth0
           rango: 10.42.0.50-10.42.0.99
-          reservas: derivadas
-        reenvio: true
+          static_leases: derived
+        ip_forward: true
 
   # Los clientes, como máquinas de verdad: las dos ESTACIONES piden su dirección al
   # conectar (`dhcp`) y el CHR de su red les da dirección, pasarela y DNS en la misma
   # respuesta -- eso, y nada dentro de ellas, es lo que les da salida. El SERVIDOR no
-  # pregunta: lleva su dirección y su puerta puestas a mano, y sale igual porque sabe por
+  # pregunta: lleva su dirección y su pasarela puestas a mano, y sale igual porque sabe por
   # dónde. (Su resolutor es el del nodo que lo hospeda: un contenedor lo hereda. Poder
   # declarárselo es lo siguiente: `docs/decisiones/0013`, última sección.)
   #
   # Y ninguno declara `config:`: NO se entra en ellos. Un interior vacío (`linux: {}`) no
   # dice nada y sólo hace que el motor intente entrar a configurar lo que ya le da la red;
   # lo que se configura por la red no se configura por dentro. Su dirección vive en la
-  # pata (`direccion`), que es donde vive en una máquina de verdad.
+  # interfaz (`address`), que es donde vive en una máquina de verdad.
   - rol: servidor
     tipo: srv         # un servidor -> 'srv-'
     nombre: 1         # -> 'srv-1'
-    escalon: 2
+    stage: 2
     cores: 1
-    memoria: 512
-    disco: 4
+    memory: 512
+    disk: 4
     bridge: vmb_ext_lan1
-    direccion: 10.42.1.10/24
-    puerta: 10.42.1.1
+    address: 10.42.1.10/24
+    gateway: 10.42.1.1
 
   - rol: puesto-1
     tipo: ws          # un puesto de trabajo -> 'ws-1'
     nombre: 1
-    escalon: 3
+    stage: 3
     cores: 1
-    memoria: 512
-    disco: 4
+    memory: 512
+    disk: 4
     bridge: vmb_ext_lan1
-    direccion: dhcp
+    address: dhcp
 
   # Éste cuelga del SEGUNDO router: su salida demuestra la cadena entera -- su DHCP es
   # el segundo CHR, su ruta por defecto pasa por el primero, y la traducción la hace el
@@ -204,10 +203,10 @@ containers:
   - rol: puesto-2
     tipo: ws          # y el segundo -> 'ws-2'
     nombre: 2
-    escalon: 3
+    stage: 3
     cores: 1
-    memoria: 512
-    disco: 4
+    memory: 512
+    disk: 4
     bridge: vmb_ext_lan2
-    direccion: dhcp
+    address: dhcp
 #     ↑ sin `vmid` ni `mac`: los deriva el motor leyendo el estado del clúster.

@@ -1,5 +1,5 @@
 # PROPÓSITO:   el asignador de identidad. Recibe (estado del mundo, declaración
-#              del lab) y devuelve el mapa rol->identidad: vmid, nombre canónico,
+#              del lab) y devuelve el mapa rol->identity: vmid, nombre canónico,
 #              MAC y descripción. Es el corazón del encargo (regla §5).
 # INVARIANTES: es una FUNCIÓN PURA: no lee ficheros, no habla con la API y no
 #              guarda nada. Dadas las mismas dos entradas, da la misma salida.
@@ -49,27 +49,27 @@ def identidad_mac(vmid, prefijo_mac):
     )
 
 
-# Cuánto se separa una pata de la siguiente en el espacio de vmids: 2**20. Un vmid de
-# Proxmox no pasa de 999.999 (menos de 2**20), así que la pata `n` de un invitado nunca
-# puede chocar con la pata 0 de otro. Ver `identidad_mac_de_pata`.
-ESPACIO_DE_PATAS = 1 << 20
+# Cuánto se separa una interfaz de la siguiente en el espacio de vmids: 2**20. Un vmid de
+# Proxmox no pasa de 999.999 (menos de 2**20), así que la interfaz `n` de un invitado nunca
+# puede chocar con la interfaz 0 de otro. Ver `identidad_mac_de_interface`.
+ESPACIO_DE_INTERFACES = 1 << 20
 
 
-def identidad_mac_de_pata(vmid, indice, prefijo_mac):
-    """La MAC de la pata `indice` de un invitado con varias interfaces.
+def identidad_mac_de_interface(vmid, indice, prefijo_mac):
+    """La MAC de la interfaz `indice` de un invitado con varias interfaces.
 
-    La pata 0 es **exactamente** la de siempre (`identidad_mac`), así que los labs de la
+    La interfaz 0 es **exactamente** la de siempre (`identidad_mac`), así que los labs de la
     fase 1 y los invitados de una sola interfaz no cambian ni un bit. Las demás se
     derivan del mismo sitio: `f(vmid + índice * 2**20)`.
 
     Por qué se derivan en vez de dejárselas a Proxmox: una MAC que inventa otro es estado
     que el motor no controla, y el plan la vería distinta en cada pasada (la segunda
     ejecución escribiría y la idempotencia se caería). Aquí no se guarda nada: se vuelve
-    a derivar, igual que la de la pata 0.
+    a derivar, igual que la de la interfaz 0.
     """
     if int(indice) < 0:
-        raise ErrorMotor(f"no hay pata negativa: {indice!r}")
-    return identidad_mac(int(vmid) + int(indice) * ESPACIO_DE_PATAS, prefijo_mac)
+        raise ErrorMotor(f"no hay interfaz negativa: {indice!r}")
+    return identidad_mac(int(vmid) + int(indice) * ESPACIO_DE_INTERFACES, prefijo_mac)
 
 
 def rol_de_descripcion(descripcion):
@@ -101,7 +101,7 @@ def lab_de_comentario(comentario):
 # ---------------------------------------------------------------------------
 # El nombre del POOL de un lab. El prefijo no es decorativo: Proxmox exige que un
 # poolid EMPIECE POR LETRA, y la carpeta de un lab empieza por su número de antigüedad
-# (ADR 0016). Es forma, no identidad: el pool sigue siendo del lab y de nadie más. Vive
+# (ADR 0016). Es forma, no identity: el pool sigue siendo del lab y de nadie más. Vive
 # aquí, que es el módulo de la identidad, y `plan`/`estado`/`destroy` la usan desde ahí
 # -- una sola regla, no tres copias del prefijo.
 # ---------------------------------------------------------------------------
@@ -161,22 +161,22 @@ def identidad_asignar(
     # queda callado.
     existentes_por_rol = {}
     poolid = identidad_pool(lab)
-    for invitado in (estado.get("invitados") or {}).values():
+    for guest in (estado.get("guests") or {}).values():
         # El pool se compara con su nombre DE VERDAD (`lab_<lab>`, `identidad_pool`), no
         # con el de la carpeta: compararlo con la carpeta hacía que ningún invitado propio
         # se reconociera -- se creaba la topología entera otra vez en cada pasada, con
         # vmids nuevos, y la idempotencia se caía.
-        if invitado.get("pool") != poolid:
+        if guest.get("pool") != poolid:
             continue
-        rol = rol_de_descripcion(invitado.get("descripcion"))
+        rol = rol_de_descripcion(guest.get("descripcion"))
         if rol:
-            existentes_por_rol.setdefault(rol, invitado)
+            existentes_por_rol.setdefault(rol, guest)
 
     asignados = set()
     salida = []
 
-    for invitado in declaracion["invitados"]:
-        rol = invitado["rol"]
+    for guest in declaracion["guests"]:
+        rol = guest["rol"]
 
         if rol in existentes_por_rol:
             vmid = int(existentes_por_rol[rol]["vmid"])
@@ -206,7 +206,7 @@ def identidad_asignar(
 
         salida.append(
             {
-                **invitado,
+                **guest,
                 "vmid": vmid,
                 # El nombre dice QUÉ ES (`rt-borde`, `srv-1`), no de qué lab es (ADR 0015):
                 # el equipo lo declara el lab con `tipo:` y el alias es su `nombre:` corto,
@@ -217,8 +217,8 @@ def identidad_asignar(
                     lab,
                     rol,
                     vmid,
-                    equipo=invitado.get("equipo"),
-                    alias=invitado.get("alias") or rol,
+                    equipo=guest.get("equipo"),
+                    alias=guest.get("alias") or rol,
                 ),
                 "mac": identidad_mac(vmid, prefijo_mac),
                 "descripcion": identidad_plantilla(plantilla_descripcion, lab, rol, vmid),
@@ -227,31 +227,31 @@ def identidad_asignar(
         )
 
     return {
-        "invitados": salida,
+        "guests": salida,
         "mapa_rol_vmid": {i["rol"]: i["vmid"] for i in salida},
         "errores": errores,
     }
 
 
-def identidad_invitado_por_rol(identidad, rol):
+def identidad_guest_por_rol(identidad, rol):
     """El invitado asignado a un rol, o None. Para no repetir búsquedas en Jinja."""
-    for invitado in identidad.get("invitados", []) or []:
-        if invitado["rol"] == rol:
-            return invitado
+    for guest in identidad.get("guests", []) or []:
+        if guest["rol"] == rol:
+            return guest
     return None
 
 
-def identidad_por_escalon(identidad):
-    """Agrupa los invitados ya asignados por escalón de arranque.
+def identidad_por_stage(identidad):
+    """Agrupa los invitados ya asignados por etapa de arranque.
 
-    Devuelve `{escalon: [invitado, ...]}` con las claves ordenadas. Arrancar por
-    escalones es parte de la topología: el plan y `apply` leen esto, no una lista
+    Devuelve `{stage: [invitado, ...]}` con las claves ordenadas. Arrancar por
+    etapas es parte de la topología: el plan y `apply` leen esto, no una lista
     propia.
     """
     agrupado = {}
-    for invitado in identidad.get("invitados", []) or []:
-        agrupado.setdefault(invitado["escalon"], []).append(invitado)
-    return {escalon: agrupado[escalon] for escalon in sorted(agrupado)}
+    for guest in identidad.get("guests", []) or []:
+        agrupado.setdefault(guest["stage"], []).append(guest)
+    return {stage: agrupado[stage] for stage in sorted(agrupado)}
 
 
 class FilterModule:
@@ -264,6 +264,6 @@ class FilterModule:
             "identidad_rol_de_descripcion": rol_de_descripcion,
             "identidad_lab_de_comentario": lab_de_comentario,
             "identidad_asignar": identidad_asignar,
-            "identidad_invitado_por_rol": identidad_invitado_por_rol,
-            "identidad_por_escalon": identidad_por_escalon,
+            "identidad_guest_por_rol": identidad_guest_por_rol,
+            "identidad_por_stage": identidad_por_stage,
         }

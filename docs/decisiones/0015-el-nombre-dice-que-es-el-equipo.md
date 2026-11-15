@@ -14,7 +14,7 @@ dos labs con la misma forma —que es lo normal: casi todos tienen un router y u
 puestos— tengan seis nombres distintos por una razón que no aporta nada al leer la lista.
 
 Quien mira el nodo quiere saber **qué es cada máquina**, no de qué carpeta salió: `rt-borde`
-dice «router, el que hace de puerta»; `conectividad-exterior-borde` dice «de este lab, y el
+dice «router, el que hace de pasarela»; `conectividad-exterior-borde` dice «de este lab, y el
 rol» — y para saber que es un router hay que saberse el rol de memoria.
 
 Y hay un segundo problema, del mismo sitio: el nombre era **la única** prueba de pertenencia
@@ -31,7 +31,7 @@ también la contara.
 
 - `tipo:` — **obligatorio** en cada invitado, de un vocabulario **cerrado** (regla 15):
   `rt` (router, un CHR), `srv` (servidor), `ws` (puesto de trabajo), `sw` (conmutador o
-  equipo sin dirección), `ctl` (puesto de control, el bastión). Un equipo que no quepa en
+  equipo sin dirección), `ctl` (bastión, el bastión). Un equipo que no quepa en
   ninguno pide su tipo al motor **con su ADR**, no se inventa en un YAML.
 - `nombre:` — **opcional**: el alias corto. Si no está, el alias es el `rol`. Admite número
   (`nombre: 2` -> `ws-2`), que es lo natural para numerar.
@@ -76,7 +76,7 @@ adopción sigue discriminando por pool.
 
 Un invitado **ya desplegado** con el nombre viejo no se renombra solo: la declaración dirá
 `rt-borde` y en el nodo habrá `conectividad-exterior-borde`. El motor lo dirá como una
-diferencia (no la esconde) y el camino es el honesto: `destroy` y `apply`, que es lo que se
+diferencia (no la esconde) y el túnel es el honesto: `destroy` y `apply`, que es lo que se
 hizo con los labs del repositorio el mismo día de esta decisión (se destruyeron todos y se
 volvieron a desplegar con los nombres nuevos). Un renombrado en caliente no existe como tal en
 la API de Proxmox para un invitado en marcha, y no se inventa aquí.

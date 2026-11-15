@@ -3,25 +3,25 @@
 #              (perímetro y núcleo), con un borde y un conmutador de núcleo como
 #              VMs y tres contenedores de servicio/puesto repartidos entre las dos.
 #              Es el lab de complejidad media del repositorio: más ancho que el de
-#              tres dispositivos (dos bridges, tres escalones, cinco invitados),
+#              tres dispositivos (dos bridges, tres etapas, cinco invitados),
 #              pero sin salirse de lo que el motor sabe converger.
 # INVARIANTES: esta es la FUENTE DE VERDAD del lab. Aquí NO hay ningún vmid ni
 #              ninguna MAC: los deriva el motor (regla 4.8). El nombre tiene que
 #              coincidir con el de la carpeta, porque el pool de Proxmox se llama
 #              como la carpeta y es la frontera de propiedad.
 # LÍMITES:     ESTE lab declara un bridge y una dirección por invitado, así que no
-#              declara un cortafuegos con una pata en cada red (ver «Un límite que se
+#              declara un cortafuegos con una interfaz en cada red (ver «Un límite que se
 #              ve al leer la topología» en el documento del lab). No es un límite del
-#              motor: el esquema admite varias patas por invitado (`bridges:` como
+#              motor: el esquema admite varias interfaces por invitado (`bridges:` como
 #              lista) y el lab de aceptación las usa. Tampoco declara `config:`; el
 #              motor SÍ sabe configurar el interior (vocabulario de la fase 2), y lo
-#              ejerce ese lab de aceptación. `disco` se declara y se valida, pero la
+#              ejerce ese lab de aceptación. `disk` se declara y se valida, pero la
 #              API no recibe todavía ninguna orden de disco (límite en tools/plan.py).
 # VER:         labs/03_lab-dos-redes/03_lab-dos-redes.md; README.md §Identidad
 #
 # QUÉ HAY QUE SUSTITUIR PARA LLEVARLO A UN PROXMOX REAL
 #
-#   1. `direccion` de `lab.bridges` y de cada invitado: están en 203.0.113.0/24,
+#   1. `address` de `lab.bridges` y de cada invitado: están en 203.0.113.0/24,
 #      que es un rango reservado para documentación (RFC 5737) y NO existe en
 #      ninguna red real. Sustitúyelas por direcciones de tu red de laboratorio.
 #   2. `bridge` (el nombre): el motor creará los bridges en el nodo si no existen
@@ -40,11 +40,11 @@
 lab:
   nombre: 03_lab-dos-redes
 
-  # Tres escalones, cada uno con un motivo distinto: primero el borde (es la
-  # puerta), después el conmutador del núcleo (da red a la segunda red) y sólo
-  # entonces los servicios y los puestos. El plan y `apply` arrancan escalón a
-  # escalón, nunca todo a la vez.
-  escalones: [1, 2, 3]
+  # Tres etapas, cada uno con un motivo distinto: primero el borde (es la
+  # vía de acceso), después el conmutador del núcleo (da red a la segunda red) y sólo
+  # entonces los servicios y los puestos. El plan y `apply` arrancan etapa a
+  # etapa, nunca todo a la vez.
+  stages: [1, 2, 3]
 
   # Los bridges son del NODO, no del lab (Proxmox no los mete en pools). El motor
   # sólo crea los que falten, y se declaran aquí para saber cuáles necesita y para
@@ -53,32 +53,32 @@ lab:
   # del de tres dispositivos.
   bridges:
     - nombre: vmb_perimetro
-      direccion: 203.0.113.1/24
+      address: 203.0.113.1/24
     - nombre: vmb_nucleo
-      direccion: 203.0.113.129/24
+      address: 203.0.113.129/24
 
 vms:
-  # El borde: una VM que hace de cortafuegos y puerta de la red de perímetro. Su
+  # El borde: una VM que hace de cortafuegos y pasarela de la red de perímetro. Su
   # interior no se configura; aquí sólo se despliega y se arranca.
   - rol: borde
-    tipo: rt          # hace de puerta de la red -> es un router -> 'rt-borde'
-    escalon: 1
+    tipo: rt          # hace de pasarela de la red -> es un router -> 'rt-borde'
+    stage: 1
     cores: 2
-    memoria: 512
-    disco: 8
+    memory: 512
+    disk: 8
     bridge: vmb_perimetro
-    direccion: 203.0.113.2/24
+    address: 203.0.113.2/24
 
   # El conmutador del núcleo: la segunda VM, y la única QEMU en la red de núcleo.
-  # Ejercita la rama QEMU del plan más de una vez, y en un escalón distinto.
+  # Ejercita la rama QEMU del plan más de una vez, y en un etapa distinto.
   - rol: nucleo
     tipo: rt          # el otro router del lab -> 'rt-nucleo' (alias = su rol)
-    escalon: 2
+    stage: 2
     cores: 2
-    memoria: 1024
-    disco: 8
+    memory: 1024
+    disk: 8
     bridge: vmb_nucleo
-    direccion: 203.0.113.130/24
+    address: 203.0.113.130/24
 #     ↑ sin `vmid` y sin `mac`: eso lo deriva el motor del estado del clúster.
 
 containers:
@@ -86,30 +86,30 @@ containers:
   - rol: servidor
     tipo: srv         # un servidor -> 'srv-' + su alias
     nombre: 1         # -> 'srv-1'
-    escalon: 3
+    stage: 3
     cores: 1
-    memoria: 512
-    disco: 6
+    memory: 512
+    disk: 6
     bridge: vmb_perimetro
-    direccion: 203.0.113.21/24
+    address: 203.0.113.21/24
 
-  # Dos puestos en el núcleo. Comparten escalón: no dependen el uno del otro.
+  # Dos puestos en el núcleo. Comparten etapa: no dependen el uno del otro.
   - rol: puesto-1
     tipo: ws          # un puesto de trabajo -> 'ws-1'
     nombre: 1
-    escalon: 3
+    stage: 3
     cores: 1
-    memoria: 512
-    disco: 4
+    memory: 512
+    disk: 4
     bridge: vmb_nucleo
-    direccion: 203.0.113.131/24
+    address: 203.0.113.131/24
 
   - rol: puesto-2
     tipo: ws          # y el segundo -> 'ws-2'
     nombre: 2
-    escalon: 3
+    stage: 3
     cores: 1
-    memoria: 512
-    disco: 4
+    memory: 512
+    disk: 4
     bridge: vmb_nucleo
-    direccion: 203.0.113.132/24
+    address: 203.0.113.132/24

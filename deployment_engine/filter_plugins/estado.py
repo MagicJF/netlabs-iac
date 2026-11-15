@@ -82,15 +82,15 @@ def estado_vacio():
         "bridges_nodo": [],
         "bridges_comentarios": {},
         "pools": {},
-        "invitados": {},
-        "invitados_otros": {},
+        "guests": {},
+        "guests_otros": {},
         # La red del NODO, como subredes: {bridge: "10.10.10.1/24"}. Es lo que permite
-        # elegir una dirección libre en el bridge de gestión para la pata del puesto de
+        # elegir una dirección libre en el bridge de gestión para la interfaz del puesto de
         # control (§5): el motor no guarda ninguna, la elige y la vuelve a elegir cada
-        # vez. Sin esto, esa pata nacería sin dirección y no habría camino.
+        # vez. Sin esto, esa interfaz nacería sin dirección y no habría túnel.
         "bridges_direcciones": {},
         # Direcciones que YA usa alguien en el nodo (direcciones sin máscara). Nace con
-        # las de los propios bridges del nodo --la puerta de cada subred-- y crece con
+        # las de los propios bridges del nodo --la vía de acceso de cada subred-- y crece con
         # lo que digan los contenedores del nodo (`GET /lxc/<vmid>/interfaces`).
         "direcciones_usadas": [],
     }
@@ -110,8 +110,8 @@ def estado_normalizar(datos):
         base[clave] = valor
     base["vmids_usados"] = sorted(int(v) for v in (base.get("vmids_usados") or []))
     base["pools"] = base.get("pools") or {}
-    base["invitados"] = base.get("invitados") or {}
-    base["invitados_otros"] = base.get("invitados_otros") or {}
+    base["guests"] = base.get("guests") or {}
+    base["guests_otros"] = base.get("guests_otros") or {}
     base["bridges_nodo"] = base.get("bridges_nodo") or []
     base["bridges_comentarios"] = base.get("bridges_comentarios") or {}
     base["bridges_direcciones"] = base.get("bridges_direcciones") or {}
@@ -194,13 +194,13 @@ def estado_desde_api(datos):
             config = configs.get(str(vmid), {})
             bridge, mac = _red_de_net0(config.get("net0"))
             tipo = "lxc" if tipo == "lxc" else "qemu"
-            estado["invitados"][str(vmid)] = {
+            estado["guests"][str(vmid)] = {
                 "vmid": vmid,
                 "nombre": config.get("name") or config.get("hostname") or nombre,
                 "tipo": tipo,
                 "descripcion": _descripcion_sin_ruido(config.get("description")),
                 "cores": config.get("cores"),
-                "memoria": config.get("memory"),
+                "memory": config.get("memory"),
                 "bridge": bridge,
                 "mac": mac,
                 "arrancado": recurso.get("status") == "running",
@@ -216,7 +216,7 @@ def estado_desde_api(datos):
                 "privilegiado": tipo == "lxc" and not bool(config.get("unprivileged")),
                 # El modo de la CONSOLA. Es lo que decide si la consola de un
                 # contenedor da una shell o un `login`, y el motor necesita la shell
-                # para poner el arranque del camino UNA vez (§5). Medido: Proxmox
+                # para poner el arranque del túnel UNA vez (§5). Medido: Proxmox
                 # OMITE `cmode` cuando vale lo de fábrica (`tty`), así que la ausencia
                 # significa `tty`, no «desconocido».
                 "cmode": (config.get("cmode") or "tty") if tipo == "lxc" else None,
@@ -225,7 +225,7 @@ def estado_desde_api(datos):
         else:
             # Está en el clúster pero NO es de este lab: puede ser de otro lab, o
             # de nadie. Se guarda aparte para poder decirlo en el informe.
-            estado["invitados_otros"][nombre] = {
+            estado["guests_otros"][nombre] = {
                 "vmid": vmid,
                 "pool": pool,
                 "descripcion": _descripcion_sin_ruido((configs.get(str(vmid)) or {}).get("description")),
@@ -278,7 +278,7 @@ def _direcciones_v4(lectura):
 def estado_con_direcciones(estado, interfaces):
     """Mete en el estado las direcciones que usan los invitados del nodo.
 
-    `interfaces` es {vmid: lectura} y la lectura viene de una de las dos puertas de
+    `interfaces` es {vmid: lectura} y la lectura viene de una de las dos vías de acceso de
     lectura que hay (ver `_direcciones_v4`): la de un CONTENEDOR
     (`GET /nodes/<nodo>/lxc/<vmid>/interfaces`) o la de una VM por su AGENTE
     (`.../qemu/<vmid>/agent/network-get-interfaces`, ADR 0011). Las dos acaban en la
@@ -291,7 +291,7 @@ def estado_con_direcciones(estado, interfaces):
 
     Lo que sigue sin poder saberse, y se dice en vez de fingirlo: la lectura de una VM
     depende de que naciera con el agente Y de que el token tenga el privilegio. Cuando
-    falla, la puerta lo TOLERA (su error queda en el diario) y esa VM sigue siendo
+    falla, la vía de acceso lo TOLERA (su error queda en el diario) y esa VM sigue siendo
     invisible -- el motor se queda como estaba, contando por ARRIBA (`.254`, `.253`…)
     para no pisar lo que no ve. Lo que no se puede saber, se dice.
     """
@@ -310,7 +310,7 @@ def estado_resumen(estado):
         f"nodo={estado.get('nodo') or '?'} "
         f"vmids_usados={len(estado.get('vmids_usados') or [])} "
         f"pools={sorted((estado.get('pools') or {}).keys())} "
-        f"invitados_del_pool={len(estado.get('invitados') or {})} "
+        f"invitados_del_pool={len(estado.get('guests') or {})} "
         f"bridges={len(estado.get('bridges_nodo') or [])}"
     )
 
@@ -327,7 +327,7 @@ def _usos_de_bridges(configs):
     """(usos, sin_leer) leyendo TODAS las interfaces (net0, net1, …) de unas configs.
 
     `usos` es {bridge: [(vmid, nombre)]}. Se miran todas las interfaces y no sólo
-    `net0`: un invitado con dos patas puede tener la segunda en un bridge del lab, y
+    `net0`: un invitado con dos interfaces puede tener la segunda en un bridge del lab, y
     borrarlo lo dejaría sin esa red.
 
     `sin_leer` son los vmids cuya config NO se pudo leer. Se distinguen de un
@@ -442,7 +442,7 @@ def estado_bridges_texto(decision):
     return "\n".join(lineas)
 
 
-def _invitado_normalizado(recurso):
+def _guest_normalizado(recurso):
     """Un invitado del clúster, con los nombres que usa el motor.
 
     La API habla en inglés (`node`, `type`, `name`) y el dominio del motor en
@@ -460,9 +460,9 @@ def _invitado_normalizado(recurso):
 def pve_contenedores_cluster(cluster_recursos):
     """TODOS los contenedores del clúster, de este lab o de cualquier otro.
 
-    Hace falta para una sola pregunta, y es la del camino (§5): ¿qué direcciones está
-    usando ya alguien en la red del nodo, para poder elegir una LIBRE para la pata de
-    gestión del puesto de control? No se filtra por pool a propósito: un contenedor
+    Hace falta para una sola pregunta, y es la del túnel (§5): ¿qué direcciones está
+    usando ya alguien en la red del nodo, para poder elegir una LIBRE para la interfaz de
+    gestión del bastión? No se filtra por pool a propósito: un contenedor
     ajeno con dirección en el mismo bridge ocupa igual. Un contenedor declara sus
     interfaces a la API, así que se leen sin más. Las VMs QEMU NO salen de aquí: van por
     `pve_vms_cluster`, y sus direcciones se leen por el agente de invitado (ADR 0011),
@@ -470,7 +470,7 @@ def pve_contenedores_cluster(cluster_recursos):
     tenga `VM.GuestAgent.Audit`-- y por eso se pide aparte, tolerando el fallo.
     """
     return sorted(
-        (_invitado_normalizado(r) for r in (cluster_recursos or [])
+        (_guest_normalizado(r) for r in (cluster_recursos or [])
          if r.get("type") == "lxc" and r.get("vmid") is not None),
         key=lambda i: i["vmid"],
     )
@@ -487,13 +487,13 @@ def pve_vms_cluster(cluster_recursos):
     dice, nunca se finge.
     """
     return sorted(
-        (_invitado_normalizado(r) for r in (cluster_recursos or [])
+        (_guest_normalizado(r) for r in (cluster_recursos or [])
          if r.get("type") == "qemu" and r.get("vmid") is not None),
         key=lambda i: i["vmid"],
     )
 
 
-def pve_invitados_del_pool(cluster_recursos, lab):
+def pve_guests_del_pool(cluster_recursos, lab):
     """Los invitados que la API dice que están en el pool del lab.
 
     Es lo que se usa para pedir la configuración de cada uno (descripción, recursos,
@@ -507,11 +507,11 @@ def pve_invitados_del_pool(cluster_recursos, lab):
             continue
         if recurso.get("vmid") is None:
             continue
-        salida.append(_invitado_normalizado(recurso))
+        salida.append(_guest_normalizado(recurso))
     return sorted(salida, key=lambda i: i["vmid"])
 
 
-def pve_invitados_fuera_del_pool(cluster_recursos, lab):
+def pve_guests_fuera_del_pool(cluster_recursos, lab):
     """Los invitados que NO son de este lab: de otro pool, o de nadie.
 
     `destroy` los necesita para una sola cosa: saber si alguno usa un bridge del lab
@@ -523,7 +523,7 @@ def pve_invitados_fuera_del_pool(cluster_recursos, lab):
     for recurso in cluster_recursos or []:
         if recurso.get("pool") == poolid or recurso.get("vmid") is None:
             continue
-        salida.append(_invitado_normalizado(recurso))
+        salida.append(_guest_normalizado(recurso))
     return sorted(salida, key=lambda i: i["vmid"])
 
 
@@ -544,8 +544,8 @@ def estado_verificar(declaracion, estado, identidad):
     invitado está parado o un campo declarado no coincide.
     """
     lab = declaracion["lab"]
-    invitados_pool = estado.get("invitados") or {}
-    otros = estado.get("invitados_otros") or {}
+    guests_pool = estado.get("guests") or {}
+    otros = estado.get("guests_otros") or {}
 
     faltan = []
     sobran = []
@@ -561,10 +561,10 @@ def estado_verificar(declaracion, estado, identidad):
     roles_declarados = set()
 
     # --- Lado esperado: lo DERIVA la declaración (entrada), no el resultado -----
-    for esperado in identidad["invitados"]:
+    for esperado in identidad["guests"]:
         rol = esperado["rol"]
         roles_declarados.add(rol)
-        actual = invitados_pool.get(str(esperado["vmid"]))
+        actual = guests_pool.get(str(esperado["vmid"]))
 
         if actual is None:
             # ¿Existe un invitado con el mismo nombre canónico pero en otro pool?
@@ -600,7 +600,7 @@ def estado_verificar(declaracion, estado, identidad):
     # --- Lado real: lo que SOBRA en el pool del lab ----------------------------
     # Un invitado en el pool que ya no está declarado delata una copia a mano o un
     # borrado en la declaración que se quedó atrás. Es un fallo, no un aviso.
-    for vmid, actual in sorted(invitados_pool.items(), key=lambda par: int(par[0])):
+    for vmid, actual in sorted(guests_pool.items(), key=lambda par: int(par[0])):
         rol = modulo_identidad.rol_de_descripcion(actual.get("descripcion"))
         if rol not in roles_declarados:
             sobran.append(
@@ -617,7 +617,7 @@ def estado_verificar(declaracion, estado, identidad):
     # El límite que el motor se impone por tener `VM.Console`: ningún invitado del
     # lab puede estar privilegiado, porque root dentro de un contenedor privilegiado
     # es root fuera. Se comprueba LEYENDO la config, no prometiéndolo.
-    privilegiados = estado_invitados_privilegiados(estado)
+    privilegiados = estado_guests_privilegiados(estado)
 
     ok = not (faltan or sobran or drift or parados or otros_lab or privilegiados)
 
@@ -625,8 +625,8 @@ def estado_verificar(declaracion, estado, identidad):
         "lab": lab,
         "nodo": estado.get("nodo") or "",
         "ok": ok,
-        "esperados": len(identidad["invitados"]),
-        "encontrados_en_pool": len(invitados_pool),
+        "esperados": len(identidad["guests"]),
+        "encontrados_en_pool": len(guests_pool),
         "conformes": conformes,
         "faltan": faltan,
         "sobran": sobran,
@@ -800,7 +800,7 @@ def estado_privilegios(concedidos, exigidos, vedados):
     }
 
 
-def estado_invitados_privilegiados(estado):
+def estado_guests_privilegiados(estado):
     """Los invitados del lab que NO nacieron sin privilegios, según lo que dice la API.
 
     Es la comprobación del límite que el motor se impone a sí mismo al aceptar
@@ -815,12 +815,12 @@ def estado_invitados_privilegiados(estado):
     Devuelve una lista de {vmid, nombre} (vacía si todo está bien).
     """
     privilegiados = []
-    for vmid, invitado in sorted((estado.get("invitados") or {}).items(),
+    for vmid, guest in sorted((estado.get("guests") or {}).items(),
                                  key=lambda par: int(par[0])):
-        if invitado.get("privilegiado"):
+        if guest.get("privilegiado"):
             privilegiados.append({
-                "vmid": invitado.get("vmid", vmid),
-                "nombre": invitado.get("nombre"),
+                "vmid": guest.get("vmid", vmid),
+                "nombre": guest.get("nombre"),
             })
     return privilegiados
 
@@ -917,12 +917,12 @@ class FilterModule:
             "estado_bridges_candidatos": estado_bridges_candidatos,
             "estado_bridges_a_borrar": estado_bridges_a_borrar,
             "estado_bridges_texto": estado_bridges_texto,
-            "pve_invitados_del_pool": pve_invitados_del_pool,
-            "pve_invitados_fuera_del_pool": pve_invitados_fuera_del_pool,
+            "pve_guests_del_pool": pve_guests_del_pool,
+            "pve_guests_fuera_del_pool": pve_guests_fuera_del_pool,
             "estado_plan": estado_plan,
             "estado_plan_texto": estado_plan_texto,
             "estado_verificar": estado_verificar,
             "estado_informe_texto": estado_informe_texto,
             "estado_privilegios": estado_privilegios,
-            "estado_invitados_privilegiados": estado_invitados_privilegiados,
+            "estado_guests_privilegiados": estado_guests_privilegiados,
         }

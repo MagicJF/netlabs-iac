@@ -8,7 +8,7 @@
 
 # research
 
-El lab de investigación: un laboratorio MÍNIMO --un puesto de control y una VM-- para
+El lab de investigación: un laboratorio MÍNIMO --un bastión y una VM-- para
 medir cosas del motor y del nodo sin tocar el lab de aceptación. Nace con una pregunta
 concreta y la responde aquí abajo: ¿se le puede poner el agente de invitado (QEMU guest
 agent) de Proxmox a una VM CHR de RouterOS, y sirve de algo?
@@ -19,7 +19,7 @@ si los editas a mano, `./lab check docs` falla._
 
 ## Invitados declarados
 
-| rol | tipo | escalón | cores | memoria (MB) | disco (GB) | bridge | dirección |
+| rol | tipo | stage | cores | memory (MB) | disk (GB) | bridge | address |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | chr-agente | VM (qemu) | 1 | 1 | 512 | 1 | vmb_research | 10.41.0.11/24 |
 | control | LXC | 1 | 1 | 512 | 4 | vmb_research | 10.41.0.10/24 |
@@ -30,9 +30,9 @@ si los editas a mano, `./lab check docs` falla._
 | --- | --- |
 | vmb_research | 10.41.0.1/24 |
 
-## Orden de arranque (escalones)
+## Orden de arranque (etapas)
 
-| escalón | roles |
+| stage | roles |
 | --- | --- |
 | 1 | chr-agente, control |
 
@@ -53,8 +53,8 @@ guion hasta que exista un despliegue real.
 
 **La pregunta.** El motor decía por escrito, en tres sitios, que no podía ver las interfaces
 de una VM QEMU: `deployment_engine/filter_plugins/estado.py` (dos veces) y
-`deployment_engine/tasks/direcciones.yml` (una). Por eso, cuando un lab necesita una
-dirección que no venga ya declarada --la del puesto de control--, la elegía contando por
+`deployment_engine/tasks/addresses.yml` (una). Por eso, cuando un lab necesita una
+dirección que no venga ya declarada --la del bastión--, la elegía contando por
 arriba (`.254`, `.253`…) a ciegas, con la esperanza de no pisar una VM que no puede ver. El
 agente de invitado era justo el canal que faltaba: Proxmox lo publica como
 `GET /nodes/<nodo>/qemu/<vmid>/agent/network-get-interfaces`.

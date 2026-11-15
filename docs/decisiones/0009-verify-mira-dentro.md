@@ -4,14 +4,14 @@
      MISMO driver que `apply` (en modo sólo lectura) en vez de con un código aparte, y por
      qué la garantía de «verify no escribe» vive en la PUERTA, no en la memoria del driver.
      Nace de una pared MEDIDA: la primera versión de `verify` saltó el interior entero y
-     aun así dio CORRECTO, porque el camino no respondía y no había nada que leer.
+     aun así dio CORRECTO, porque el túnel no respondía y no había nada que leer.
      INVARIANTES: comprobar no cambia el mundo (regla 6): en `solo_leer` el driver corta
-     antes de su sección de escribir y la puerta de RouterOS SÓLO atiende GET — y si algo
+     antes de su sección de escribir y la vía de acceso de RouterOS SÓLO atiende GET — y si algo
      pide escribir, PARA diciendo que es un bug del driver. La decisión de qué falta la
      toma la MISMA función pura que usa `apply` (`pasos_de_convergencia`): no hay dos
      verdades sobre qué es «estar convergido». No se aprueba lo que no se ha mirado: un
-     invitado que no se pudo leer (o con el camino caído) cuenta como NO conforme.
-     LÍMITES: `verify` NO construye el camino (eso es de `apply`); si el túnel no responde,
+     invitado que no se pudo leer (o con el túnel caído) cuenta como NO conforme.
+     LÍMITES: `verify` NO construye el túnel (eso es de `apply`); si el túnel no responde,
      los invitados quedan «no comprobable» y el veredicto CAE, no se levanta nada aquí.
      Sólo se mira dentro de quien declara áreas que piden visita: a un puesto dinámico no
      hay nada que preguntarle. No cubre todavía el interior de los invitados de la fase 1
@@ -45,14 +45,14 @@ manos de `verify`.
 **Por qué la garantía vive en la PUERTA.** La primera implementación puso la guarda en el
 driver y **`verify` escribió**: el `when` usaba `interior_seguir` (cierto cuando la lectura
 FUNCIONA) en vez de «no estar en sólo lectura». Una guarda olvidada en un driver volvería a
-escribir. Por eso la frontera se movió a la puerta: en `solo_leer`, `ros_api.yml` **sólo
+escribir. Por eso la frontera se movió a la gateway: en `solo_leer`, `ros_api.yml` **sólo
 atiende GET** y cualquier otra cosa **PARA** con un mensaje que dice, en claro, que es un bug
 del driver y no de la declaración. Un invariante que depende de que alguien se acuerde no es
 un invariante.
 
 **Consecuencias.** `verify` da un veredicto **único** (un solo `ok`) que mezcla los dos
-mundos: si el interior no se pudo leer —camino caído, invitado inalcanzable— cada rol queda
+mundos: si el interior no se pudo leer —túnel caído, invitado inalcanzable— cada rol queda
 **«no comprobable»** con su motivo y el veredicto **cae**: no se aprueba lo que no se ha
 mirado. El resumen humano gana la sección `EL INTERIOR (n/m …)`. Coste: `verify` ahora
-necesita el camino en pie (lo levanta `apply`) y tarda un poco más; a cambio, deja de poder
+necesita el túnel en pie (lo levanta `apply`) y tarda un poco más; a cambio, deja de poder
 dar CORRECTO sobre un lab que por dentro está mal.

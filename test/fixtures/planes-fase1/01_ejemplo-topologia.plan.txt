@@ -2,9 +2,9 @@ PLAN del lab '01_ejemplo-topologia'
 ============================================================
 
 Identidad asignada por el motor (no declarada, no guardada):
-  escalón 1  qemu  rol=switch           vmid=100    mac=BC:24:11:00:00:64  nuevo
-  escalón 2  lxc   rol=workstation-1    vmid=101    mac=BC:24:11:00:00:65  nuevo
-  escalón 2  lxc   rol=workstation-2    vmid=102    mac=BC:24:11:00:00:66  nuevo
+  etapa 1  qemu  rol=switch           vmid=100    mac=BC:24:11:00:00:64  nuevo
+  etapa 2  lxc   rol=workstation-1    vmid=101    mac=BC:24:11:00:00:65  nuevo
+  etapa 2  lxc   rol=workstation-2    vmid=102    mac=BC:24:11:00:00:66  nuevo
 
 Llamadas REST que se harían, en orden (9):
 
@@ -57,12 +57,12 @@ Llamadas REST que se harían, en orden (9):
       porque: el rol 'workstation-2' no está desplegado: se crea con el vmid 102 (el menor libre del clúster)
 
    7. POST /nodes/nodo-simulado/qemu/100/status/start
-      porque: el rol 'switch' pertenece al escalón 1 y no está arrancado
+      porque: el rol 'switch' pertenece a la etapa 1 y no está arrancado
 
    8. POST /nodes/nodo-simulado/lxc/101/status/start
-      porque: el rol 'workstation-1' pertenece al escalón 2 y no está arrancado
+      porque: el rol 'workstation-1' pertenece a la etapa 2 y no está arrancado
 
    9. POST /nodes/nodo-simulado/lxc/102/status/start
-      porque: el rol 'workstation-2' pertenece al escalón 2 y no está arrancado
+      porque: el rol 'workstation-2' pertenece a la etapa 2 y no está arrancado
 
-Resumen: arrancar_invitado=3, crear_bridge=1, crear_invitado=3, crear_pool=1, recargar_red=1
+Resumen: arrancar_guest=3, crear_bridge=1, crear_guest=3, crear_pool=1, recargar_red=1

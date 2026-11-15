@@ -1,4 +1,4 @@
-# netlabs_v4_b — motor de despliegue en Proxmox por su API REST
+# netlabs-iac — motor de despliegue en Proxmox por su API REST
 
 Un **motor IaC escrito en Ansible** que, a partir de la **declaración de una
 topología**, crea, actualiza, arranca, verifica y destruye invitados (VMs QEMU y
@@ -32,7 +32,7 @@ herramientas de desarrollo, no el motor.
 ### El mapa del repositorio
 
 ```
-netlabs_v4_b/
+netlabs-iac/
 ├── README.md            este fichero: el MOTOR. Ni un valor de ningún lab.
 ├── AGENTS.md            el esquema que se inyecta en el prompt de un agente IA.
 ├── VERSION              la última versión publicada (una línea: `0.1.0`) -- ADR 0017.

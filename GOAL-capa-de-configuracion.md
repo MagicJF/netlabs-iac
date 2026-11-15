@@ -369,7 +369,9 @@ nunca en `/`**:
 | `/sdn` | `SDN.Use`, `SDN.Audit` | lo que ya se usa |
 
 **Lo que NO se concede** —`Sys.Modify` sobre `/access`, `Permissions.Modify`, `Sys.Console`,
-`Datastore.Allocate`, `VM.GuestAgent.*`— **y cómo se prueba**: una guarda de `preflight` hace la
+`Datastore.Allocate`, y de `VM.GuestAgent.*` todo MENOS `Audit` (`FileRead`, `FileWrite`,
+`FileSystemMgmt` y `Unrestricted`; `Audit` se concedió después, para LEER las interfaces de
+una VM, y el porqué está en `docs/decisiones/0011-el-agente-de-invitado.md`) — **y cómo se prueba**: una guarda de `preflight` hace la
 **operación nula** sobre su propio rol (`PUT /access/roles/<el suyo>` con la misma lista de
 privilegios) y **debe recibir 403**. Si recibe 200, los mínimos privilegios no están puestos y
 `preflight` **falla** diciendo qué hay que quitar. Un mínimo privilegio que no se prueba es una

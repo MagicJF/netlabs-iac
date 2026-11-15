@@ -210,6 +210,29 @@ que la API conteste `596 no such node`.
 necesita la API, y lo dice en claro si falta. `plan` sin `--api` no lo necesita:
 usa un fixture.
 
+Cuidado con la vía de SSH, que es **sólo para quien diagnostica** (el motor no entra
+por SSH jamás, ni para converger ni para leer): el nodo de referencia **no acepta
+contraseña** —su `sshd` ofrece `publickey` a secas—, así que `pve_ssh_password` no
+basta para entrar aunque esté bien. Lo que entra es la clave
+`~/.ssh/netlabs_v4b_debug`, ya autorizada en el nodo. Y sigue siendo **el último
+recurso**: primero se agota la API, y si algo no se puede saber por API se dice, no se
+rodea.
+
+### El agente de invitado: lo que el motor puede LEER de una VM
+
+El token lleva `VM.GuestAgent.Audit` y con eso el motor le pregunta a una VM por sus
+interfaces (`GET /nodes/<n>/qemu/<vmid>/agent/network-get-interfaces`) **por la
+puerta**, como cualquier otra llamada: su respuesta queda en `api.jsonl`. Es la única
+forma de saber qué dirección usa una VM QEMU —su config no la lleva, la pone el
+invitado por dentro—, así que es lo que permite que el puesto de control ya no elija la
+suya dándole la espalda a las VMs. Por eso **toda VM nace con `agent: 1`**: el canal
+aparece al arrancar, y esto se decide al nacer, como el bus del disco. Lo que ese
+privilegio concede es corto y está medido en el código de PVE del nodo: lecturas y
+`ping`. Lo que el motor NO puede hacer con él —leer o escribir ficheros dentro del
+invitado, congelar su sistema de ficheros, ejecutar programas— sigue vedado a
+propósito: es un canal de lectura, no una puerta al interior. Está razonado, con su
+medida y su A/B, en [0011](docs/decisiones/0011-el-agente-de-invitado.md).
+
 ### Los bridges: qué se lleva `destroy` y qué no
 
 `destroy` borra los invitados del lab, su pool y **los bridges que creó él** —y nada
@@ -682,4 +705,5 @@ Una línea cada una, y nada más:
   [0007](docs/decisiones/0007-las-patas-se-declaran.md),
   [0008](docs/decisiones/0008-una-direccion-por-pata.md),
   [0009](docs/decisiones/0009-verify-mira-dentro.md),
-  [0010](docs/decisiones/0010-el-rest-por-el-camino.md)
+  [0010](docs/decisiones/0010-el-rest-por-el-camino.md),
+  [0011](docs/decisiones/0011-el-agente-de-invitado.md)

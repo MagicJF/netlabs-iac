@@ -51,13 +51,17 @@ guion hasta que exista un despliegue real.
 
 ## Por qué así
 
-**La pregunta.** El motor tiene tres sitios donde dice por escrito que no puede ver las
-interfaces de una VM QEMU: `deployment_engine/filter_plugins/estado.py` (dos veces) y
+**La pregunta.** El motor decía por escrito, en tres sitios, que no podía ver las interfaces
+de una VM QEMU: `deployment_engine/filter_plugins/estado.py` (dos veces) y
 `deployment_engine/tasks/direcciones.yml` (una). Por eso, cuando un lab necesita una
-dirección que no venga ya declarada --la del puesto de control--, el motor la elige
-contando hacia abajo desde `.254`, a ciegas y con la esperanza de no pisar una VM que no
-puede ver. El agente de invitado es justo el canal que falta: Proxmox lo publica como
+dirección que no venga ya declarada --la del puesto de control--, la elegía contando por
+arriba (`.254`, `.253`…) a ciegas, con la esperanza de no pisar una VM que no puede ver. El
+agente de invitado era justo el canal que faltaba: Proxmox lo publica como
 `GET /nodes/<nodo>/qemu/<vmid>/agent/network-get-interfaces`.
+
+**Y ya no hay que creérselo: está implementado.** Lo que sigue es la MEDIDA --el agente
+existe, contesta y da el dato--, hecha en este lab a mano; lo que el motor decidió con ella
+está en `docs/decisiones/0011-el-agente-de-invitado.md`.
 
 **El método.** Se desplegó el lab (`apply` en una sola pasada, con `verify` CORRECTO) y,
 sobre el CHR ya vivo, se encendió el interruptor que Proxmox guarda en la config de la
@@ -104,6 +108,9 @@ investigación que lo decide):
    diagnóstico. La convergencia de RouterOS no cambia: sigue siendo sólo por REST
    (regla 13).
 
-**Lo que se dejó como estaba.** El CHR quedó con `agent: 1` (el estado que se midió). El
-motor no declara ese campo, así que no lo vigila: ni un `apply` lo deshace ni `verify`
-opina sobre él. Del nodo no se tocó nada.
+**Lo que se dejó como estaba.** El CHR quedó con `agent: 1` (el estado que se midió), y
+desde entonces el motor lo enciende por su cuenta en TODA VM que crea, así que aquí ya no
+queda nada excepcional (ADR 0011). Del nodo no se tocó nada *para medir*, y lo único que
+cambió luego, ya con la decisión tomada, fue el rol `NetlabsMotorVms` --se le añadió
+`VM.GuestAgent.Audit`, la misma línea que declara `vars/engine.yml`, y que `./lab check`
+vigila--.

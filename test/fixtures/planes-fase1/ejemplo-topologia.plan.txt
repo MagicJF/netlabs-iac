@@ -24,6 +24,7 @@ Llamadas REST que se harían, en orden (9):
       porque: un bridge nuevo no entra en vigor hasta recargar la red del nodo
 
    4. POST /nodes/nodo-simulado/qemu
+      agent = 1
       cores = 2
       description = lab=ejemplo-topologia rol=switch gestionado por netlabs_v4_b
       memory = 512

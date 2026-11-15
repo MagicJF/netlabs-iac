@@ -33,6 +33,7 @@ Llamadas REST que se harían, en orden (14):
       porque: un bridge nuevo no entra en vigor hasta recargar la red del nodo
 
    5. POST /nodes/nodo-simulado/qemu
+      agent = 1
       cores = 2
       description = lab=lab-dos-redes rol=borde gestionado por netlabs_v4_b
       memory = 512
@@ -43,6 +44,7 @@ Llamadas REST que se harían, en orden (14):
       porque: el rol 'borde' no está desplegado: se crea con el vmid 100 (el menor libre del clúster)
 
    6. POST /nodes/nodo-simulado/qemu
+      agent = 1
       cores = 2
       description = lab=lab-dos-redes rol=nucleo gestionado por netlabs_v4_b
       memory = 1024

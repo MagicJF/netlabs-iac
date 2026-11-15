@@ -474,6 +474,21 @@ def _parametros_creacion(invitado, lab, declaracion, estado, parametros):
     # En una VM el nombre va en `name` y no hay plantilla que valga.
     creado = {**comunes, "name": invitado["nombre"]}
 
+    # Y el AGENTE DE INVITADO, que es un canal de LECTURA del invitado hacia el
+    # hipervisor: la única forma de que el motor sepa las INTERFACES de una VM, porque
+    # la config de una VM QEMU no lleva `ip=` --lo pone el invitado por dentro-- y no
+    # hay endpoint de interfaces más que para contenedores. Sin esto, el motor elige la
+    # dirección de la pata de gestión del puesto contando por arriba A CIEGAS, con la
+    # esperanza de no pisar una VM que no puede ver.
+    #
+    # Va aquí, con el bus del disco y la consola serie, porque se decide al NACER: el
+    # canal aparece al ARRANCAR, así que añadirlo a una VM viva obliga a reiniciarla.
+    # No es un valor de ningún lab (regla 7): es lo que el motor hace con toda VM que
+    # crea. Y lo que se le concede al token para leerlo es `VM.GuestAgent.Audit`, que
+    # en el código de PVE cubre LECTURAS y `ping`: ni `exec` (pide Unrestricted) ni los
+    # ficheros (piden FileRead/FileWrite), que siguen vedados. Ver ADR 0011.
+    creado["agent"] = 1
+
     # Y un CHR no tiene consola gráfica útil: la suya es la SERIE. Se le da un puerto serie
     # como socket y se manda ahí la pantalla (`vga: serial0`), que es lo que hace que la
     # consola de RouterOS se pueda leer POR LA API -- el protocolo de consola del navegador

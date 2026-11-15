@@ -227,31 +227,69 @@ def estado_desde_api(datos):
     return estado
 
 
-def estado_con_direcciones(estado, interfaces):
-    """Mete en el estado las direcciones que usan los contenedores del nodo.
+def _direcciones_v4(lectura):
+    """Las direcciones IPv4 de una lectura de interfaces, sea de un contenedor o de una VM.
 
-    `interfaces` es {vmid: [interfaz]} tal cual lo devuelve
-    `GET /nodes/<nodo>/lxc/<vmid>/interfaces` (medido: cada entrada trae `name`,
-    `inet` y `inet6`, con la máscara). Sólo se miran las IPv4: el motor no gestiona
-    IPv6 dentro de los labs.
+    Dos formas y un solo significado (medido):
+      - CONTENEDOR (`GET /nodes/<nodo>/lxc/<vmid>/interfaces`): una LISTA de entradas con
+        `name`, `inet` e `inet6`; la IPv4 viene en `inet`, con la máscara.
+      - VM, por el AGENTE (`GET /nodes/<nodo>/qemu/<vmid>/agent/network-get-interfaces`):
+        un OBJETO con `result` y, dentro, entradas con `name` e `ip-addresses` (una lista
+        de `{ip-address, prefix, ip-address-type}`). Se cogen las de tipo `ipv4`.
+
+    Una lectura VACÍA (`{}`) es una lectura que se TOLERÓ porque falló --al token le falta
+    `VM.GuestAgent.Audit` en la ACL del nodo, o la VM no nació con agente--: no aporta nada
+    y NO se confunde con «no tiene direcciones». El motor no inventa lo que no puede leer.
+    """
+    if isinstance(lectura, dict):
+        lectura = lectura.get("result") or []
+    if not isinstance(lectura, list):
+        return
+    for entrada in lectura:
+        if not isinstance(entrada, dict):
+            continue
+        if entrada.get("inet"):
+            yield str(entrada["inet"])
+        for direccion in (entrada.get("ip-addresses") or []):
+            if not isinstance(direccion, dict):
+                continue
+            if direccion.get("ip-address-type") not in (None, "ipv4"):
+                continue
+            if not direccion.get("ip-address"):
+                continue
+            # Con la máscara, como la da un contenedor: así «una dirección en uso» es
+            # la misma cadena venga de donde venga, y el consumidor (`direccion_libre`)
+            # no tiene que saber de dónde salió. Si el agente no dice el prefijo, se
+            # conserva la dirección sola: se dice lo que se sabe, no se rellena.
+            prefijo = direccion.get("prefix")
+            yield (f"{direccion['ip-address']}/{prefijo}" if prefijo is not None
+                   else str(direccion["ip-address"]))
+
+
+def estado_con_direcciones(estado, interfaces):
+    """Mete en el estado las direcciones que usan los invitados del nodo.
+
+    `interfaces` es {vmid: lectura} y la lectura viene de una de las dos puertas de
+    lectura que hay (ver `_direcciones_v4`): la de un CONTENEDOR
+    (`GET /nodes/<nodo>/lxc/<vmid>/interfaces`) o la de una VM por su AGENTE
+    (`.../qemu/<vmid>/agent/network-get-interfaces`, ADR 0011). Las dos acaban en la
+    misma lista de direcciones usadas, que es lo único que importa aquí. Sólo se miran
+    las IPv4: el motor no gestiona IPv6 dentro de los labs.
 
     Por qué esto es una función pura y no un bucle de plantilla: es la MISMA pregunta
     que hace `direccion_libre` («¿está libre esta dirección?»), y tenerla en dos
     sitios sería tener dos verdades. Se prueba con fixtures, sin Proxmox.
 
-    Lo que NO se puede saber por API, y se dice en vez de fingirlo: la dirección de
-    una VM QEMU. Su config no lleva `ip=` (lo configura el invitado por dentro) y no
-    hay endpoint de interfaces más que para contenedores; haría falta el agente de
-    invitado, que aquí no está. Así que una VM ajena con dirección estática en el
-    mismo bridge es invisible para el motor, y por eso el puesto de control se elige
-    contando por ARRIBA (`.254`, `.253`…), lejos de donde suele haber servidores.
+    Lo que sigue sin poder saberse, y se dice en vez de fingirlo: la lectura de una VM
+    depende de que naciera con el agente Y de que el token tenga el privilegio. Cuando
+    falla, la puerta lo TOLERA (su error queda en el diario) y esa VM sigue siendo
+    invisible -- el motor se queda como estaba, contando por ARRIBA (`.254`, `.253`…)
+    para no pisar lo que no ve. Lo que no se puede saber, se dice.
     """
     usadas = set(str(d) for d in (estado.get("direcciones_usadas") or []))
     for vmid in sorted((interfaces or {}), key=lambda v: str(v)):
-        for interfaz in (interfaces.get(vmid) or []):
-            inet = interfaz.get("inet")
-            if inet:
-                usadas.add(str(inet))
+        for direccion in _direcciones_v4(interfaces.get(vmid)):
+            usadas.add(direccion)
     estado = dict(estado)
     estado["direcciones_usadas"] = sorted(usadas)
     return estado
@@ -416,12 +454,32 @@ def pve_contenedores_cluster(cluster_recursos):
     Hace falta para una sola pregunta, y es la del camino (§5): ¿qué direcciones está
     usando ya alguien en la red del nodo, para poder elegir una LIBRE para la pata de
     gestión del puesto de control? No se filtra por pool a propósito: un contenedor
-    ajeno con dirección en el mismo bridge ocupa igual. Las VMs QEMU no aparecen
-    porque la API no sabe decir sus direcciones sin agente de invitado (y se dice).
+    ajeno con dirección en el mismo bridge ocupa igual. Un contenedor declara sus
+    interfaces a la API, así que se leen sin más. Las VMs QEMU NO salen de aquí: van por
+    `pve_vms_cluster`, y sus direcciones se leen por el agente de invitado (ADR 0011),
+    que es una lectura más pobre --depende de que la VM naciera con él y de que el token
+    tenga `VM.GuestAgent.Audit`-- y por eso se pide aparte, tolerando el fallo.
     """
     return sorted(
         (_invitado_normalizado(r) for r in (cluster_recursos or [])
          if r.get("type") == "lxc" and r.get("vmid") is not None),
+        key=lambda i: i["vmid"],
+    )
+
+
+def pve_vms_cluster(cluster_recursos):
+    """TODAS las VMs QEMU del clúster, de este lab o de cualquier otro.
+
+    La misma pregunta que `pve_contenedores_cluster`, para las máquinas virtuales: su
+    config NO lleva `ip=` --la dirección la configura el invitado por dentro-- y no hay
+    endpoint de interfaces para VMs, así que la única forma de saber qué dirección usa
+    una VM es preguntársela a ella por el AGENTE DE INVITADO (ADR 0011). Una VM nacida
+    antes de que el motor encendiera el agente no contesta y no se ve: se tolera y se
+    dice, nunca se finge.
+    """
+    return sorted(
+        (_invitado_normalizado(r) for r in (cluster_recursos or [])
+         if r.get("type") == "qemu" and r.get("vmid") is not None),
         key=lambda i: i["vmid"],
     )
 
@@ -842,6 +900,7 @@ class FilterModule:
             "estado_privilegios_roles": estado_privilegios_roles,
             "estado_con_direcciones": estado_con_direcciones,
             "pve_contenedores_cluster": pve_contenedores_cluster,
+            "pve_vms_cluster": pve_vms_cluster,
             "estado_resumen": estado_resumen,
             "estado_bridges_candidatos": estado_bridges_candidatos,
             "estado_bridges_a_borrar": estado_bridges_a_borrar,

@@ -127,6 +127,10 @@ Ciclo completo real (`destroy → apply → verify`) contra el nodo, con el mism
 | `verify` | — | 141,9 s | — |
 | **ciclo** | ~1.532 s (25,5 min) | **1.313 s (21,9 min)** | **−219 s (−14 %)** |
 
+> El `verify` de antes no se cronometró (su tiempo apenas depende de lo tocado); para la
+> fila del ciclo se le supone el de ahora. El `destroy` y el `apply` sí son medidos, cada
+> uno con su perfil y su diario.
+
 El veredicto del `verify` fue **CORRECTO** (6 invitados) con `changed=0`, así que el
 ciclo sigue siendo idempotente.
 

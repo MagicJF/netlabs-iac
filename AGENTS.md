@@ -1,8 +1,9 @@
 # netlabs_v4_b — esquema y reglas del repositorio
 
 Motor IaC en Ansible que despliega topologías (VMs y contenedores LXC) en un nodo
-Proxmox **exclusivamente por su API REST**, asigna por sí mismo la identidad de
-cada invitado y lo documenta. Este fichero se inyecta en el system prompt cuando
+Proxmox **sólo por su API REST**, asigna por sí mismo la identidad de cada
+invitado, **configura su interior** (RouterOS por su REST, Linux por SSH, cada uno
+por su puerta) y lo documenta. Este fichero se inyecta en el system prompt cuando
 trabajas dentro del repo. Las **reglas** están aquí; los **procedimientos largos**
 están en la skill `netlabs-v4_b` (`skill_view`).
 
@@ -17,11 +18,14 @@ tercera copia: no se crea.*
 | --- | --- | --- |
 | `README.md` | el motor: verbos, arquitectura, identidad, checks. **Ningún valor de ningún lab** | a mano |
 | `AGENTS.md` | este fichero: esquema y reglas | a mano |
-| `deployment_engine/tasks/pve_api.yml` | **la única puerta** a la API + el diario | a mano |
+| `deployment_engine/tasks/pve_api.yml` | **la puerta a Proxmox** (`/api2/json`) + `api.jsonl` | a mano |
+| `deployment_engine/tasks/ros_api.yml` | **la puerta a RouterOS** (`/rest/…`) + `api.jsonl` | a mano |
+| `deployment_engine/tasks/interior_ssh.yml` | **la puerta al interior Linux** (SSH) + `interior.jsonl` | a mano |
+| `deployment_engine/tasks/camino_consola.yml` | **la puerta de consola** (el único protocolo no-REST) + `camino.jsonl` | a mano |
 | `deployment_engine/` | todo lo demás compartido por todos los despliegues | a mano |
 | `labs/<lab>/<lab>.yml` | el estado deseado de ESA topología (fuente de verdad) | a mano |
 | `labs/<lab>/<lab>.md` | la topología explicada: región generada + región de prosa | **dos escritores** |
-| `labs/<lab>/logs/` | `api.jsonl`, `ansible.log`, `verify-*.json` (gitignored) | el motor, nunca a mano |
+| `labs/<lab>/logs/` | `api.jsonl`, `interior.jsonl`, `camino.jsonl`, `ansible.log`, `verify-*.json` (gitignored) | el motor, nunca a mano |
 | `docs/decisiones/NNNN-*.md` | ADR: decisión + porqué, no se regenera | a mano |
 | `docs/revisiones.json` | sellado por hash de los docs (caducidad) | `./lab check docs --sellar` |
 | `test/` | pruebas del asignador; `test/fixtures/` = clústeres simulados | a mano |
@@ -51,8 +55,9 @@ Regla de frontera: *¿esto seguiría igual si desapareciera el lab?* Sí →
 5. **El diario de API es sagrado**: una línea JSON por petición (`ts`, `verb`,
    `lab`, `method`, `path`, `params`, `status`, `duration_ms`, `response`). Si una
    ejecución no dejó diario, no ocurrió.
-6. **Idempotencia**: dos ejecuciones seguidas ⇒ la segunda `changed=0` **y** su
-   diario sólo con `GET`.
+6. **Idempotencia**: dos ejecuciones seguidas ⇒ la segunda `changed=0` **y** los
+   **tres diarios** (`api.jsonl`, `interior.jsonl` y `camino.jsonl`) con **sólo
+   lecturas**.
 7. **El motor no contiene ni un valor de ningún lab.** Conoce reglas genéricas
    (el menor vmid libre del clúster, el pool se llama como la carpeta del lab, la
    MAC se deriva del vmid), nunca valores. Añadir un lab **no toca ni un fichero
@@ -66,6 +71,33 @@ Regla de frontera: *¿esto seguiría igual si desapareciera el lab?* Sí →
     subdirectorios dentro de `deployment_engine/`, para y justifícalo en el README.
 11. **Nada derivado se guarda en el repo**: ni vmids, ni MACs, ni un fichero de
     asignaciones. El estado vive en Proxmox y se re-deriva leyendo la API.
+12. **Cuatro puertas, tres diarios.** A Proxmox y a RouterOS se les habla **sólo**
+    con `ansible.builtin.uri`, y cada llamada deja **una línea JSON** en
+    `logs/api.jsonl` con un campo `api` (`proxmox` | `routeros`) y el rol del
+    invitado. Al interior de un Linux se entra **sólo** desde
+    `tasks/interior_ssh.yml`, y cada paso deja una línea en `logs/interior.jsonl`.
+    Ningún otro fichero abre una conexión a un invitado. La contraseña o la clave
+    **nunca** se escriben en un diario. La consola de la API se habla **sólo** desde
+    `tasks/camino_consola.yml`, y cada uso deja una línea en `logs/camino.jsonl`.
+13. **RouterOS se configura sólo por su REST** (`/rest/…`). Su SSH existe en esta
+    fase **sólo para depurar**; el motor no lo usa jamás para converger.
+14. **La MAC no se declara nunca** (es la regla 11 aplicada al interior): las
+    reservas DHCP de un router se **derivan** del vmid del invitado. Si un YAML de
+    lab contiene una MAC, es un bug.
+15. **El vocabulario del interior es cerrado**: un lab no puede inventarse
+    primitivas; pide una nueva al motor, con ADR.
+16. **El camino lo construye el motor y se comprueba de punta a punta.** Si no
+    responde, el verbo **para** diciendo qué pieza falta y cómo se arregla; nunca lo
+    rodea por otra vía.
+17. **El interior es de la declaración por áreas**: dentro de un área declarada, lo
+    que no está en el YAML se quita del equipo; fuera de las áreas declaradas no se
+    toca nada.
+18. **Nunca se arranca un escalón antes de que el anterior esté convergido y
+    sirviendo.** Es lo que mata la carrera del DHCP por construcción, no por suerte.
+19. **La consola de la API tiene una sola tarea, y una sola línea.** Sólo para poner
+    el arranque del puesto de control, nunca para configurar un equipo: lo que se
+    configura, se configura por su puerta (REST del router, SSH del Linux) y queda en
+    su diario.
 
 ## Depuración por SSH (último recurso)
 
@@ -88,8 +120,10 @@ falla una tarea— existe una vía de depuración por SSH **para quien diagnosti
 
 ## Identidad: quién pone los números
 
-- El **lab declara roles** (`switch`, `workstation-1`) y su topología (bridges,
-  direcciones, recursos). **El lab no declara vmids ni MACs, nunca.**
+El **lab declara roles** (`switch`, `workstation-1`), su topología (bridges,
+direcciones, recursos) y, si quiere que el motor entre en ellos, **qué configurar
+dentro** (`config:`, `imagen:`). **El lab no declara vmids ni MACs, nunca** (la MAC
+es función del vmid, y las reservas DHCP se derivan de él: regla 14).
 - El **motor deriva** el vmid (el menor libre **de todo el clúster**), el nombre
   canónico (`<lab>-<rol>`), la MAC (`f(vmid)`) y la descripción del invitado
   (`lab=<lab> rol=<rol> gestionado por netlabs_v4_b`).
@@ -140,18 +174,20 @@ Un fichero con dos escritores es el que envejece mal. `labs/<lab>/<lab>.md` tien
 | Si… | Corre |
 | --- | --- |
 | cambiaste `labs/*/<lab>.yml` | `./lab --lab <lab> plan` y luego `./lab check docs` |
+| cambiaste un lab con `config:` (un driver, un área) | `./lab --lab <lab> plan --api` y `./lab check docs` |
 | cambiaste un playbook, tarea, filtro o herramienta | `./lab check refs deployment_engine/<ruta>` y revisa los docs que salgan |
 | cambiaste el texto de prosa de un `.md` | `./lab check docs --sellar labs/<lab>/<lab>.md` |
 | creaste o borraste ficheros | `./lab check links` |
 | antes de cualquier commit | `./lab check` (todo) + `ansible-lint` |
 | tocaste la propiedad de los bridges (`plan`, `destroy`, `estado`) | `python3 test/test_bridges.py` y `./lab check` |
+| tocaste un driver del interior (`routeros`/`linux`) | `./lab check puerta` + `python3 test/test_interior.py` y `test/test_routeros.py` |
 | vas a decir "hecho" | `./lab check` verde y la evidencia pegada en la respuesta |
 | vas a subir a GitHub | ciclo `destroy → apply → verify` verde + `./lab check` (ver §Commits y subida a GitHub) |
 
 `./lab check [nombre]` corre todo: `links`, `docs`, `refs`, `puerta`,
-`declaracion`, `colisiones`, `pureza-lab` y `readme`. Un check que no puede
-fallar no es un check: para cada uno hay que haberlo visto gritar rompiendo a
-propósito lo que vigila.
+`privilegios`, `declaracion`, `supernet`, `colisiones`, `pureza-lab` y `readme`.
+Un check que no puede fallar no es un check: para cada uno hay que haberlo visto
+gritar rompiendo a propósito lo que vigila.
 
 ## Commits y subida a GitHub
 

@@ -1,9 +1,12 @@
 {
   "AGENTS.md": {
     "citados": {
-      "deployment_engine/tasks/pve_api.yml": "b9d61716521edcced9db80c37854a2d6c922ef48c0ffc46cd2715ba9e7117c56",
+      "deployment_engine/tasks/camino_consola.yml": "b57884ee2ec84f1f4183b732a6abf43b49b99a8b714aa544619cef16fee32e91",
+      "deployment_engine/tasks/interior_ssh.yml": "2331c0f0d3d52e2b643dac7eb7b613ff67c28b1dc75fc5f8da22bf5bedc32bbf",
+      "deployment_engine/tasks/pve_api.yml": "4628a91b351f10d2f28bf99a40973ae6fa8255e1ed79827d8a8174ff323df6d7",
+      "deployment_engine/tasks/ros_api.yml": "2d9f36b5d60792a6f20d91a7ea7eb38226bd0da7a9e18b5b55ebeb0bfcee15a8",
       "deployment_engine/templates/lab-region.md.j2": "a6eda0de17352330b74a905cbb626cd8b6a990668b5ff6319133a1b135e00de2",
-      "deployment_engine/tools/documentos.py": "8858eb50b71900de94e4d3cdbc59373c7407a7b9aa8137ae4106760481643ad3"
+      "deployment_engine/tools/documentos.py": "e2570908b54f9b60bcede738376125b2f43b1f25afad9a6bc17b25133137479c"
     }
   },
   "GOAL-capa-de-configuracion.md": {

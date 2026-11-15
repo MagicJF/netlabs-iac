@@ -120,5 +120,11 @@
       "deployment_engine/tasks/pve_api.yml": "4628a91b351f10d2f28bf99a40973ae6fa8255e1ed79827d8a8174ff323df6d7",
       "deployment_engine/tools/framework_check.py": "3a98804c73bc932a9ab6cc57aa222322062de7cb71918fdd78aab7d2d1dbfcc4"
     }
+  },
+  "labs/research/research.md": {
+    "citados": {
+      "deployment_engine/filter_plugins/estado.py": "a48f8d2557e2bc6d0eafd81441f8060ee50de5b7604cd65a5de8a7e54a451a16",
+      "deployment_engine/tasks/direcciones.yml": "d9db676f2fa58a9a5e40e8ed9c813b3e8f86850d422a327041d030bb77630bdd"
+    }
   }
 }

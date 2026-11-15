@@ -10,7 +10,8 @@
 #              sin filtros, EN SILENCIO: de ahí que este fichero exista.
 # LÍMITES:     sólo stdlib: el wrapper tiene que funcionar aunque el resto del
 #              entorno esté a medias. No decide qué desplegar; eso es la declaración.
-# VER:         README.md §Cómo se usa; AGENTS.md §Mapa
+# VER:         README.md §Cómo se usa; AGENTS.md §Mapa; docs/decisiones/0017-*.md (la
+#              versión publicada y las ramas: el check `version` vive aquí)
 
 import os
 import re
@@ -26,6 +27,16 @@ SECRETS = os.path.join(RAIZ, "deployment_engine", "secrets.yml")
 PLAYBOOKS = os.path.join(RAIZ, "deployment_engine", "playbooks")
 CHECKS = os.path.join(RAIZ, "deployment_engine", "tools", "framework_check.py")
 FIXTURE_VACIO = os.path.join(RAIZ, "test", "fixtures", "cluster-vacio.json")
+
+# La versión: tres sitios que tienen que contar lo mismo (ADR 0017). Vive aquí, en el
+# wrapper, porque la versión es una propiedad del REPOSITORIO y no del motor: como el
+# número de antigüedad de los labs (ADR 0016), el motor no sabe en qué repositorio está.
+FICHERO_VERSION = os.path.join(RAIZ, "VERSION")
+FICHERO_CHANGELOG = os.path.join(RAIZ, "CHANGELOG.md")
+EXPRESION_VERSION = re.compile(r"^\d+\.\d+\.\d+$")
+EXPRESION_ENTRADA_CHANGELOG = re.compile(
+    r"^## \[(\d+\.\d+\.\d+)\] - (\d{4}-\d{2}-\d{2})$", re.MULTILINE
+)
 
 VERBOS = ("plan", "preflight", "apply", "verify", "destroy")
 
@@ -45,6 +56,7 @@ RESUMEN_DE = {
 AYUDA = """\
 netlabs_v4_b — motor de despliegue en Proxmox por su API REST
 
+    ./lab version                   la versión publicada y el último tag (`vX.Y.Z`)
     ./lab list                      labs declarados en labs/
     ./lab new <nombre>              scaffoldea labs/NN_<nombre>/ desde labs/.plantilla/;
                                     el NN es el siguiente número libre (por antigüedad)
@@ -54,6 +66,8 @@ netlabs_v4_b — motor de despliegue en Proxmox por su API REST
     ./lab --lab <nombre> verify     TEST FINAL: ¿existe de verdad lo declarado?
     ./lab --lab <nombre> destroy    único verbo que destruye; pide confirmación
     ./lab check [nombre]            checks del motor, sin credenciales ni Proxmox
+                                    (`version` es del repositorio: VERSION, tag y
+                                    CHANGELOG tienen que contar lo mismo -- ADR 0017)
 
 Opciones:
     --api        en `plan`, leer el estado del mundo de la API en vez del fixture
@@ -291,9 +305,116 @@ def ejecutar_verbo(lab, verbo, opciones):
     return codigo
 
 
+def version_declarada():
+    """La versión publicada según el fichero `VERSION`, o None si no hay fichero."""
+    if not os.path.exists(FICHERO_VERSION):
+        return None
+    with open(FICHERO_VERSION, encoding="utf-8") as fichero:
+        return fichero.read().strip()
+
+
+def ultimo_tag():
+    """El tag `vX.Y.Z` más alto de este clon, o None si no hay ninguno.
+
+    `--sort=-v:refname` ordena por versión, no por fecha: publicar 0.10.0 después de
+    0.9.0 tiene que dar 0.10.0, y alfabéticamente daría 0.9.0.
+    """
+    try:
+        salida = subprocess.run(
+            ["git", "tag", "--list", "v[0-9]*", "--sort=-v:refname"],
+            cwd=RAIZ, capture_output=True, text=True, check=False,
+        )
+    except OSError:
+        return None
+    lineas = [linea for linea in salida.stdout.split() if linea]
+    return lineas[0] if lineas else None
+
+
+def entradas_del_changelog():
+    """{versión: fecha} de las cabeceras `## [X.Y.Z] - AAAA-MM-DD` del CHANGELOG."""
+    if not os.path.exists(FICHERO_CHANGELOG):
+        return {}
+    with open(FICHERO_CHANGELOG, encoding="utf-8") as fichero:
+        texto = fichero.read()
+    return dict(EXPRESION_ENTRADA_CHANGELOG.findall(texto))
+
+
+def comprobar_version():
+    """Check `version`: la versión publicada, en los tres sitios, tiene que ser la misma.
+
+    Un check que no puede fallar no es un check: se ha visto fallar (a propósito) sin
+    `VERSION`, con un `VERSION` que no es `MAYOR.MENOR.PARCHE`, sin la entrada del
+    CHANGELOG y con un tag que no coincide con el fichero.
+    """
+    fallos = []
+    version = version_declarada()
+    if version is None:
+        fallos.append(
+            "no hay fichero VERSION en la raíz: lleva la última versión publicada "
+            "(una línea, p.ej. `0.1.0`) -- ADR 0017"
+        )
+    elif not EXPRESION_VERSION.match(version):
+        fallos.append(f"VERSION dice `{version}`, que no es `MAYOR.MENOR.PARCHE`")
+
+    entradas = entradas_del_changelog()
+    if not entradas:
+        fallos.append(
+            "CHANGELOG.md no tiene ninguna entrada `## [X.Y.Z] - AAAA-MM-DD`: "
+            "toda versión publicada cuenta lo que cambió"
+        )
+    elif version and version not in entradas:
+        fallos.append(
+            f"VERSION dice `{version}` y el CHANGELOG no tiene su entrada "
+            f"(`## [{version}] - AAAA-MM-DD`)"
+        )
+
+    tag = ultimo_tag()
+    if tag and version and tag != f"v{version}":
+        fallos.append(
+            f"el último tag es `{tag}` y VERSION dice `{version}`: o se publicó el tag "
+            f"sin subir VERSION, o se subió VERSION sin publicar"
+        )
+
+    if fallos:
+        print("FALLA version: la versión publicada no es una sola cosa:")
+        for fallo in fallos:
+            print(f"  - {fallo}")
+        return 1
+    if tag:
+        print(f"OK    version: la versión publicada es la {version}, y su tag `{tag}` está")
+    else:
+        print(f"OK    version: VERSION dice {version} y el CHANGELOG la cuenta "
+              f"(todavía sin ningún tag: la primera publicación está pendiente)")
+    return 0
+
+
+def orden_version():
+    """`./lab version`: la versión publicada y el último tag, en una línea cada uno."""
+    version = version_declarada()
+    tag = ultimo_tag()
+    if version is None:
+        return fallo("no hay fichero VERSION en la raíz: no sé qué versión es ésta")
+    print(f"versión publicada: {version}  (fichero VERSION)")
+    if tag is None:
+        print("último tag:        (ninguno: esta versión todavía no se ha publicado)")
+    elif tag == f"v{version}":
+        print(f"último tag:        {tag}  (coincide: este es el estado publicado)")
+    else:
+        print(f"último tag:        {tag}  (NO coincide con VERSION: ./lab check version)")
+    return 0
+
+
 def orden_check(argumentos):
     if not os.path.exists(CHECKS):
         return fallo("falta deployment_engine/tools/framework_check.py")
+    # `version` es del repositorio, no del motor, así que corre aquí y no en la
+    # herramienta de checks; cuando se piden TODOS, se corre junto a ellos.
+    if not argumentos or argumentos[0] == "version":
+        codigo = comprobar_version()
+        sys.stdout.flush()  # que el veredicto salga ANTES del de los checks del motor
+        if argumentos:
+            return codigo
+        return max(codigo, subprocess.call([sys.executable, CHECKS], cwd=RAIZ))
     return subprocess.call([sys.executable, CHECKS, *argumentos], cwd=RAIZ)
 
 
@@ -301,6 +422,8 @@ def main(argumentos):
     if not argumentos or argumentos[0] in ("-h", "--help", "help"):
         print(AYUDA)
         return 0 if argumentos else 2
+    if argumentos[0] == "version":
+        return orden_version()
     if argumentos[0] == "list":
         return orden_list()
     if argumentos[0] == "new":

@@ -35,7 +35,10 @@ herramientas de desarrollo, no el motor.
 netlabs_v4_b/
 ├── README.md            este fichero: el MOTOR. Ni un valor de ningún lab.
 ├── AGENTS.md            el esquema que se inyecta en el prompt de un agente IA.
-├── lab                  ÚNICO punto de entrada (script Python 3, stdlib).
+├── VERSION              la última versión publicada (una línea: `0.1.0`) -- ADR 0017.
+├── CHANGELOG.md         qué entró en cada versión. Se escribe a mano, al publicar.
+├── lab                  ÚNICO punto de entrada (script Python 3, stdlib). También dice
+│                        la versión: `./lab version`, `./lab check version`.
 ├── ansible.cfg          inventario y filtros; Ansible lo busca en el cwd.
 ├── .ansible-lint        con la razón escrita de cada excepción.
 ├── requirements.txt     sólo linters. El motor no necesita colecciones.
@@ -499,13 +502,14 @@ credenciales y sin Proxmox**:
 | `links` | cada enlace markdown de un `.md` resuelve a una ruta existente |
 | `docs` | la región generada de cada `.md` es **idéntica** a su render |
 | `refs` | qué documentos citan un fichero, y cuáles están caducados desde su sellado |
-| `gateway` | las cuatro vías de acceso: `/api2/json` sólo en `pve_api.yml`, `/rest` sólo en `ros_api.yml`, el SSH del interior sólo en `interior_ssh.yml` / `guest_inventory.yml`, el protocolo de consola sólo en `console.yml` |
+| `access` | las cuatro vías de acceso: `/api2/json` sólo en `pve_api.yml`, `/rest` sólo en `ros_api.yml`, el SSH del interior sólo en `interior_ssh.yml` / `guest_inventory.yml`, el protocolo de consola sólo en `console.yml` |
 | `privilegios` | nada del motor concede privilegios de la API fuera de la guarda de `preflight`, y ningún invitado declarado nace privilegiado |
-| `address_space` | toda dirección y todo rango de un lab cae dentro de su `lab.espacio de direcciones`, y los espacio de direccioness de dos labs no se solapan |
-| `declaracion` | coherencia del estado deseado: un rol en dos listas, un bridge citado que no existe, dos roles con la misma dirección, un bridge con un nombre que el núcleo rechazaría (guiones, >15 caracteres), un `dhcp` con áreas que pidan entrar… **y además ACONSEJA** lo que es legal pero casi siempre es un olvido (arrancar en el mismo etapa que quien te da la dirección, una dirección estática dentro del rango del DHCP, una pasarela que no es nadie del lab, una VM sin imagen, un bridge por el que no pasa nadie, dos DHCP en un bridge): un consejo dice dónde, qué pasa y qué escribir, y **no bloquea** |
+| `address_space` | toda dirección y todo rango de un lab cae dentro de su `lab.address_space`, y los espacios de direcciones de dos labs no se solapan |
+| `declaracion` | coherencia del estado deseado: un rol en dos listas, un bridge citado que no existe, dos roles con la misma dirección, un bridge con un nombre que el núcleo rechazaría (guiones, >15 caracteres), un `dhcp` con áreas que pidan entrar… **y además ACONSEJA** lo que es legal pero casi siempre es un olvido (arrancar en la misma etapa que quien te da la dirección, una dirección estática dentro del rango del DHCP, una pasarela que no es nadie del lab, una VM sin imagen, un bridge por el que no pasa nadie, dos DHCP en un bridge): un consejo dice dónde, qué pasa y qué escribir, y **no bloquea** |
 | `colisiones` | los labs declarados no comparten bridges, direcciones ni nombres |
 | `pureza-lab` | ni un valor de lab (ni su nombre) dentro de `deployment_engine/` |
 | `readme` | el README no lleva ningún valor de lab |
+| `version` | la versión publicada cuenta lo mismo en los tres sitios donde vive: `VERSION`, el último tag `vX.Y.Z` y su entrada del `CHANGELOG.md` (es del **repositorio**, no del motor: por eso su código vive en `./lab` y no entre los de arriba) |
 
 Cada check grita con **el fichero y el comando que lo arregla**.
 
@@ -518,6 +522,7 @@ Cada check grita con **el fichero y el comando que lo arregla**.
 | cambiaste un playbook, tarea, filtro o herramienta | `./lab check refs <ruta>` y revisa los docs que salgan |
 | tocaste un driver del interior (`routeros`/`linux`) | `./lab check access` + `python3 test/test_interior.py` y `test/test_routeros.py` |
 | cambiaste el texto de prosa de un `.md` | `./lab check docs --sellar <doc>` |
+| tocaste `VERSION` o el `CHANGELOG.md`, o vas a publicar | `./lab check version` |
 | creaste o borraste ficheros | `./lab check links` |
 | antes de cualquier commit | `./lab check` (todo) + `ansible-lint` |
 | vas a decir "hecho" | `./lab check` verde y la evidencia pegada en la respuesta |
@@ -647,10 +652,36 @@ cuando un documento citaba el motor y no estaba sellado. El aviso de caducidad d
 AVISO refs: README.md cita `deployment_engine/tools/framework_check.py`, que ha cambiado desde que se revisó
 ```
 
+---
+
+## Versionado y entrega
+
+La versión es un número, `MAYOR.MENOR.PARCHE` (SemVer), y **no** parte del nombre del
+repositorio. Mientras la MAYOR sea `0`, el motor está en desarrollo y **cualquier versión
+MENOR puede romper**: es la regla de SemVer para la serie 0.x, y por eso la primera
+entrega es `0.1.0` y no `1.0.0`.
+
+La versión publicada vive en **tres sitios** —el fichero `VERSION` (una línea), el tag
+`vX.Y.Z` de `main` y su entrada del `CHANGELOG.md`— y los tres tienen que contar lo mismo:
+eso es lo que comprueba `./lab check version`, y `./lab version` lo dice en una línea.
+
+El trabajo va en **ramas cortas, una por cambio** (`feat/…`, `fix/…`, `refactor/…`,
+`docs/…`, `chore/…`), se cierra con un pull request —donde se cuenta qué cambia y cómo se
+ha comprobado— y se mezcla con *squash*: un cambio, un commit en `main`. `main` es lo
+publicado y está **siempre verde**. Y publicar es un acto explícito: se pasa
+`[No publicado]` del `CHANGELOG.md` a su versión con fecha, se sube `VERSION`, se pone el
+tag anotado y se crea la *release*. Una versión no se publica sin el ciclo completo
+`destroy → apply → verify` contra un Proxmox real.
+
+El porqué, entero, en [docs/decisiones/0017-la-version-es-un-numero.md](docs/decisiones/0017-la-version-es-un-numero.md).
+
+---
+
 ## Cómo se comprueba todo, con los comandos exactos
 
 ```bash
-./lab check                          # los diez checks, sin credenciales ni Proxmox
+./lab check                          # todos los checks (los del motor + `version`), sin
+                                     # credenciales ni Proxmox
 python3 test/test_identidad.py       # los casos del asignador, con fixtures
 python3 test/test_bridges.py         # la propiedad de los bridges: qué borra destroy
 python3 test/test_interior.py        # el driver PURO del interior: (declarado, leído) → pasos

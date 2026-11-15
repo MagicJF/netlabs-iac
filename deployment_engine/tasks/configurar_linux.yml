@@ -47,6 +47,16 @@
     interior_leido: "{{ interior_resultados | interior_leido(interior_declarado_invitado) }}"
   changed_when: false
 
+# ¿Se sigue adelante? En `solo_leer` (lo usa `verify` para mirar dentro sin tocar nada),
+# sólo si de verdad se pudo leer: sin lectura no hay nada que comparar, y decidir sobre un
+# «no se pudo» sería inventarse el estado. En el uso normal (converger) siempre se sigue.
+# Va en su PROPIA tarea: un `set_fact` NO ve lo que él mismo está poniendo.
+- name: "DRIVER LINUX · ¿se sigue adelante con '{{ interior_rol }}'?"
+  ansible.builtin.set_fact:
+    interior_seguir: >-
+      {{ not (interior_solo_leer | default(false)) or (interior_leido.alcanzable | bool) }}
+  changed_when: false
+
 - name: "DRIVER LINUX · parar si al invitado no se le pudo PREGUNTAR"
   ansible.builtin.fail:
     msg: |-
@@ -57,7 +67,9 @@
       camino es lo primero: `./lab --lab {{ pve_lab }} apply` reconstruye el camino si
       falta. Si no lo es, el que tiene que estar en pie es el puesto de control -- y por
       eso se entra a los invitados POR ÉL y no directamente.
-  when: not interior_leido.alcanzable
+  # En `solo_leer` NO se para: no poder leer es un RESULTADO que `verify` reporta como
+  # «no comprobable» (regla 16: nunca a ciegas).
+  when: not interior_leido.alcanzable and not (interior_solo_leer | default(false))
 
 # --- 3. DECIDIR (función pura) --------------------------------------------------------
 - name: "DRIVER LINUX · (declarado, leído) -> lo que hay que cambiar"
@@ -70,6 +82,7 @@
           | interior_pasos(identidad, declaracion, interior_leido, parametros_motor)
           | interior_operaciones)
          | interior_escrituras_linux(interior_declarado_invitado, declaracion, identidad, parametros_motor) }}
+  when: interior_seguir
   changed_when: false
 
 # Antes de tocar nada: lo que el plan pide y este driver NO sabe ejecutar. Sin esto, una
@@ -96,7 +109,7 @@
     interior_sin_traducir: >-
       {{ interior_pasos | interior_operaciones
          | map('interior_pendiente_de_driver') | reject('none') | list }}
-  when: interior_sin_traducir | length > 0
+  when: interior_seguir and interior_sin_traducir | length > 0
 
 - name: "DRIVER LINUX · lo que este invitado necesita, dicho en claro"
   ansible.builtin.debug:
@@ -105,7 +118,7 @@
       {% for paso in interior_pasos %}
       [{{ paso.parametros.area }}] {{ paso.porque.split(':')[0] }};
       {% endfor %}
-  when: interior_pasos | length > 0
+  when: interior_seguir and interior_pasos | length > 0
 
 # --- 4. ESCRIBIR ---------------------------------------------------------------------
 - name: "DRIVER LINUX · escribir en '{{ interior_rol }}' lo que de verdad cambia"
@@ -113,7 +126,7 @@
   vars:
     interior_tipo: "linux"
     interior_comandos: "{{ interior_escrituras }}"
-  when: interior_escrituras | length > 0
+  when: (not (interior_solo_leer | default(false))) and interior_escrituras | length > 0
 
 # --- 5. RELEER y comprobar -----------------------------------------------------------
 # Se vuelve a preguntar lo MISMO que se preguntó antes, y se decide otra vez: si queda
@@ -124,7 +137,7 @@
   vars:
     interior_tipo: "linux"
     interior_comandos: "{{ interior_declarado_invitado | interior_lecturas_linux }}"
-  when: interior_escrituras | length > 0
+  when: (not (interior_solo_leer | default(false))) and interior_escrituras | length > 0
 
 - name: "DRIVER LINUX · comprobar que quedó como se declaró"
   ansible.builtin.set_fact:
@@ -134,7 +147,7 @@
              (interior_resultados | interior_leido(interior_declarado_invitado)),
              parametros_motor)
           | interior_operaciones) }}
-  when: interior_escrituras | length > 0
+  when: (not (interior_solo_leer | default(false))) and interior_escrituras | length > 0
   changed_when: false
 
 - name: "DRIVER LINUX · '{{ interior_rol }}' ha quedado como se declara"
@@ -154,4 +167,4 @@
       repite a ciegas: se mira el diario y se arregla la causa (un paquete que no se
       pudo instalar, un servicio que no arrancó, una interfaz que no existe).
     success_msg: "'{{ interior_rol }}': comprobado leyendo dentro, y coincide con lo declarado."
-  when: interior_escrituras | length > 0
+  when: (not (interior_solo_leer | default(false))) and interior_escrituras | length > 0

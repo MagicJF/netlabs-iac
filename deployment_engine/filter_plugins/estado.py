@@ -568,6 +568,17 @@ def estado_verificar(declaracion, estado, identidad):
     }
 
 
+def _texto_operacion(operacion):
+    """Una operación del interior, en texto. Las operaciones son dicts `{area, op}`
+    (`interior_operaciones`) que Ansible entrega como dicts perezosos: se materializan
+    aquí para poder unirlos en una línea, sin depender de su tipo exacto."""
+    try:
+        operacion = dict(operacion)
+    except (TypeError, ValueError):
+        return str(operacion)
+    return f"[{operacion.get('area')}] {operacion.get('op')}"
+
+
 def estado_informe_texto(informe):
     """El informe de verificación en texto, con la conclusión la primera."""
     lineas = []
@@ -623,6 +634,27 @@ def estado_informe_texto(informe):
                 f"  - vmid={item['vmid']} nombre={item['nombre']}: root dentro de un "
                 "contenedor privilegiado es root fuera del contenedor"
             )
+        lineas.append("")
+
+    if informe.get("interior"):
+        # El INTERIOR: `verify` también ha mirado DENTRO de los invitados (y sin tocar
+        # nada). Se cuenta aparte del mundo de la API porque son dos cosas distintas:
+        # un invitado puede existir y coincidir por fuera y estar mal por dentro.
+        interior = informe["interior"]
+        malos = {rol: e for rol, e in interior.items()
+                 if not e.get("alcanzable") or e.get("pendiente")}
+        lineas.append(
+            f"EL INTERIOR ({len(interior) - len(malos)}/{len(interior)} invitado(s) "
+            "leído(s) por dentro y coincidente(s) con lo declarado)"
+        )
+        for rol, entrada in sorted(malos.items()):
+            if not entrada.get("alcanzable"):
+                lineas.append(f"  - rol={rol}: NO se pudo leer ({entrada.get('motivo')})")
+            else:
+                lineas.append(
+                    f"  - rol={rol}: le quedan {len(entrada['pendiente'])} operación(es): "
+                    f"{', '.join(_texto_operacion(o) for o in entrada['pendiente'])}"
+                )
         lineas.append("")
 
     if informe["conformes"]:

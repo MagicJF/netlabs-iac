@@ -15,7 +15,9 @@
 #                 equipo con las credenciales viejas y sin camino de vuelta);
 #              7. el residuo del cliente DHCP de fábrica se declara como
 #                 `reiniciar_invitado` con su motivo, nunca se ignora;
-#              8. las reservas DHCP se DERIVAN (MAC del vmid) y del ámbito correcto.
+#              8. las reservas DHCP se DERIVAN (MAC del vmid) y del ámbito correcto;
+#              9. a quién hay que MIRAR por dentro (`verify`, que no aprueba lo que no
+#                 ha leído): sólo a quien declara áreas que piden visita.
 # LÍMITES:     no prueba el driver de verdad (eso es el ciclo contra el VPS): aquí no
 #              se toca ningún equipo. Los estados «leídos» están escritos a mano y son
 #              el contrato de lo que el driver debe sacar de dentro de cada equipo.
@@ -1025,6 +1027,55 @@ comprobar(
     )
     == [{"op": "poner_direccion", "interfaz": "eth1", "direccion": "10.40.1.2/24"}],
     "si falta la pata de la LAN, se pone SÓLO esa: lo que ya está no se toca",
+)
+
+# ---------------------------------------------------------------------------
+# `verify` MIRA DENTRO: a quién se le pregunta, y qué cuenta como aprobado
+# ---------------------------------------------------------------------------
+
+comprobar(
+    motor.invitados_a_verificar(
+        {
+            "vms": [
+                {"rol": "borde", "config": {"routeros": {"identidad": {"nombre": "b"}}}},
+                {"rol": "sin-interior", "recursos": {}},
+            ],
+            "containers": [
+                {"rol": "control", "config": {"linux": {"camino": {"salida": "x"}}}},
+                # Sólo `direccion: dhcp`: no hay nada que preguntarle dentro.
+                {"rol": "puesto", "direccion": "dhcp", "config": {"linux": {}}},
+            ],
+        }
+    )
+    == [
+        {"rol": "borde", "tipo": "routeros"},
+        {"rol": "control", "tipo": "linux"},
+    ],
+    "verify sólo abre conexión a quien declara áreas que piden visita (sin `config`, no se entra)",
+)
+
+# La MISMA pregunta sobre la declaración NORMALIZADA (la que `verify` tiene en la mano):
+# una sola lista `invitados`, con el tipo ya resuelto.
+comprobar(
+    motor.invitados_a_verificar(
+        {
+            "lab": "x",
+            "invitados": [
+                {"rol": "control", "tipo": "lxc", "config": {"linux": {"camino": {"salida": "x"}}}},
+                {"rol": "puesto", "tipo": "lxc", "direccion": "dhcp", "config": {"linux": {}}},
+            ],
+        }
+    )
+    == [{"rol": "control", "tipo": "linux"}],
+    "la declaración normalizada (`invitados`) se lee igual que la cruda",
+)
+
+comprobar(
+    motor.informe_ok({}) is True
+    and motor.informe_ok({"a": {"alcanzable": True, "pendiente": []}}) is True
+    and motor.informe_ok({"a": {"alcanzable": True, "pendiente": ["poner_direccion"]}}) is False
+    and motor.informe_ok({"a": {"alcanzable": False, "pendiente": []}}) is False,
+    "el interior no se aprueba si un invitado no se pudo leer o le queda algo pendiente",
 )
 
 # ---------------------------------------------------------------------------

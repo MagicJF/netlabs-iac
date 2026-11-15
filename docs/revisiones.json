@@ -4,7 +4,7 @@
       "deployment_engine/tasks/camino_consola.yml": "b57884ee2ec84f1f4183b732a6abf43b49b99a8b714aa544619cef16fee32e91",
       "deployment_engine/tasks/interior_ssh.yml": "2331c0f0d3d52e2b643dac7eb7b613ff67c28b1dc75fc5f8da22bf5bedc32bbf",
       "deployment_engine/tasks/pve_api.yml": "4628a91b351f10d2f28bf99a40973ae6fa8255e1ed79827d8a8174ff323df6d7",
-      "deployment_engine/tasks/ros_api.yml": "2d9f36b5d60792a6f20d91a7ea7eb38226bd0da7a9e18b5b55ebeb0bfcee15a8",
+      "deployment_engine/tasks/ros_api.yml": "2fdc8821735a868025adc787203fe2e81cd20f6b1b440000b8a3caf996f9cbd3",
       "deployment_engine/templates/lab-region.md.j2": "a6eda0de17352330b74a905cbb626cd8b6a990668b5ff6319133a1b135e00de2",
       "deployment_engine/tools/documentos.py": "e2570908b54f9b60bcede738376125b2f43b1f25afad9a6bc17b25133137479c"
     }
@@ -18,9 +18,9 @@
   },
   "README.md": {
     "citados": {
-      "deployment_engine/filter_plugins/estado.py": "a1620807cabdc6b05b6dd3cd796be97f8ece7cefdbfb956898e7d996f3fc73ab",
+      "deployment_engine/filter_plugins/estado.py": "a48f8d2557e2bc6d0eafd81441f8060ee50de5b7604cd65a5de8a7e54a451a16",
       "deployment_engine/filter_plugins/identidad.py": "773d13a7c740c6cabe1c4ac5611837af070f646f286327bbc5d21d6895fef6db",
-      "deployment_engine/filter_plugins/interior.py": "09f5c21df31d0c4eb122c139c540999ccadcd70ad354fa1c93b05a31a017d0f9",
+      "deployment_engine/filter_plugins/interior.py": "35dd7168172677c2c4494e52c6e1f306945fb08d01cf1ade2b8d4bddca6efee3",
       "deployment_engine/playbooks/plan.yml": "635fb591df14cae55d494642b3527652f692a2fa8a93e8e6dfca9f704454cfbd",
       "deployment_engine/tasks/pve_api.yml": "4628a91b351f10d2f28bf99a40973ae6fa8255e1ed79827d8a8174ff323df6d7",
       "deployment_engine/tasks/pve_api_y_esperar.yml": "4a2b0f5e90ab5ebf840519e25507f02b89005f640498204003a5b78fbbf94ff9",
@@ -45,7 +45,7 @@
   },
   "docs/decisiones/0002-el-pool-como-frontera-de-propiedad.md": {
     "citados": {
-      "deployment_engine/filter_plugins/estado.py": "a1620807cabdc6b05b6dd3cd796be97f8ece7cefdbfb956898e7d996f3fc73ab",
+      "deployment_engine/filter_plugins/estado.py": "a48f8d2557e2bc6d0eafd81441f8060ee50de5b7604cd65a5de8a7e54a451a16",
       "deployment_engine/filter_plugins/identidad.py": "773d13a7c740c6cabe1c4ac5611837af070f646f286327bbc5d21d6895fef6db"
     }
   },
@@ -63,19 +63,30 @@
   },
   "docs/decisiones/0005-el-driver-del-interior.md": {
     "citados": {
-      "deployment_engine/filter_plugins/interior.py": "09f5c21df31d0c4eb122c139c540999ccadcd70ad354fa1c93b05a31a017d0f9"
+      "deployment_engine/filter_plugins/interior.py": "35dd7168172677c2c4494e52c6e1f306945fb08d01cf1ade2b8d4bddca6efee3"
     }
   },
   "docs/decisiones/0006-escribir-en-routeros.md": {
     "citados": {
-      "deployment_engine/filter_plugins/interior.py": "09f5c21df31d0c4eb122c139c540999ccadcd70ad354fa1c93b05a31a017d0f9",
-      "deployment_engine/tasks/ros_api.yml": "2d9f36b5d60792a6f20d91a7ea7eb38226bd0da7a9e18b5b55ebeb0bfcee15a8"
+      "deployment_engine/filter_plugins/interior.py": "35dd7168172677c2c4494e52c6e1f306945fb08d01cf1ade2b8d4bddca6efee3",
+      "deployment_engine/tasks/ros_api.yml": "2fdc8821735a868025adc787203fe2e81cd20f6b1b440000b8a3caf996f9cbd3"
     }
   },
   "docs/decisiones/0008-una-direccion-por-pata.md": {
     "citados": {
-      "deployment_engine/filter_plugins/interior.py": "09f5c21df31d0c4eb122c139c540999ccadcd70ad354fa1c93b05a31a017d0f9",
+      "deployment_engine/filter_plugins/interior.py": "35dd7168172677c2c4494e52c6e1f306945fb08d01cf1ade2b8d4bddca6efee3",
       "deployment_engine/tools/plan.py": "32f1959789e47f4d3d94f1d6776fbe3d839b6f0325addf34fafe3081ebc89360"
+    }
+  },
+  "docs/decisiones/0009-verify-mira-dentro.md": {
+    "citados": {
+      "deployment_engine/filter_plugins/estado.py": "a48f8d2557e2bc6d0eafd81441f8060ee50de5b7604cd65a5de8a7e54a451a16",
+      "deployment_engine/filter_plugins/interior.py": "35dd7168172677c2c4494e52c6e1f306945fb08d01cf1ade2b8d4bddca6efee3",
+      "deployment_engine/playbooks/verify.yml": "130aaf17f7ade1b10b79cfa7705c27c5ce1a5a68f20338189510108987adadbd",
+      "deployment_engine/tasks/configurar_linux.yml": "6b184fd397eaf29263444c0e81965d16930733a3cac19e9236f588ea502d9b5d",
+      "deployment_engine/tasks/configurar_routeros.yml": "558c93f2ea79c9be0840f500d1eae30c7ca71b52774645663baa1fd4a452d603",
+      "deployment_engine/tasks/interior_verificar.yml": "85321430dd6167de698a9c882a8416370cee70f7bba477632dadf5f3c913dc8f",
+      "deployment_engine/tasks/ros_api.yml": "2fdc8821735a868025adc787203fe2e81cd20f6b1b440000b8a3caf996f9cbd3"
     }
   },
   "labs/ejemplo-topologia/ejemplo-topologia.md": {

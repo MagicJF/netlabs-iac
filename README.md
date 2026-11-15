@@ -378,7 +378,13 @@ es lanzarlos en paralelo.
    copia a mano o un borrado que se quedó atrás);
 4. por invitado, comprueba los campos declarados (cores, memoria, red, descripción,
    bridge) y si está arrancado;
-5. falla con código de salida ≠ 0 si hay drift, dejando el informe en
+5. **mira DENTRO de cada invitado** que declara `config`: relee sus áreas por su
+   puerta —REST del router, SSH del Linux— y las compara con lo declarado **en los
+   dos sentidos**, con el **mismo driver** que usa `apply` pero en modo **sólo
+   lectura** (no escribe nada: comprobar no cambia el mundo). Si el camino no
+   responde, no se entra y cada invitado queda **«no comprobable»** con su motivo:
+   el veredicto cae, porque **no se aprueba lo que no se ha mirado**;
+6. falla con código de salida ≠ 0 si hay drift, dejando el informe en
    `labs/<lab>/logs/verify-<timestamp>.json` **y** un resumen humano en la salida.
 
 El test **nunca recorre la lista que él mismo trae**: el conjunto esperado se
@@ -496,6 +502,13 @@ Esta sección no lleva adjetivos.
   pasada** y da `verify` CORRECTO (`labs/<lab>/logs/verify-<ts>.json`); la
   segunda pasada de `apply` deja el diario de la API y el del interior **sólo con
   lecturas**, y el plan ya **no reemite** `construir_camino` cuando el camino responde.
+- **`verify` mira DENTRO**, no sólo el mundo de la API: relee cada invitado que declara
+  `config` por su puerta —REST del router, SSH del Linux— y lo compara con lo declarado
+  **en los dos sentidos**, con el **mismo driver** que usa `apply` pero en modo **sólo
+  lectura**. Medido: `verify` da CORRECTO con «**3/3 invitado(s) leído(s) por dentro y
+  coincidente(s)**» y **cero** escrituras en el diario de la API; y con el camino caído
+  cada invitado queda «no comprobable» y el veredicto **cae**, porque no se aprueba lo
+  que no se ha mirado.
 - **Convivencia**: las tres topologías declaradas, **desplegadas a la vez** (nueve
   invitados en tres pools, con vmids disjuntos y cada invitado en el bridge de su
   lab) y verificadas las tres con `verify` en verde. Después se destruyeron las
@@ -663,4 +676,5 @@ Una línea cada una, y nada más:
   [0005](docs/decisiones/0005-el-driver-del-interior.md),
   [0006](docs/decisiones/0006-escribir-en-routeros.md),
   [0007](docs/decisiones/0007-las-patas-se-declaran.md),
-  [0008](docs/decisiones/0008-una-direccion-por-pata.md)
+  [0008](docs/decisiones/0008-una-direccion-por-pata.md),
+  [0009](docs/decisiones/0009-verify-mira-dentro.md)

@@ -54,6 +54,23 @@
       escalón empieza antes de que el camino responda).
   when: (ros_intermediario | default('') | length) == 0
 
+# La RED DE SEGURIDAD del modo «sólo leer» (lo usa `verify`): en sólo-lectura esta puerta
+# SÓLO atiende GET, y escribir por ella PARA. Es lo que hace IMPOSIBLE que una comprobación
+# cambie el mundo, aunque un driver olvidara su guarda: la frontera está en la puerta, no
+# en la memoria de quien llama. Se MIDIÓ al implementar `verify` mirando dentro: una guarda
+# en el driver no basta, porque el driver sigue teniendo la sección de escribir.
+- name: "PUERTA ROUTEROS · en sólo lectura, esta puerta NO escribe"
+  ansible.builtin.fail:
+    msg: |-
+      Se ha pedido ESCRIBIR en un invitado en modo «sólo lectura»:
+      {{ ros_metodo }} {{ ros_ruta }} sobre '{{ ros_invitado | default('?') }}'.
+
+      En «sólo leer» (lo usa `verify`) la puerta sólo atiende GET: comprobar no cambia el
+      mundo. Si esto salta, es un bug del driver, no de la declaración.
+  when: >-
+    (interior_solo_leer | default(false))
+    and (ros_metodo | default('GET') | upper) != 'GET'
+
 - name: "PUERTA ROUTEROS · cronometrar {{ ros_metodo }} {{ ros_ruta }}"
   ansible.builtin.set_fact:
     ros_t0: "{{ now() }}"

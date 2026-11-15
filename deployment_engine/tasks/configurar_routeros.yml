@@ -137,9 +137,14 @@
       `./lab --lab {{ pve_lab }} apply`.
       {% endif %}
       Las llamadas que se han hecho están en {{ pve_carpeta_logs }}/api.jsonl.
+  # En `solo_leer` no se para por credencial: se lee con la que haya, y si no contesta
+  # eso es un resultado («no comprobable»), no una caída de `verify`.
   when: >-
-    (ros_ultimo_status | int) == -1
-    or (ros_credencial == 'fabrica' and (ros_ultimo_status | int) >= 400)
+    (
+      (ros_ultimo_status | int) == -1
+      or (ros_credencial == 'fabrica' and (ros_ultimo_status | int) >= 400)
+    )
+    and not (interior_solo_leer | default(false))
 
 - name: "DRIVER ROUTEROS · con qué credencial se converge de verdad"
   ansible.builtin.set_fact:
@@ -176,6 +181,14 @@
          engine_routeros_usuario, ros_clave_publica, ros_credencial) }}
   changed_when: false
 
+# Igual que en el driver de Linux: en `solo_leer` sólo se sigue si se pudo leer. Y en su
+# propia tarea, porque un `set_fact` no ve lo que él mismo está poniendo.
+- name: "DRIVER ROUTEROS · ¿se sigue adelante con '{{ interior_rol }}'?"
+  ansible.builtin.set_fact:
+    interior_seguir: >-
+      {{ not (interior_solo_leer | default(false)) or (interior_leido.alcanzable | bool) }}
+  changed_when: false
+
 - name: "DRIVER ROUTEROS · parar si al router no se le pudo PREGUNTAR"
   ansible.builtin.fail:
     msg: |-
@@ -186,7 +199,7 @@
       por su REST, y su REST se habla desde el puesto de control: si no contesta, lo
       primero es comprobar que el router está arrancado con su dirección y que el
       camino está en pie (`./lab --lab {{ pve_lab }} apply` reconstruye el camino).
-  when: not interior_leido.alcanzable
+  when: not interior_leido.alcanzable and not (interior_solo_leer | default(false))
 
 # --- 3. DECIDIR (función pura) --------------------------------------------------------
 - name: "DRIVER ROUTEROS · (declarado, leído) -> lo que hay que cambiar"
@@ -209,6 +222,7 @@
       usuario: "{{ engine_routeros_usuario }}"
       clave: "{{ ros_clave_motor }}"
       clave_publica: "{{ ros_clave_publica }}"
+  when: interior_seguir
   changed_when: false
 
 # Antes de tocar nada: lo que el plan pide y esta traducción NO sabe pedir. Una llamada
@@ -229,14 +243,14 @@
       que cuadrar.
   vars:
     ros_sin_traducir: "{{ ros_escrituras | selectattr('accion', 'equalto', 'sin_traducir') | list }}"
-  when: ros_sin_traducir | length > 0
+  when: interior_seguir and ros_sin_traducir | length > 0
 
 - name: "DRIVER ROUTEROS · lo que este router necesita, dicho en claro"
   ansible.builtin.debug:
     msg: >-
       '{{ interior_rol }}': {{ interior_pasos | length }} paso(s) -- {% for paso in interior_pasos %}
       [{{ paso.parametros.area }}] {{ paso.porque.split(':')[0] }};{% endfor %}
-  when: interior_pasos | length > 0
+  when: interior_seguir and interior_pasos | length > 0
 
 # --- 4. ESCRIBIR ---------------------------------------------------------------------
 - name: "DRIVER ROUTEROS · escribir en '{{ interior_rol }}' lo que de verdad cambia"
@@ -260,7 +274,7 @@
     # convergencia la decide la RELECTURA del final, y si el efecto no ocurrió, la
     # operación sigue pendiente y el paso falla con su razón.
     ros_tolerar_error: "{{ ros_llamada.tolerar_sin_respuesta | default(false) }}"
-  when: ros_escrituras | length > 0
+  when: (not (interior_solo_leer | default(false))) and ros_escrituras | length > 0
 
 # --- 5. RELEER y comprobar ------------------------------------------------------------
 # Se vuelve a preguntar lo MISMO, y con la credencial que debe valer al final: si el área
@@ -278,7 +292,7 @@
       {{ ros_clave_motor if ('identidad' in interior_areas_declaradas or ros_credencial == 'motor')
          else ros_clave_fabrica }}
   changed_when: false
-  when: ros_escrituras | length > 0
+  when: (not (interior_solo_leer | default(false))) and ros_escrituras | length > 0
 
 - name: "DRIVER ROUTEROS · releer por el REST lo mismo que se leyó"
   ansible.builtin.include_tasks: ros_api.yml
@@ -295,7 +309,7 @@
     ros_clave: "{{ ros_clave_relectura }}"
     ros_etiqueta: "releer {{ ros_llamada.area }}: {{ ros_llamada.descripcion }}"
     ros_tolerar_error: true
-  when: ros_escrituras | length > 0
+  when: (not (interior_solo_leer | default(false))) and ros_escrituras | length > 0
 
 - name: "DRIVER ROUTEROS · comprobar que quedó como se declaró"
   ansible.builtin.set_fact:
@@ -306,7 +320,7 @@
                engine_routeros_usuario, ros_clave_publica, ros_credencial_final)),
              parametros_motor)
           | interior_operaciones) }}
-  when: ros_escrituras | length > 0
+  when: (not (interior_solo_leer | default(false))) and ros_escrituras | length > 0
   changed_when: false
 
 - name: "DRIVER ROUTEROS · '{{ interior_rol }}' ha quedado como se declara"
@@ -336,4 +350,4 @@
       que el plan emite para el residuo.
     success_msg: >-
       '{{ interior_rol }}': comprobado releyendo por su REST, y coincide con lo declarado.
-  when: ros_escrituras | length > 0
+  when: (not (interior_solo_leer | default(false))) and ros_escrituras | length > 0

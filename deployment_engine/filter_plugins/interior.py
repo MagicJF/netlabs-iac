@@ -2302,6 +2302,51 @@ def pasos_sin_driver(pasos):
     ]
 
 
+def invitados_a_verificar(declaracion):
+    """Los invitados que hay que MIRAR por dentro, para `verify` (regla 11 del README de
+    verificación): los que declaran `config` con áreas que piden visita.
+
+    Es la MISMA frontera que usa el plan (`areas_que_piden_visita`): a un invitado al
+    que no hay nada que preguntarle no se le abre una conexión -- ni siquiera para
+    leer. Devuelve `[{'rol': …, 'tipo': …}]` en el orden de la declaración.
+    """
+    # La declaración normalizada trae `invitados` (una sola lista, con el tipo ya
+    # resuelto); la cruda trae `vms` + `containers`. Se aceptan las dos para que la
+    # función sirva igual desde `verify` (normalizada) y desde una prueba (cruda).
+    if "invitados" in declaracion:
+        candidatos = declaracion.get("invitados") or []
+    else:
+        candidatos = list(declaracion.get("vms") or []) + list(declaracion.get("containers") or [])
+    fuera = []
+    for invitado in candidatos:
+        tipo = tipo_de(invitado)
+        if tipo and areas_que_piden_visita(invitado):
+            fuera.append({"rol": invitado.get("rol"), "tipo": tipo})
+    return fuera
+
+
+def informe_ok(informe_interior):
+    """¿Pasa el INTERIOR de un lab? Sí cuando todo invitado mirado se pudo LEER
+    (`alcanzable`) y no le queda ninguna operación pendiente. Un invitado que no se pudo
+    leer NO pasa: no se aprueba lo que no se ha mirado (es la misma honestidad que el
+    «no verificable» del mundo de la API)."""
+    for entrada in (informe_interior or {}).values():
+        if not entrada.get("alcanzable") or entrada.get("pendiente"):
+            return False
+    return True
+
+
+def sin_comprobar(entradas, motivo):
+    """El informe del interior cuando NO se pudo mirar (p. ej. el camino del lab no
+    responde): cada invitado a verificar queda como «no alcanzable» con el motivo. No se
+    aprueba lo que no se ha mirado, así que el veredicto de `verify` cae por su propio
+    peso en vez de dar por bueno lo que nadie ha comprobado."""
+    return {
+        e["rol"]: {"tipo": e.get("tipo"), "alcanzable": False, "motivo": motivo, "pendiente": []}
+        for e in (entradas or [])
+    }
+
+
 class FilterModule:
     """El módulo, visto desde Ansible.
 
@@ -2345,4 +2390,7 @@ class FilterModule:
             "interior_residuo": residuo_dinamico,
             "interior_pasos": pasos_de_convergencia,
             "interior_espera": espera_de_servicio,
+            "interior_a_verificar": invitados_a_verificar,
+            "interior_informe_ok": informe_ok,
+            "interior_sin_comprobar": sin_comprobar,
         }

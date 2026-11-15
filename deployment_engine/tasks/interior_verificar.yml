@@ -1,0 +1,32 @@
+---
+# PROPÓSITO:   MIRAR DENTRO de un invitado, para `verify`: leer por su puerta lo que el
+#              lab declara y anotar si coincide --en los DOS sentidos-- sin escribir
+#              NADA. Es el driver de siempre en modo `solo_leer`, así que la lectura y
+#              la decisión son las MISMAS que usa `apply`: no hay dos verdades sobre
+#              qué es «estar convergido».
+# INVARIANTES: no escribe. El driver corta antes de su sección de escribir
+#              (`interior_seguir`), y ninguna llamada cambia el mundo (regla 6:
+#              comprobar no cambia nada). Si al invitado no se le pudo preguntar, se
+#              anota como NO alcanzable con su motivo, en vez de darlo por bueno.
+# LÍMITES:     sólo mira; no arregla. Y no se mira a un invitado sin áreas que pidan
+#              visita: no hay nada que preguntarle, y esa frontera la marca el plan.
+# VER:         filter_plugins/interior.py (`invitados_a_verificar`); playbooks/verify.yml;
+#              docs/decisiones/0005-*.md; AGENTS.md §Reglas duras (6)
+
+- name: "VERIFY·INTERIOR · leer '{{ interior_rol }}' ({{ interior_tipo_verificar }}) sin escribir"
+  ansible.builtin.include_tasks: "configurar_{{ interior_tipo_verificar }}.yml"
+  vars:
+    # La ÚNICA diferencia con `apply`: el driver lee y decide, pero no escribe ni relee.
+    interior_solo_leer: true
+
+- name: "VERIFY·INTERIOR · anotar lo que se encontró en '{{ interior_rol }}'"
+  ansible.builtin.set_fact:
+    interior_informe: >-
+      {{ interior_informe | default({})
+         | combine({ interior_rol: {
+              'tipo': interior_tipo_verificar,
+              'alcanzable': (interior_leido.alcanzable | default(false) | bool),
+              'motivo': (interior_leido.motivo | default('')),
+              'pendiente': (interior_pasos | default([]) | interior_operaciones),
+            } }) }}
+  changed_when: false

@@ -2,9 +2,9 @@
   "AGENTS.md": {
     "citados": {
       "deployment_engine/tasks/camino_consola.yml": "b57884ee2ec84f1f4183b732a6abf43b49b99a8b714aa544619cef16fee32e91",
-      "deployment_engine/tasks/interior_ssh.yml": "2331c0f0d3d52e2b643dac7eb7b613ff67c28b1dc75fc5f8da22bf5bedc32bbf",
+      "deployment_engine/tasks/interior_ssh.yml": "546e433693a00c6aa4da798c5a829bac70316cbb1e5b637b4f758ae2d49ef826",
       "deployment_engine/tasks/pve_api.yml": "4628a91b351f10d2f28bf99a40973ae6fa8255e1ed79827d8a8174ff323df6d7",
-      "deployment_engine/tasks/ros_api.yml": "2fdc8821735a868025adc787203fe2e81cd20f6b1b440000b8a3caf996f9cbd3",
+      "deployment_engine/tasks/ros_api.yml": "e6feb51074fb7178407251918147b903d535d544b9fae204797bc5252d966360",
       "deployment_engine/templates/lab-region.md.j2": "a6eda0de17352330b74a905cbb626cd8b6a990668b5ff6319133a1b135e00de2",
       "deployment_engine/tools/documentos.py": "e2570908b54f9b60bcede738376125b2f43b1f25afad9a6bc17b25133137479c"
     }
@@ -13,7 +13,7 @@
     "citados": {
       "deployment_engine/tasks/pve_api.yml": "4628a91b351f10d2f28bf99a40973ae6fa8255e1ed79827d8a8174ff323df6d7",
       "deployment_engine/tools/framework_check.py": "3a98804c73bc932a9ab6cc57aa222322062de7cb71918fdd78aab7d2d1dbfcc4",
-      "deployment_engine/tools/plan.py": "32f1959789e47f4d3d94f1d6776fbe3d839b6f0325addf34fafe3081ebc89360"
+      "deployment_engine/tools/plan.py": "d9f622c3e06c55e5c169ba85ffdba9454ec9af07a234fd3a15db07c3310f20ab"
     }
   },
   "README.md": {
@@ -103,7 +103,7 @@
       "deployment_engine/filter_plugins/identidad.py": "773d13a7c740c6cabe1c4ac5611837af070f646f286327bbc5d21d6895fef6db",
       "deployment_engine/tasks/pve_api.yml": "4628a91b351f10d2f28bf99a40973ae6fa8255e1ed79827d8a8174ff323df6d7",
       "deployment_engine/tools/framework_check.py": "3a98804c73bc932a9ab6cc57aa222322062de7cb71918fdd78aab7d2d1dbfcc4",
-      "deployment_engine/tools/plan.py": "32f1959789e47f4d3d94f1d6776fbe3d839b6f0325addf34fafe3081ebc89360"
+      "deployment_engine/tools/plan.py": "d9f622c3e06c55e5c169ba85ffdba9454ec9af07a234fd3a15db07c3310f20ab"
     }
   },
   "labs/lab-dos-redes/lab-dos-redes.md": {
@@ -111,7 +111,7 @@
       "deployment_engine/filter_plugins/identidad.py": "773d13a7c740c6cabe1c4ac5611837af070f646f286327bbc5d21d6895fef6db",
       "deployment_engine/tasks/pve_api.yml": "4628a91b351f10d2f28bf99a40973ae6fa8255e1ed79827d8a8174ff323df6d7",
       "deployment_engine/tools/framework_check.py": "3a98804c73bc932a9ab6cc57aa222322062de7cb71918fdd78aab7d2d1dbfcc4",
-      "deployment_engine/tools/plan.py": "32f1959789e47f4d3d94f1d6776fbe3d839b6f0325addf34fafe3081ebc89360"
+      "deployment_engine/tools/plan.py": "d9f622c3e06c55e5c169ba85ffdba9454ec9af07a234fd3a15db07c3310f20ab"
     }
   },
   "labs/lab-minimo/lab-minimo.md": {

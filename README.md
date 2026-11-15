@@ -294,9 +294,12 @@ puerta y, **si la respuesta es un `UPID`**, espera sondeando
 La espera es **una regla, no una lista**: cualquier paso asíncrono (crear, borrar,
 recargar la red) queda cubierto sin enumerarlo. Y **cada sondeo pasa por la misma
 puerta**, así que cada uno deja su línea en el diario: la espera no es una llamada
-a espaldas del diario. El bucle es finito (`engine_tarea_intentos` ×
-`engine_tarea_intervalo`, por defecto 150 × 2 s = 5 min); si se agota, o si la
-tarea termina con `exitstatus` distinto de `OK`, el verbo **falla** y lo dice.
+a espaldas del diario. El bucle es finito: `engine_tarea_intentos` sondeos (40 por
+defecto) con una espera **creciente** entre uno y otro —`engine_tarea_intervalo` (2 s)
+al principio y hasta `engine_tarea_intervalo_max` (15 s) al final, ≈5 min 40 s de
+tope—, para detectar una tarea corta enseguida sin pagar las vueltas que no hacen falta
+cuando la tarea ya terminó. Si se agota, o si la tarea termina con `exitstatus`
+distinto de `OK`, el verbo **falla** y lo dice.
 
 ---
 

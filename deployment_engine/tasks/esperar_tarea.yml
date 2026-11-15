@@ -3,12 +3,12 @@
 #              lo que convierte "lancé la creación" en "la creación terminó".
 # INVARIANTES: se sondea LLAMANDO A LA API por la puerta, no con un `until` que
 #              llamaría a espaldas del diario: cada sondeo deja su línea (regla
-#              4.6). El bucle es finito: si la tarea no termina a tiempo, el verbo
+#              12). El bucle es finito: si la tarea no termina a tiempo, el verbo
 #              FALLA con mensaje claro; si termina con un `exitstatus` que NO sea
 #              éxito ("OK" o "WARNINGS: N"), también falla (y lo dice).
 # LÍMITES:     sólo sondea tareas de Proxmox. No cancela la tarea, no reintenta la
 #              operación original y no adivina la causa de un fallo.
-# VER:         README.md §Las cuatro puertas, y un diario de cada una; AGENTS.md §Reglas duras (4.6)
+# VER:         README.md §Las cuatro puertas, y un diario de cada una; AGENTS.md §Reglas duras (5 y 12)
 #
 # Espera: pve_tarea_upid, pve_tarea_nodo (hechos, ya anotados por
 #         `pve_api_y_esperar.yml`).
@@ -29,7 +29,7 @@
     msg: |-
       La tarea de Proxmox no terminó a tiempo.
         upid:          {{ pve_tarea_upid }}
-        sondeos:       {{ engine_tarea_intentos }} (uno cada {{ engine_tarea_intervalo }}s)
+        sondeos:       {{ engine_tarea_intentos }}, cada vez más espaciados (de {{ engine_tarea_intervalo }}s a {{ engine_tarea_intervalo_max }}s)
         último estado: {{ pve_tarea_estado }}
       El diario de esta ejecución está en {{ pve_carpeta_logs }}/api.jsonl
   when: not (pve_tarea_terminada | default(false) | bool)

@@ -213,11 +213,15 @@ engine_sonda_pausa: 5         # segundos entre intento e intento
 # creando), el motor sondea `GET /nodes/<nodo>/tasks/<upid>/status` hasta que la
 # tarea deja de estar "running".
 #
-# Cuántos sondeos como máximo, y cada cuántos segundos. Juntos fijan el tope de
-# espera (por defecto 150 x 2s = 300s). Si se agota, el verbo FALLA con un
-# mensaje claro en vez de seguir a ciegas.
-engine_tarea_intentos: 150
-engine_tarea_intervalo: 2
+# Cuántos sondeos como máximo, y cada cuánto. La espera CRECE: los primeros
+# sondeos van seguidos (una tarea corta se detecta enseguida) y luego se espacian
+# hasta `engine_tarea_intervalo_max`. Así el tope total es más ancho que antes
+# (≈340s contra 300s) sin pagar 150 vueltas de bucle cuando la tarea acaba en la
+# primera: cada vuelta DE MÁS cuesta ~63ms de intérprete aunque el cuerpo se salte
+# (medido), y con 150 vueltas eran ~7s por espera, en balde.
+engine_tarea_intentos: 40        # tope de sondeos por tarea
+engine_tarea_intervalo: 2        # lo que se espera tras el PRIMER sondeo; de ahí crece
+engine_tarea_intervalo_max: 15   # techo: nunca se espera más que esto entre sondeos
 
 # --- Logs -----------------------------------------------------------------
 # Cuántos informes `verify-*.json` se conservan por lab. Los más viejos se

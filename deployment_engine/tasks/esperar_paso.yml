@@ -9,7 +9,7 @@
 #              (las vueltas de más son no-op, sin tocar la API).
 # LÍMITES:     sólo sabe leer /nodes/<nodo>/tasks/<upid>/status. No cancela tareas
 #              ni interpreta su salida (eso lo hace `esperar_tarea.yml`).
-# VER:         README.md §Las cuatro puertas, y un diario de cada una; AGENTS.md §Reglas duras (4.6)
+# VER:         README.md §Las cuatro puertas, y un diario de cada una; AGENTS.md §Reglas duras (5 y 12)
 #
 # Espera: pve_tarea_upid, pve_tarea_nodo, pve_tarea_intento (lo pone el bucle).
 # Deja:   pve_tarea_estado, pve_tarea_exitstatus, pve_tarea_terminada.
@@ -38,7 +38,14 @@
         pve_tarea_exitstatus: "{{ pve_api_ultimo_datos.exitstatus | default('') }}"
         pve_tarea_terminada: "{{ (pve_api_ultimo_datos.status | default('unknown')) != 'running' }}"
 
-    - name: "ESPERA · dormir {{ engine_tarea_intervalo }}s antes del siguiente sondeo"
+    # La espera CRECE con la vuelta (2s, 3s, 4s... hasta el techo): los primeros
+    # sondeos van seguidos para pillar una tarea corta enseguida, y los de más
+    # adelante se espacian. Así el tope total es ancho sin pagar las vueltas de
+    # bucle que no hacen falta: cada vuelta cuesta ~63ms de intérprete aunque el
+    # cuerpo se salte (medido). `intento // 3` es la rampa; el `min`, el techo.
+    - name: "ESPERA · dormir lo que toque antes del siguiente sondeo"
       ansible.builtin.pause:
-        seconds: "{{ engine_tarea_intervalo | int }}"
+        seconds: >-
+          {{ [(engine_tarea_intervalo | int) + ((pve_tarea_intento | int) // 3),
+              engine_tarea_intervalo_max | int] | min }}
       when: not (pve_tarea_terminada | default(false) | bool)

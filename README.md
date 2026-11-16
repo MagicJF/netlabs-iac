@@ -169,14 +169,22 @@ configurar dentro** de cada equipo, y el motor lo converge como una fase más de
   responde): `identity`, `ip_services`, `addresses`, `routes`, `dhcp_server`, `uplink`,
   `firewall` (la tabla de filtrado entera, en orden: ADR 0019), `ip_forward`, `tunnel`…
 - **`image:`** en una VM QEMU: el disco de fábrica que se importa al crearla (un CHR).
-- **`address:`** admite tres formas: `<ip>/<prefijo>` (estática), **`dhcp`** (dinámica: el
-  invitado no la declara; se lee del host y, si hay túnel, de la concesión del router) o
-  **ausente** (un equipo sin dirección: un conmutador puro). **Y va a donde va en una máquina
+- **`address:`** admite cuatro formas: `<ip>/<prefijo>` (estática), **`dhcp`** (dinámica: el
+  invitado no la declara; se lee del host y, si hay túnel, de la concesión del router),
+  **`derived`** (el motor la calcula repartiendo en orden desde `lab.address_space`, sin que el
+  lab escriba un número; un valor explícito manda: ADR 0020) o **ausente** (un equipo sin
+  dirección: un conmutador puro). **Y va a donde va en una máquina
   de verdad** (ADR 0013): en un contenedor, el motor la escribe en la cadena de red de la interfaz
   (`ip=…`), así que `dhcp` nace **pidiendo** dirección al router de su red (que le da también
   pasarela y DNS) y una estática nace **con** ella. Una estática lleva su **`gateway:`**
   (declarada, no adivinada) para salir sin preguntar a nadie. Un invitado sin `address` nace
   sin ella, como siempre.
+- **`ready:`** (por invitado), **`tests:`**, **`capture:`** e **`impairment:`** (del lab) son lo
+  que el lab dice de sí mismo, no del equipo: cuánto se le espera a un invitado antes de seguir
+  (ADR 0021), qué pruebas funcionales demuestran que el lab HACE lo que promete (`./lab test`:
+  `ping`/`servicio`/`dns`; ADR 0022) y qué experimento se puede encender y apagar (`./lab
+  capture`, `./lab impair`; ADR 0023). **Ninguno entra en la convergencia**: `apply` no captura,
+  no estropea y no prueba nada.
 - **`static_leases: derived`** es la única forma de declarar reservas DHCP de un router: el
   motor reserva, por la MAC que **deriva del vmid**, cada dirección estática declarada por
   otro invitado **de la misma red** —excluyendo al propio servidor—. El ámbito lo dice la
@@ -200,6 +208,9 @@ parámetro que el motor necesita, y el nombre del pool sale de él.
 ./lab --lab <lab> preflight    # qué hay, qué falta, qué difiere (sólo lectura)
 ./lab --lab <lab> apply        # converge lo declarado y verifica
 ./lab --lab <lab> verify       # test final: ¿existe de verdad lo declarado?
+./lab --lab <lab> test         # ¿HACE lo que promete? (lo que declara `tests:`)
+./lab --lab <lab> capture      # mira el tráfico un rato (`capture:`)
+./lab --lab <lab> impair       # lo estropea un rato y lo deja como estaba (`impairment:`)
 ./lab --lab <lab> destroy      # único verbo que destruye (pide confirmación)
 ```
 

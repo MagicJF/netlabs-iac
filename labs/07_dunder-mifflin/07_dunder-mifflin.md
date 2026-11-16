@@ -21,6 +21,29 @@ enseñar.
 _Datos derivados de `07_dunder-mifflin.yml`. Los reescribe `./lab check docs --actualizar`;
 si los editas a mano, `./lab check docs` falla._
 
+## Topología
+
+```mermaid
+graph TD
+    n_vmb_dm_gestion(["vmb_dm_gestion<br/>10.43.0.1/24"])
+    n_vmb_dm_oficina(["vmb_dm_oficina<br/>10.43.1.1/24"])
+    n_vmb_dm_almacen(["vmb_dm_almacen<br/>10.43.2.1/24"])
+    n_borde["borde<br/>VM (qemu) · etapa 1"]
+    n_borde --- n_vmb_dm_gestion
+    n_borde --- n_vmb_dm_oficina
+    n_borde --- n_vmb_dm_almacen
+    n_control["control<br/>LXC · etapa 1"]
+    n_control --- n_vmb_dm_gestion
+    n_ficheros["ficheros<br/>LXC · etapa 2"]
+    n_ficheros --- n_vmb_dm_oficina
+    n_puesto_1["puesto-1<br/>LXC · etapa 3"]
+    n_puesto_1 --- n_vmb_dm_oficina
+    n_puesto_2["puesto-2<br/>LXC · etapa 3"]
+    n_puesto_2 --- n_vmb_dm_oficina
+    n_puesto_3["puesto-3<br/>LXC · etapa 3"]
+    n_puesto_3 --- n_vmb_dm_almacen
+```
+
 ## Invitados declarados
 
 | rol | tipo | stage | cores | memory (MB) | disk (GB) | bridge | address |

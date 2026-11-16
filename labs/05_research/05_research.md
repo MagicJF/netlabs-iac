@@ -17,6 +17,17 @@ agent) de Proxmox a una VM CHR de RouterOS, y sirve de algo?
 _Datos derivados de `05_research.yml`. Los reescribe `./lab check docs --actualizar`;
 si los editas a mano, `./lab check docs` falla._
 
+## Topología
+
+```mermaid
+graph TD
+    n_vmb_research(["vmb_research<br/>10.41.0.1/24"])
+    n_chr_agente["chr-agente<br/>VM (qemu) · etapa 1"]
+    n_chr_agente --- n_vmb_research
+    n_control["control<br/>LXC · etapa 1"]
+    n_control --- n_vmb_research
+```
+
 ## Invitados declarados
 
 | rol | tipo | stage | cores | memory (MB) | disk (GB) | bridge | address |

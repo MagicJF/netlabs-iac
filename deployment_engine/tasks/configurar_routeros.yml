@@ -209,7 +209,8 @@
           | interior_pasos(identidad, declaracion, interior_leido, parametros_motor)
           | interior_operaciones)
          | interior_escrituras_routeros(interior_declarado_guest, declaracion,
-                                       identidad, parametros_routeros, interior_leido) }}
+                                       identidad, parametros_routeros, interior_leido)
+         | interior_guion_routeros(engine_routeros_guion) }}
   vars:
     parametros_routeros:
       usuario: "{{ engine_routeros_usuario }}"
@@ -256,9 +257,18 @@
     ros_metodo: "{{ ros_llamada.metodo }}"
     ros_ruta: "{{ ros_llamada.ruta }}"
     ros_cuerpo: "{{ ros_llamada.cuerpo }}"
+    # El cuerpo del DIARIO puede ir aparte: un guion lleva la contraseña DENTRO del texto
+    # del script, y `sin_secretos` tapa por nombre de campo, no por contenido -- así que
+    # el guion viaja con una versión ya tapada. Cuando no hay guion, es el mismo cuerpo.
+    ros_cuerpo_diario: "{{ ros_llamada.cuerpo_diario | default(ros_llamada.cuerpo) }}"
     ros_area: "{{ ros_llamada.area }}"
-    ros_usuario: "{{ ros_usuario_efectivo }}"
-    ros_clave: "{{ ros_clave_efectiva }}"
+    # La credencial con la que hay que mandar ESTA escritura. La decisión la toma la capa
+    # pura: `set_engine_credential` va al final del área `identity`, así que todo lo que
+    # converja DESPUÉS de ella (ip_services, routes y --la última-- firewall) ya tiene que
+    # viajar con la del motor. Sin esto, esas escrituras salían con la de fábrica y el
+    # RouterOS contestaba 401 a media convergencia (medido en el lab 08).
+    ros_usuario: "{{ ros_usuario_motor if (ros_llamada.credencial | default('') == 'motor') else ros_usuario_efectivo }}"
+    ros_clave: "{{ ros_clave_motor if (ros_llamada.credencial | default('') == 'motor') else ros_clave_efectiva }}"
     ros_etiqueta: "escribir {{ ros_llamada.area }}: {{ ros_llamada.descripcion }}"
     ros_direccion: "{{ ros_llamada.address | default(ros_direccion_declarada) }}"
     # Y al escribir se toleran errores SOLO en las llamadas que la capa pura marcó

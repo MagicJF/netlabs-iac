@@ -117,6 +117,13 @@ La `identity` sigue yendo la última en la primera convergencia (intercambio at�
 primero se pone y se verifica lo nuevo, y sólo entonces se cambia el nombre y la credencial
 del equipo, para no quedarse fuera con las credenciales viejas.
 
+Y por detrás va el **cortafuegos** (ADR 0019), que es la única otra área capaz de dejar al
+motor fuera: se cierra la puerta con todo lo demás ya puesto. Eso significa que hay
+escrituras **después** del cambio de credencial, y que la regla de §6 («ninguna escritura
+posterior depende de una credencial que acaba de dejar de existir») se cumple de otra
+forma: cada escritura viaja con la credencial que le toca, y lo decide la capa pura
+marcándola (`credencial: motor`). Ver §6.
+
 ## 4. Lo que NO se hizo por SSH
 
 Nada. Todo el túnel se hizo por el REST del equipo, con la vía de acceso diarizando cada llamada
@@ -214,10 +221,27 @@ Al cambiar la contraseña, la de fábrica (con la que el driver estaba hablando)
 --nombre puesto, contraseña cambiada, clave sin llegar-- y el verbo se para con el 401.
 
 **Decisión: `nombre` -> `clave` -> `credencial`.** La clave se importa mientras la credencial
-vieja aún vale, y la contraseña es la ÚLTIMA escritura de todo el interior: así ninguna
-escritura posterior depende de una credencial que acaba de dejar de existir. Lo que deja al
-motor dentro es la CLAVE; la contraseña se cambia como última medida de higiene, cuando ya
-no hace falta la de fábrica para nada.
+vieja aún vale, y la contraseña es la última escritura del área `identity`: así ninguna de
+las escrituras QUE DEPENDEN de la credencial vieja cae por detrás.
+
+### Y desde el ADR 0019, hay áreas DETRÁS de la credencial
+
+El `firewall` converge después de `identity` (§«el cortafuegos es lo último», ADR 0019), así
+que «la contraseña es la última escritura» dejó de ser literalmente cierto — y con eso volvió
+el mismo 401 de arriba, esta vez en el lab `08_dunder-mifflin-con-fw`:
+
+```
+POST /user/set        {"password":"<la del motor>"}                 -> 400 Session closed   (tolerado, surte efecto)
+POST /execute         {las 7 reglas del cortafuegos en un guion}    -> 401 Unauthorized
+```
+
+La escritura posterior seguía saliendo con la credencial **de fábrica** (la que el driver
+había negociado al empezar), y esa ya no valía. **Decisión: la capa pura marca cada llamada
+con la credencial con la que hay que mandarla** (`credencial: motor` a partir de
+`set_engine_credential`), el guion hereda la del tramo y el driver obedece la marca en vez de
+usar la negociada al principio. Así el orden de las áreas puede crecer por detrás de la
+credencial sin reabrir esta trampa, y la marca es la misma pieza que ya separaba los tramos
+del guion (una llamada con secreto no se funde).
 
 Y esa última escritura **se queda sin respuesta a propósito**: cambiar la contraseña del
 usuario con el que se está hablando cierra la sesión, y RouterOS contesta
@@ -231,5 +255,7 @@ aunque el cambio haya surtido efecto (medido). Es un corte por diseño, de la mi
 que apagar el cliente DHCP, así que la operación lleva `tolerar_sin_respuesta` y el verbo no
 se para: **la convergencia la dice la REELECTURA**, que ya entra con la credencial nueva.
 
-Lo blinda `test/test_routeros.py`: compara la lista de operaciones entera, exige que la
-última sea `poner_credencial_motor`, y que esa operación --y su llamada-- toleren el corte.
+Lo blinda `test/test_routeros.py`: compara la lista de operaciones entera, exige que
+`poner_credencial_motor` --y su llamada-- toleren el corte, y que nada con credencial vieja
+vaya por detrás (en un lab sin cortafuegos, la credencial cierra el interior; en uno que lo
+declare, la marca `credencial` de cada escritura es lo que se comprueba).

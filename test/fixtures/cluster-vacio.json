@@ -1,7 +1,9 @@
 {
   "nodo": "pve-simulado",
   "vmids_usados": [],
-  "bridges_nodo": ["vmbr0"],
+  "bridges_nodo": ["vmbr0", "vmbr1"],
+  "bridges_direcciones": {"vmbr1": "192.0.2.1/24"},
+  "direcciones_usadas": ["192.0.2.1/24"],
   "pools": {},
   "guests": {},
   "guests_otros": {}

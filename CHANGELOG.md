@@ -18,6 +18,25 @@ aquí está su entrada; los tres tienen que contar lo mismo, y eso es lo que vig
 
 ## [No publicado]
 
+### Añadido
+
+- **El área `firewall` de RouterOS** (ADR 0019): un lab puede declarar la **tabla de
+  filtrado entera**, en orden, con vocabulario cerrado (`chain`, `action`, `protocol`,
+  `src_address`/`dst_address`, `src_port`/`dst_port`, `in_interface`/`out_interface`,
+  `connection_state`, `comment`, `disabled`). Es la única área que converge **después de la
+  credencial**, porque es la única capaz de dejar al motor fuera de su propio equipo; y el
+  validador **rechaza** un `drop` de `input` sin un `accept` de `input` antes, que es
+  exactamente esa situación.
+- **El tipo de equipo `fw`** (`tipo: fw` → `fw-oficina`): una máquina cuya responsabilidad es
+  filtrar, que es lo que permite repartir una topología en «1 máquina = 1 responsabilidad».
+- **El lab `08_dunder-mifflin-con-fw`**: la versión con zonas del lab 07 — un router que
+  enruta y sale, tres cortafuegos que filtran (uno por zona), ninguno con dos
+  responsabilidades.
+- **La tabla de accesos en el documento de cada lab** incluye, además del usuario y el
+  método, el **valor** de la credencial con la que se entra y **de dónde sale**
+  (`secrets.yml`). Es una decisión explícita para labs efímeros de aprendizaje: se citan
+  para poder entrar, no porque el secreto importe.
+
 ### Cambiado
 
 - **El repositorio se llama `netlabs-iac`** (antes `netlabs_v4_b`): la versión y la
@@ -26,6 +45,17 @@ aquí está su entrada; los tres tienen que contar lo mismo, y eso es lo que vig
   descripción de cada invitado y en el comentario de cada bridge: esa marca es estado ya
   desplegado —de ella depende la propiedad de los bridges y la idempotencia—, así que
   cambiarla tiene su propia migración, y no va en este cambio.
+
+### Arreglado
+
+- **Una escritura que converge DESPUÉS del cambio de credencial viajaba con la de fábrica**,
+  y RouterOS contestaba 401 a media convergencia (medido en el lab 08, ADR 0018). Ahora la
+  capa pura marca cada llamada con la credencial que le toca (`credencial: motor`) y el
+  driver la obedece.
+- **`./lab plan` sin credenciales fallaba en cualquier lab con salida**: el fixture offline
+  no modelaba la dirección del bridge de gestión del nodo.
+- Un aviso de plantilla en `tasks/tunnel.yml`: una tarea hablaba de un rol que no existía en
+  esa pasada.
 
 ## [0.1.0] - 2026-11-15
 

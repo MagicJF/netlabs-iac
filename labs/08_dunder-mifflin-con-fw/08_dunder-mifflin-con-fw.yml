@@ -1,0 +1,315 @@
+---
+# PROPÓSITO:   declarar la topología del lab `08_dunder-mifflin-con-fw`: la MISMA empresa
+#              que `07_dunder-mifflin` (una sede con una oficina, un almacén y servidores),
+#              pero con la red partida en ZONAS y cada zona protegida por su propio
+#              CORTAFUEGOS. Es la versión que enseña lo que el 07 no podía: filtrado de
+#              verdad (`/ip/firewall/filter`), y una máquina por responsabilidad -- un
+#              router que enruta y sale, tres cortafuegos que filtran, ninguna que haga
+#              las dos cosas.
+# INVARIANTES: esta es la FUENTE DE VERDAD del lab. Aquí NO hay ningún vmid, ninguna MAC
+#              y NINGUNA dirección de la red de casa: la identidad la deriva el motor
+#              (regla 11) y la interfaz de fuera del router de salida toma su dirección,
+#              su pasarela y sus DNS del estado del nodo, no de este fichero (ADR 0012:
+#              `uplink` es una marca, por eso no lleva opciones).
+#              El nombre tiene que coincidir con el de la carpeta (el pool de Proxmox se
+#              llama como la carpeta y es la frontera de propiedad), y todo lo declarado
+#              cae dentro de `lab.espacio de direcciones`.
+# LÍMITES:     el interior que este lab declara está en el vocabulario CERRADO del motor:
+#              para RouterOS, identidad, servicios, cliente del DHCP de fábrica,
+#              direcciones, rutas, servidor DHCP, exterior y CORTAFUEGOS; para Linux, el
+#              túnel, la dirección, el reenvío y el servidor DHCP. Lo que el motor todavía
+#              no converge (los `bridges` de RouterOS --una máquina QUE CONMUTE--; y
+#              pasarela, rutas, dns y claves de Linux) está DECLARADO como pendiente en
+#              `filter_plugins/interior.py` y la validación lo rechaza con su motivo: aquí
+#              no se declara, para no fingir que se configura. Tampoco hay aplicaciones
+#              dentro de los invitados.
+# VER:         labs/08_dunder-mifflin-con-fw/08_dunder-mifflin-con-fw.md (por qué así);
+#              docs/decisiones/0019-el-area-firewall-de-routeros.md (el área nueva);
+#              docs/decisiones/0012-la-salida-del-lab.md (qué compra `uplink`);
+#              docs/crear-un-lab.md (las decisiones, en orden)
+#
+# LA EMPRESA, EN UNA LÍNEA: una sede con UNA salida a internet, un router que enruta y
+# sale, y TRES zonas (oficina, almacén y servidores) con un cortafuegos delante de cada
+# una. El troncal --la red por la que el router habla con los tres cortafuegos-- es el
+# eje: por él pasa todo lo que va de una zona a otra o hacia fuera, y ninguna zona habla
+# con otra si su cortafuegos no lo permite.
+#
+# UNA MÁQUINA, UNA RESPONSABILIDAD (regla del encargo): `rt-nucleo` enruta y traduce
+# (y sale); `fw-oficina`, `fw-almacen` y `fw-servidores` filtran, y nada más. Por eso los
+# puestos y los servidores llevan su dirección puesta a mano (`address:` + `gateway:`) en
+# vez de pedirla: repartir direcciones sería una TERCERA responsabilidad, y para que un
+# cortafuegos la tuviera habría que meterle un servidor DHCP que no le toca.
+
+lab:
+  nombre: 08_dunder-mifflin-con-fw
+
+  # Dos etapas. La primera es la INFRAESTRUCTURA (el bastión con su túnel, el router y los
+  # tres cortafuegos): hasta que el router no está convergido y sirviendo, nadie de dentro
+  # puede salir. La segunda son los hosts, que ya saben por dónde (llevan su pasarela).
+  stages: [1, 2]
+
+  # Espacio propio y libre: los cuatro labs con interior usan 10.40, 10.41, 10.42 y 10.43.
+  # Lo vigila `./lab check address-space`.
+  address_space: 10.44.0.0/16
+
+  # Cinco bridges: el de gestión (por donde entra el motor) y uno por red del lab. El
+  # `address:` de un bridge es la PASARELA de esa red (no se le pone al nodo: el nodo sólo
+  # presta la interfaz), y es lo que usan los checks para saber quién es quién.
+  #
+  # EL CONMUTADOR SIGUE SIN SER UN INVITADO: un bridge de Linux conmuta (aprende MACs y
+  # reenvía), así que una caja que "conmuta" sería una caja que no hace nada. El
+  # vocabulario del interior no tiene `puentes` y el validador lo rechaza.
+  bridges:
+    - nombre: vmb_fw_gestion
+      address: 10.44.0.1/24
+    - nombre: vmb_fw_troncal
+      address: 10.44.10.1/24
+    - nombre: vmb_fw_oficina
+      address: 10.44.1.1/24
+    - nombre: vmb_fw_almacen
+      address: 10.44.2.1/24
+    - nombre: vmb_fw_dmz
+      address: 10.44.3.1/24
+
+  # El túnel lo construye el motor: el invitado con `config.linux.túnel` sale hacia casa y
+  # hace de bastión. Por dónde sale es ENTORNO (vive en secrets.yml), no del lab.
+  tunnel: {tipo: bastion}
+
+vms:
+  # EL ROUTER: su única responsabilidad es ENRUTAR y SALIR. Tiene la vía de acceso
+  # (`uplink`: cliente DHCP en la interfaz de fuera, MASQUERADE por ella y el resolutor
+  # encendido) y las rutas hacia las tres zonas, que están DETRÁS de los cortafuegos.
+  #
+  # Dos interfaces declaradas (gestión y troncal); la tercera la tiende el motor al nacer
+  # sobre el bridge del nodo que tiene salida (valor de ENTORNO, `pve_bridge_gestion`).
+  - rol: nucleo
+    tipo: rt          # un router CHR -> 'rt-nucleo'
+    stage: 1
+    cores: 2
+    memory: 512
+    disk: 1
+    image: chr-7.25.1.raw
+    # TRES interfaces, y el orden ES la numeración: vmb_fw_gestion -> ether1 (gestión),
+    # vmb_fw_troncal -> ether2, y la de fuera (que añade el motor) -> ether3.
+    bridges: [vmb_fw_gestion, vmb_fw_troncal]
+    address: 10.44.0.11/24
+    config:
+      routeros:
+        identity: rt-nucleo
+        ip_services: {deshabilitar: [telnet, ftp, api, api-ssl]}
+        dhcp_client: {deshabilitar: true}
+        addresses:
+          - {interface: ether2, address: 10.44.10.1/24}
+        # Una ruta por zona, y cada una apunta al troncal de SU cortafuegos: el router no
+        # habla con las zonas, habla con los cortafuegos que las guardan.
+        routes:
+          - {dst_address: 10.44.1.0/24, gateway: 10.44.10.10}
+          - {dst_address: 10.44.2.0/24, gateway: 10.44.10.11}
+          - {dst_address: 10.44.3.0/24, gateway: 10.44.10.12}
+        uplink: {}
+        # El filtrado del router: no es su trabajo (ése es de los cortafuegos), pero un
+        # equipo con una pata en internet NO se queda abierto. Entrada sólo desde la red
+        # de gestión (el túnel del motor) y el propio cliente de la vía de acceso; salida
+        # desde el troncal; y de fuera hacia dentro, nada.
+        firewall:
+          - {chain: input, action: accept, src_address: 10.44.0.0/24,
+             comment: "la red de gestion entra: por ahi vive el tunel del motor"}
+          - {chain: input, action: accept, protocol: icmp, comment: "ping, para diagnostico"}
+          - {chain: input, action: accept, protocol: udp, src_port: 68, dst_port: 67,
+             comment: "el cliente de la via de acceso: sin esto, al renovar se queda sin direccion"}
+          - {chain: input, action: accept, connection_state: "established,related"}
+          - {chain: input, action: drop, comment: "al router, por lo demas, no se le entra"}
+          - {chain: forward, action: accept, connection_state: "established,related"}
+          - {chain: forward, action: accept, in_interface: ether2,
+             comment: "lo que viene de dentro sale"}
+          - {chain: forward, action: drop, comment: "y lo que viene de fuera no entra"}
+
+  # EL CORTAFUEGOS DE LA OFICINA: no enruta nada que no sea pasar a la oficina, no traduce,
+  # no reparte direcciones. Filtra. Su pata de gestión (ether1) NO es una vía de servicio:
+  # está para que el motor lo configure, y su tabla de entrada lo dice.
+  - rol: oficina
+    tipo: fw          # cortafuegos: un CHR -> 'fw-oficina'
+    stage: 1
+    cores: 2
+    memory: 512
+    disk: 1
+    image: chr-7.25.1.raw
+    bridges: [vmb_fw_gestion, vmb_fw_troncal, vmb_fw_oficina]
+    address: 10.44.0.12/24
+    config:
+      routeros:
+        identity: fw-oficina
+        ip_services: {deshabilitar: [telnet, ftp, api, api-ssl]}
+        dhcp_client: {deshabilitar: true}
+        addresses:
+          - {interface: ether2, address: 10.44.10.10/24}
+          - {interface: ether3, address: 10.44.1.1/24}
+        routes:
+          - {dst_address: 0.0.0.0/0, gateway: 10.44.10.1}
+        firewall:
+          - {chain: input, action: accept, src_address: 10.44.0.0/24,
+             comment: "la red de gestion entra: por ahi vive el tunel del motor"}
+          - {chain: input, action: accept, protocol: icmp}
+          - {chain: input, action: accept, connection_state: "established,related"}
+          - {chain: input, action: drop, comment: "al cortafuegos no se le entra por su cara de dentro"}
+          - {chain: forward, action: accept, connection_state: "established,related"}
+          - {chain: forward, action: accept, in_interface: ether3,
+             comment: "la oficina sale por el troncal (y de ahi, el router la saca)"}
+          - {chain: forward, action: drop, comment: "de fuera hacia la oficina, nada: cada zona se pide"}
+
+  # EL CORTAFUEGOS DEL ALMACÉN: misma forma, otra zona.
+  - rol: almacen
+    tipo: fw          # -> 'fw-almacen'
+    stage: 1
+    cores: 2
+    memory: 512
+    disk: 1
+    image: chr-7.25.1.raw
+    bridges: [vmb_fw_gestion, vmb_fw_troncal, vmb_fw_almacen]
+    address: 10.44.0.13/24
+    config:
+      routeros:
+        identity: fw-almacen
+        ip_services: {deshabilitar: [telnet, ftp, api, api-ssl]}
+        dhcp_client: {deshabilitar: true}
+        addresses:
+          - {interface: ether2, address: 10.44.10.11/24}
+          - {interface: ether3, address: 10.44.2.1/24}
+        routes:
+          - {dst_address: 0.0.0.0/0, gateway: 10.44.10.1}
+        firewall:
+          - {chain: input, action: accept, src_address: 10.44.0.0/24,
+             comment: "la red de gestion entra: por ahi vive el tunel del motor"}
+          - {chain: input, action: accept, protocol: icmp}
+          - {chain: input, action: accept, connection_state: "established,related"}
+          - {chain: input, action: drop}
+          - {chain: forward, action: accept, connection_state: "established,related"}
+          - {chain: forward, action: accept, in_interface: ether3,
+             comment: "el almacen sale por el troncal"}
+          - {chain: forward, action: drop}
+
+  # EL CORTAFUEGOS DE LOS SERVIDORES: es el ESTRECHO -- y por eso es el que enseña lo que
+  # un cortafuegos es. La DMZ no inicia NADA hacia fuera; sólo se le entra por https (y por
+  # http, para el redireccionamiento). Todo lo demás cae.
+  - rol: servidores
+    tipo: fw          # -> 'fw-servidores'
+    stage: 1
+    cores: 2
+    memory: 512
+    disk: 1
+    image: chr-7.25.1.raw
+    bridges: [vmb_fw_gestion, vmb_fw_troncal, vmb_fw_dmz]
+    address: 10.44.0.14/24
+    config:
+      routeros:
+        identity: fw-servidores
+        ip_services: {deshabilitar: [telnet, ftp, api, api-ssl]}
+        dhcp_client: {deshabilitar: true}
+        addresses:
+          - {interface: ether2, address: 10.44.10.12/24}
+          - {interface: ether3, address: 10.44.3.1/24}
+        routes:
+          - {dst_address: 0.0.0.0/0, gateway: 10.44.10.1}
+        firewall:
+          - {chain: input, action: accept, src_address: 10.44.0.0/24,
+             comment: "la red de gestion entra: por ahi vive el tunel del motor"}
+          - {chain: input, action: accept, protocol: icmp}
+          - {chain: input, action: accept, connection_state: "established,related"}
+          - {chain: input, action: drop}
+          - {chain: forward, action: accept, connection_state: "established,related"}
+          - {chain: forward, action: accept, protocol: tcp, dst_address: 10.44.3.10, dst_port: 443,
+             comment: "al servidor web, solo por https"}
+          - {chain: forward, action: accept, protocol: tcp, dst_address: 10.44.3.10, dst_port: 80,
+             comment: "y por http, para el redireccionamiento"}
+          - {chain: forward, action: drop, comment: "la DMZ no inicia nada: lo demas cae"}
+
+containers:
+  # El bastión: la única puerta que el motor necesita para ENTRAR. Vive en el bridge de
+  # gestión, da la PRIMERA dirección (reservas derivadas de las MAC de los cuatro CHR) y
+  # reenvía. NO es un router de la empresa: no traduce y no sale.
+  - rol: control
+    tipo: ctl         # un bastión -> 'ctl-1'
+    nombre: 1
+    stage: 1
+    cores: 1
+    memory: 512
+    disk: 4
+    bridge: vmb_fw_gestion
+    address: 10.44.0.10/24
+    config:
+      linux:
+        tunnel: {}
+        dhcp_server:
+          interface: eth0
+          rango: 10.44.0.50-10.44.0.99
+          static_leases: derived
+          # La ÚNICA red que se reparte sola es la de gestión (sus clientes de fábrica son
+          # los cuatro CHR, hasta que el motor les pone su dirección). Y anuncia el
+          # resolutor del router -- `rt-nucleo` resuelve por la vía de acceso-- para que
+          # nadie del lab tenga que hablar con un DNS de fuera.
+          network: {address: 10.44.0.0/24, gateway: 10.44.0.10, dns: [10.44.0.11]}
+        ip_forward: true
+
+  # EL SERVIDOR DE FICHEROS DE LA OFICINA: dirección y pasarela a mano. Su pasarela es su
+  # CORTAFUEGOS (`fw-oficina`, 10.44.1.1), que es quien lo saca. No se entra en él.
+  - rol: ficheros
+    tipo: srv         # -> 'srv-1'
+    nombre: 1
+    stage: 2
+    cores: 1
+    memory: 512
+    disk: 8
+    bridge: vmb_fw_oficina
+    address: 10.44.1.10/24
+    gateway: 10.44.1.1
+
+  # EL SERVIDOR WEB: el que vive en la DMZ, y el único al que se le puede llegar desde
+  # fuera de su zona (por 80 y 443, y por nada más).
+  - rol: web
+    tipo: srv         # -> 'srv-2'
+    nombre: 2
+    stage: 2
+    cores: 1
+    memory: 512
+    disk: 8
+    bridge: vmb_fw_dmz
+    address: 10.44.3.10/24
+    gateway: 10.44.3.1
+
+  # LOS PUESTOS DE LA OFICINA: con su dirección y su pasarela puestas a mano -- nada que
+  # repartir, así que ningún cortafuegos tiene que llevar un servidor DHCP que no le toca.
+  - rol: puesto-1
+    tipo: ws          # -> 'ws-1'
+    nombre: 1
+    stage: 2
+    cores: 1
+    memory: 512
+    disk: 4
+    bridge: vmb_fw_oficina
+    address: 10.44.1.11/24
+    gateway: 10.44.1.1
+
+  - rol: puesto-2
+    tipo: ws          # -> 'ws-2'
+    nombre: 2
+    stage: 2
+    cores: 1
+    memory: 512
+    disk: 4
+    bridge: vmb_fw_oficina
+    address: 10.44.1.12/24
+    gateway: 10.44.1.1
+
+  # EL PUESTO DEL ALMACÉN: cuelga de SU cortafuegos, y por eso no ve la oficina ni la DMZ
+  # salvo que el suyo lo deje (y hoy no lo deja: sale, y nada más).
+  - rol: puesto-3
+    tipo: ws          # -> 'ws-3'
+    nombre: 3
+    stage: 2
+    cores: 1
+    memory: 512
+    disk: 4
+    bridge: vmb_fw_almacen
+    address: 10.44.2.11/24
+    gateway: 10.44.2.1
+#     ↑ sin `vmid` ni `mac`: los deriva el motor leyendo el estado del clúster.

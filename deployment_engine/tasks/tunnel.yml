@@ -240,4 +240,10 @@
       contesta, así que la cadena nodo de control -> {{ tunnel_salida_host }}:{{ tunnel_salida_puerto }}
       -> rol '{{ tunnel_rol }}' -> vuelta funciona. Ansible puede entrar en el lab.
   changed_when: false
-  when: not (tunnel_solo_clave | default(false) | bool)
+  when:
+    - not (tunnel_solo_clave | default(false) | bool)
+    # El nombre y el mensaje hablan de UN rol, y `tunnel_rol` sólo existe cuando el túnel
+    # se levanta desde un paso (`paso.yml`). En `plan`/`preflight` --que incluyen este
+    # fichero para leer la clave-- no hay rol: sin esta guarda, Ansible avisa de que la
+    # plantilla del nombre no resuelve.
+    - tunnel_rol is defined

@@ -30,14 +30,15 @@ también la contara.
 **1. El nombre se compone de dos mitades declaradas por el lab: `tipo` y alias.**
 
 - `tipo:` — **obligatorio** en cada invitado, de un vocabulario **cerrado** (regla 15):
-  `rt` (router, un CHR), `srv` (servidor), `ws` (puesto de trabajo), `sw` (conmutador o
+  `rt` (router, un CHR), `fw` (cortafuegos: un CHR que sólo filtra — añadido el 16-nov-2026,
+  ADR 0019), `srv` (servidor), `ws` (puesto de trabajo), `sw` (conmutador o
   equipo sin dirección), `ctl` (bastión, el bastión). Un equipo que no quepa en
   ninguno pide su tipo al motor **con su ADR**, no se inventa en un YAML.
 - `nombre:` — **opcional**: el alias corto. Si no está, el alias es el `rol`. Admite número
   (`nombre: 2` -> `ws-2`), que es lo natural para numerar.
 
-Y el nombre es `tipo` + `-` + alias: `rt-borde`, `rt-nucleo`, `srv-1`, `ws-1`, `ws-2`,
-`ctl-1`, `sw-1`. La plantilla vive en `vars/engine.yml` (`engine_plantilla_nombre:
+Y el nombre es `tipo` + `-` + alias: `rt-borde`, `rt-nucleo`, `fw-oficina`, `srv-1`, `ws-1`,
+`ws-2`, `ctl-1`, `sw-1`, `fw-servidores`. La plantilla vive en `vars/engine.yml` (`engine_plantilla_nombre:
 "{equipo}-{alias}"`), así que sigue siendo **forma del motor y no valor de ningún lab** (regla
 7): el motor no sabe que existe `rt-borde`, sabe componer el nombre a partir de lo que el lab
 declara.

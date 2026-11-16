@@ -27,6 +27,7 @@ import yaml
 RAIZ = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 PLANTILLA = os.path.join(RAIZ, "deployment_engine", "templates", "lab-region.md.j2")
 VARS_MOTOR = os.path.join(RAIZ, "deployment_engine", "vars", "engine.yml")
+SECRETOS = os.path.join(RAIZ, "deployment_engine", "secrets.yml")
 
 MARCA_INICIO = "<!-- generado:inicio -->"
 MARCA_FIN = "<!-- generado:fin -->"
@@ -43,6 +44,18 @@ def _leer_yaml(ruta):
 
 def _vars_del_motor():
     return _leer_yaml(VARS_MOTOR)
+
+
+def _secretos():
+    """El valor de las credenciales, para poder ENSEÑARLO en la tabla de acceso.
+
+    Decisión explícita del dueño del repo: estos labs son de un solo uso y las contraseñas
+    se escriben en el documento (`labs/<lab>/<lab>.md`) a la vista. Si `secrets.yml` no
+    está (un clon nuevo), la columna lo dice en vez de inventarse un valor.
+    """
+    if not os.path.exists(SECRETOS):
+        return {}
+    return _leer_yaml(SECRETOS) or {}
 
 
 def _filas(filas, columnas):
@@ -94,6 +107,7 @@ def renderizar_region(directorio_lab):
     archivo_declaracion = f"{nombre_lab}.yml"
     declaracion = _leer_yaml(os.path.join(directorio_lab, archivo_declaracion))
     motor = _vars_del_motor()
+    secretos = _secretos()
 
     guests = _guests_normalizados(declaracion)
     bridges = declaracion["lab"]["bridges"]
@@ -154,6 +168,52 @@ def renderizar_region(directorio_lab):
         5,
     )
 
+    # Acceso: cómo se ENTRA a cada equipo. El usuario y la FORMA de acceso se derivan
+    # de la declaración y del motor; la CREDENCIAL se cita por su ORIGEN, nunca por su
+    # valor (el valor vive en `secrets.yml`, que no se versiona); y el puerto sale del
+    # vmid, que no se conoce hasta `apply`, así que se enseña la FÓRMULA. Un invitado sin
+    # `config:` no se toca, y su fila lo dice en vez de fingir un acceso que no existe.
+    # `routeros` / `linux` son el VOCABULARIO del interior, no un valor de ningún lab:
+    # la declaración cuelga las áreas de `config.<interior>` (ver `interior.py`).
+    hay_bastion = any(
+        "tunnel" in (((i.get("config") or {}).get("linux")) or {}) for i in guests
+    )
+
+    def _fila_de_acceso(i):
+        config = i.get("config") or {}
+        if not config:
+            return [i["rol"], ETIQUETA_TIPO[i["tipo"]], "—", "—",
+                    "no se entra: no declara `config:`"]
+        if "routeros" in config:
+            usuario = motor["engine_routeros_usuario"]
+            valor = secretos.get("routeros_clave")
+            clave_dicha = f"`{valor}`" if valor else "`(falta `secrets.yml`)`"
+            return [
+                i["rol"], ETIQUETA_TIPO[i["tipo"]],
+                usuario,
+                f"`{usuario}` / {clave_dicha} — de `secrets.yml` → `routeros_clave` "
+                f"(HTTP Basic)",
+                f"REST por el túnel del bastión "
+                f"(`{motor['engine_tunnel_rest_puerto_base']}`+vmid); su consola, por la "
+                f"serial del nodo",
+            ]
+        es_bastion = "tunnel" in ((config.get("linux")) or {})
+        if es_bastion:
+            acceso = (f"SSH a `127.0.0.1`:(`{motor['engine_tunnel_puerto_base']}`+vmid): "
+                      f"él ES el bastión, se entra directo por su túnel")
+        elif hay_bastion:
+            acceso = "SSH por el bastión (salta por su túnel), a su dirección en el lab"
+        else:
+            acceso = "SSH: este lab no declara bastión, y sin él no se entra al interior"
+        return [
+            i["rol"], ETIQUETA_TIPO[i["tipo"]], motor["engine_usuario_guest"],
+            f"clave del lab (`{motor['engine_tunnel_clave_base']}_"
+            f"{declaracion['lab']['nombre']}_ed25519`), sin contraseña",
+            acceso,
+        ]
+
+    tabla_acceso = _filas([_fila_de_acceso(i) for i in guests], 5)
+
     with open(PLANTILLA, encoding="utf-8") as fichero:
         plantilla = fichero.read()
 
@@ -165,6 +225,7 @@ def renderizar_region(directorio_lab):
         "tabla_bridges": tabla_bridges,
         "tabla_stages": tabla_stages,
         "tabla_identidad": tabla_identidad,
+        "tabla_acceso": tabla_acceso,
     }
     resultado = plantilla
     # El comentario de cabecera de la plantilla no es parte de la región: se quita

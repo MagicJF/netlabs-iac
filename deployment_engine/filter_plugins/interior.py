@@ -58,6 +58,7 @@ AREAS = {
     "linux": ("tunnel", "address", "addresses", "ip_forward", "dhcp_server"),
     "routeros": (
         "identity", "addresses", "ip_services", "dhcp_client", "routes", "dhcp_server", "uplink",
+        "firewall",
     ),
 }
 
@@ -65,7 +66,7 @@ AREAS = {
 # a propósito: la validación las rechaza con un motivo legible en vez de aceptarlas
 # y luego no hacer nada con ellas, que es la forma más silenciosa de mentir.
 AREAS_PENDIENTES = {
-    "routeros": ("bridges", "firewall"),
+    "routeros": ("bridges",),
     "linux": ("gateway", "routes", "dns", "claves"),
 }
 
@@ -1077,6 +1078,48 @@ def _uplink_canonico(declarado, leido, parametros):
     return operaciones
 
 
+def _firewall_canonico(declarado, leido):
+    """Diferencia del área `firewall`: la tabla de filtrado ENTERA, y en su orden.
+
+    El orden ES la semántica --RouterOS aplica la PRIMERA regla que casa y para--, así
+    que lo declarado es la tabla completa y en su orden: una regla que no se declara se
+    QUITA (regla 17: el área entera es del lab). Si la tabla leída ya coincide, no hay
+    operación, y la 2ª pasada sólo lee.
+
+    Cuando NO coincide, se RECONSTRUYE: se quitan todas las leídas y se ponen las
+    declaradas en orden. No es lo más fino, es lo único que garantiza el ORDEN sin
+    depender de `move` (que por REST no es razonable), y con el transporte por guion
+    cuesta UNA llamada. El precio, dicho: entre el `remove` y el `add` hay un instante
+    sin filtro -- y es la ÚLTIMA área en converger, a propósito (ver
+    `pasos_de_convergencia`).
+    """
+    if not isinstance(leido, dict):
+        return []
+    deseadas = [_filtro_normalizado(r, de_declaracion=True) for r in (declarado or []) if isinstance(r, dict)]
+    actuales = [r for r in (leido.get("reglas") or []) if isinstance(r, dict)]
+    if [_clave_de_filtro(r) for r in deseadas] == [_clave_de_filtro(r) for r in actuales]:
+        return []
+    operaciones = [
+        {
+            "op": "remove_filter_rule",
+            "id": str(regla.get("id") or ""),
+            "descripcion": _descripcion_de_filtro(regla),
+        }
+        for regla in actuales
+    ]
+    operaciones += [
+        {
+            "op": "add_filter_rule",
+            # Sólo los campos DECLARADOS: mandar los vacíos haría que RouterOS rechazara
+            # la regla por un valor que nadie pidió.
+            "regla": {k: v for k, v in regla.items() if v != ""},
+            "descripcion": _descripcion_de_filtro(regla),
+        }
+        for regla in deseadas
+    ]
+    return operaciones
+
+
 def _address_linux_canonica(declarado, leido):
     """Diferencia del área `address` de un Linux.
 
@@ -1285,6 +1328,14 @@ def pasos_de_convergencia(guest, identidad, declaracion, leido, parametros):
     if tipo == "routeros" and operaciones_identidad:
         orden.remove("identity")
         orden.append("identity")
+    # Y el CORTAFUEGOS va lo ÚLTIMO de todo, incluso después de la identidad: es lo único
+    # capaz de dejar al motor FUERA del equipo. Se cierra la puerta con todo lo demás ya
+    # puesto y probado, y con la credencial del motor ya cambiada -- no con la de fábrica.
+    # Aun así, un `drop` en la cadena `input` que no deje pasar la red de gestión corta el
+    # túnel: es un aviso del ADR, y el lab tiene que declarar su excepción.
+    if tipo == "routeros" and "firewall" in orden:
+        orden.remove("firewall")
+        orden.append("firewall")
 
     pasos = []
     for area in orden:
@@ -1301,6 +1352,8 @@ def pasos_de_convergencia(guest, identidad, declaracion, leido, parametros):
             operaciones = _routes_canonicas(declaradas[area], actual)
         elif area == "uplink":
             operaciones = _uplink_canonico(declaradas[area], actual, parametros)
+        elif area == "firewall":
+            operaciones = _firewall_canonico(declaradas[area], actual)
         elif area == "address":
             operaciones = _address_linux_canonica(declaradas[area], actual)
         elif area == "ip_forward":
@@ -1839,7 +1892,29 @@ LECTURAS_ROUTEROS = {
         ("/ip/firewall/nat", "sus reglas de NAT (la del motor, si está)"),
         ("/ip/dns", "cómo tiene el resolutor y a quién le pregunta"),
     ),
+    # El cortafuegos: la tabla de filtrado ENTERA, y en su orden -- el orden es la
+    # semántica, no un detalle de presentación.
+    "firewall": (("/ip/firewall/filter", "sus reglas de filtrado, en orden"),),
 }
+
+# El vocabulario CERRADO del área `firewall`: qué campos de una regla de filtrado se
+# declaran y con qué nombre. A la izquierda, lo que escribe el lab (snake_case, como el
+# resto del vocabulario); a la derecha, el nombre del objeto en RouterOS. Lo que no esté
+# aquí no se declara -- y por tanto no se puede pedir (el vocabulario es cerrado).
+CAMPOS_FILTRO = (
+    ("chain", "chain"),
+    ("action", "action"),
+    ("protocol", "protocol"),
+    ("src_address", "src-address"),
+    ("dst_address", "dst-address"),
+    ("src_port", "src-port"),
+    ("dst_port", "dst-port"),
+    ("in_interface", "in-interface"),
+    ("out_interface", "out-interface"),
+    ("connection_state", "connection-state"),
+    ("comment", "comment"),
+    ("disabled", "disabled"),
+)
 
 # El nombre del rango de direcciones que el motor crea en el router. Se deriva del rango
 # declarado (`10.40.1.100-10.40.1.200` -> `netlabs-10.40.1.100`): el lab declara el
@@ -1980,6 +2055,53 @@ def _ros_clave(*partes):
     serializa a JSON.
     """
     return "|".join(str(parte) for parte in partes)
+
+
+def _si_no(valor):
+    """Un booleano de RouterOS, en la forma en que se compara (`yes`/`no`).
+
+    RouterOS contesta los booleanos como CADENAS (`"true"`/`"false"`), y el lab los
+    declara como booleanos de YAML (`true`/`false`): los dos tienen que acabar en el
+    mismo texto o una regla idéntica parecería distinta en cada pasada.
+    """
+    return "yes" if str(valor).lower() in ("true", "yes", "1") else "no"
+
+
+def _filtro_normalizado(regla, de_declaracion=False):
+    """Una regla de filtrado -> {campo_de_RouterOS: valor}, con TODO el vocabulario.
+
+    Se rellena el vocabulario ENTERO (lo que no viene, como cadena vacía) para que
+    comparar dos reglas sea comparar todas las claves: una regla declarada sin `dst_port`
+    y una leída sin `dst-port` son la MISMA regla, y una que lo declara no lo es.
+    """
+    normalizado = {}
+    for declarado_key, ros_key in CAMPOS_FILTRO:
+        valor = regla.get(declarado_key if de_declaracion else ros_key, "")
+        normalizado[ros_key] = _si_no(valor) if ros_key == "disabled" else (
+            "" if valor is None else str(valor)
+        )
+    return normalizado
+
+
+def _clave_de_filtro(regla):
+    """La identidad de una regla de filtrado, para comparar dos listas en orden."""
+    return tuple(str(regla.get(ros_key, "")) for _, ros_key in CAMPOS_FILTRO)
+
+
+def _descripcion_de_filtro(regla):
+    """Una regla, dicha en una línea -- para el diario y para el `porque` de un paso."""
+    partes = [
+        str(regla.get("chain") or "?"),
+        str(regla.get("action") or "?"),
+        str(regla.get("protocol") or ""),
+    ]
+    if regla.get("src-address") or regla.get("dst-address"):
+        partes.append(f"{regla.get('src-address') or 'any'}->{regla.get('dst-address') or 'any'}")
+    if regla.get("dst-port"):
+        partes.append(f"puerto {regla.get('dst-port')}")
+    if regla.get("comment"):
+        partes.append(f"「{regla.get('comment')}」")
+    return " ".join(p for p in partes if p)
 
 
 def leido_routeros(leidos, guest=None, usuario_motor="", clave_publica="", credencial="motor"):
@@ -2179,6 +2301,18 @@ def leido_routeros(leidos, guest=None, usuario_motor="", clave_publica="", crede
         }
 
     # --- uplink: la salida del lab ---
+    # El área `firewall`: la tabla de filtrado ENTERA y en su orden. Cada regla se
+    # normaliza al vocabulario del área y se le cuelga su `.id` (es lo único con lo que se
+    # puede QUITAR una regla). Se lee tal cual está: no se supone ninguna.
+    if "/ip/firewall/filter" in leidos:
+        entradas = _ros_lista((leidos.get("/ip/firewall/filter") or {}).get("json"))
+        areas["firewall"] = {
+            "reglas": [
+                dict(_filtro_normalizado(entrada), id=str(entrada.get(".id") or ""))
+                for entrada in entradas
+            ],
+        }
+
     # Cuatro hechos, los cuatro leídos del equipo: la dirección de la interfaz de fuera, si
     # tiene ruta por defecto (y por dónde), si está la regla de NAT del motor, y cómo tiene
     # el resolutor (encendido y con quién resuelve). Nada se supone: se lee.
@@ -2447,6 +2581,8 @@ def escrituras_routeros(operaciones, guest, declaracion, identidad, parametros, 
     # Por dónde se habla en la llamada que se está montando. Vacío = la dirección declarada
     # del invitado, y es siempre el caso: nadie cambia de dirección a media convergencia.
     dirigirse_a = ""
+    # ¿Ya se le cambió la credencial al equipo en esta convergencia? (ver `llamada`)
+    credencial_cambiada = False
 
     def llamada(area, metodo, ruta, cuerpo, descripcion):
         item = {
@@ -2461,6 +2597,13 @@ def escrituras_routeros(operaciones, guest, declaracion, identidad, parametros, 
             item["address"] = dirigirse_a
         if operacion.get("tolerar_sin_respuesta"):
             item["tolerar_sin_respuesta"] = True
+        # Tras `set_engine_credential` --que va al final del área `identity`-- el equipo ya
+        # sólo acepta la credencial del MOTOR: cualquier escritura que caiga DESPUÉS (hoy,
+        # las áreas que convergen tras `identity`: `ip_services`, `routes` y --la última--
+        # `firewall`) tiene que ir con ella. Sin esta marca viajaban con la de fábrica y el
+        # RouterOS contestaba 401 a media convergencia.
+        if credencial_cambiada:
+            item["credencial"] = "motor"
         llamadas.append(item)
         # Se devuelve además de apuntarla: hay traducciones que necesitan retocar la llamada
         # después (la relectura que se marca como `accion: leer`).
@@ -2503,6 +2646,8 @@ def escrituras_routeros(operaciones, guest, declaracion, identidad, parametros, 
             llamada(area, "POST", "/user/set",
                     {"numbers": usuario, "password": clave},
                     "poner la credencial del motor en el usuario del motor")
+            # A partir de aquí, la del motor es la única que vale (ver `llamada`).
+            credencial_cambiada = True
 
         elif op == "import_engine_key":
             llamada(area, "POST", "/user/ssh-keys/add",
@@ -2556,6 +2701,22 @@ def escrituras_routeros(operaciones, guest, declaracion, identidad, parametros, 
                      "action": "masquerade", "comment": MARCA_EXTERIOR},
                     f"traducir lo que sale del lab por {interfaz} (masquerade): sus "
                     "direcciones son privadas y sin esto la respuesta no vuelve")
+
+        elif op == "add_filter_rule":
+            regla = dict(operacion.get("regla") or {})
+            cuerpo = {
+                ros_key: str(regla[ros_key])
+                for _, ros_key in CAMPOS_FILTRO
+                if ros_key in regla
+            }
+            llamada(area, "POST", "/ip/firewall/filter/add", cuerpo,
+                    f"poner la regla de filtrado ({operacion.get('descripcion') or 'sin descripción'})")
+
+        elif op == "remove_filter_rule":
+            llamada(area, "POST", "/ip/firewall/filter/remove",
+                    {"numbers": str(operacion.get("id") or "")},
+                    f"quitar la regla de filtrado que ya no se declara "
+                    f"({operacion.get('descripcion') or ''})")
 
         elif op == "enable_dns_resolver":
             servidores = [str(s) for s in (operacion.get("servidores") or []) if str(s)]
@@ -2673,6 +2834,155 @@ def escrituras_routeros(operaciones, guest, declaracion, identidad, parametros, 
     return llamadas
 
 
+# ---------------------------------------------------------------------------
+# El GUION: el mismo cálculo, pero en UNA sola llamada
+# ---------------------------------------------------------------------------
+# RouterOS ya se usa así para el intercambio de la dirección de gestión (`/execute` con un
+# guion, ver `_intercambio_de_la_gestion`). Esto generaliza la idea al resto de las
+# escrituras: lo que `escrituras_routeros` DECIDE se SERIALIZA en las líneas de consola
+# equivalentes y se manda en UNA sola llamada a `/execute`.
+#
+# La decisión NO cambia --el diff sigue decidiendo--, cambia el TRANSPORTE de la escritura:
+# N llamadas REST -> 1. El mismo driver ejecuta el guion igual que ejecutaba las llamadas
+# (una llamada por la misma vía de acceso), y la RELECTURA sigue siendo la que prueba la
+# convergencia: `/execute` es ASÍNCRONA y no devuelve la salida del script, así que el juez
+# es leer otra vez, nunca el silencio.
+def _ros_valor(valor):
+    """Un valor de consola RouterOS: desnudo si es simple, entrecomillado si no.
+
+    Un valor simple (`10.43.0.11/24`, `netlabs-uplink`, `*3`, `yes`) va tal cual, que es
+    como lo escribió el propio RouterOS al inventar su sintaxis. Lo que trae espacios o
+    caracteres que la consola partiría (una clave SSH, una contraseña) va entre comillas,
+    con la barra invertida y las comillas escapadas y el `$` neutralizado --dentro de las
+    comillas dobles RouterOS lo tomaría por una variable--.
+    """
+    texto = "" if valor is None else str(valor)
+    if texto and not any(c in texto for c in ' \t"\\$;') and texto.strip() == texto:
+        return texto
+    escapado = (texto.replace("\\", "\\\\").replace('"', '\\"').replace("$", "\\$"))
+    return '"' + escapado + '"'
+
+
+def _linea_de_llamada(llamada, tapar=False):
+    """(una llamada REST de `escrituras_routeros`) -> la línea de consola que hace lo mismo.
+
+    Traducción MECÁNICA, sin tabla: `/ip/dhcp-server/network/set` es la consola
+    `/ip dhcp-server network set`, y del cuerpo, `numbers` va POSICIONAL (es a QUIÉN) y el
+    resto `clave=valor`. Un `/execute` (el guion del intercambio) YA es consola: se copia
+    entero. `tapar` sustituye por `···` el valor de los campos que son credenciales, para
+    que el cuerpo del diario pueda llevar el guion sin llevar la contraseña.
+    """
+    ruta = str(llamada.get("ruta") or "")
+    try:
+        cuerpo = dict(llamada.get("cuerpo") or {})
+    except (TypeError, ValueError):
+        cuerpo = {}
+    if ruta == "/execute":
+        return str(cuerpo.get("script") or "")
+    trozos = [t for t in ruta.strip("/").split("/") if t]
+    if len(trozos) < 2:
+        return ""
+    verbo = trozos[-1]
+    tabla = " ".join(trozos[:-1])
+    argumentos = []
+    if verbo in ("set", "remove"):
+        numeros = cuerpo.pop("numbers", None)
+        if numeros not in (None, ""):
+            argumentos.append(_ros_valor(numeros))
+    for clave, valor in cuerpo.items():
+        if tapar and str(clave).lower() in CAMPOS_SECRETOS:
+            valor = "···"
+        argumentos.append(f"{clave}={_ros_valor(valor)}")
+    return ("/" + tabla + " " + verbo + (" " + " ".join(argumentos) if argumentos else "")).strip()
+
+
+def _llamada_lleva_secreto(llamada):
+    """¿el cuerpo de esta llamada lleva algún valor que es una credencial?"""
+    try:
+        cuerpo = dict(llamada.get("cuerpo") or {})
+    except (TypeError, ValueError):
+        return False
+    return any(str(clave).lower() in CAMPOS_SECRETOS for clave in cuerpo)
+
+
+def _guion_de(run):
+    """(un tramo de escrituras sin credencial) -> la llamada que las manda de una vez."""
+    lineas = [_linea_de_llamada(l) for l in run]
+    lineas_tapadas = [_linea_de_llamada(l, tapar=True) for l in run]
+    guion = {
+        "area": "varias",
+        "accion": "escribir",
+        "metodo": "POST",
+        "ruta": "/execute",
+        "cuerpo": {"script": "\n".join(lineas)},
+        # El cuerpo del diario es el MISMO guion con las credenciales tapadas: hoy el guion
+        # no lleva ninguna (las llamadas con credencial no se funden), pero si alguna vez
+        # una se colara, `sin_secretos` tapa por NOMBRE de campo y un `script` es UN campo:
+        # se tapa antes, aquí, para que la contraseña no pueda acabar escrita en el diario.
+        "cuerpo_diario": {"script": "\n".join(lineas_tapadas)},
+        "descripcion": (
+            f"el interior de este RouterOS, en UNA llamada: "
+            f"{len(run)} escritura(s) dentro de un mismo guion"
+        ),
+    }
+    if any(bool(l.get("tolerar_sin_respuesta")) for l in run):
+        guion["tolerar_sin_respuesta"] = True
+    # La credencial con la que hay que mandar el tramo. Todos sus miembros son contiguos y
+    # sin credencial, así que o todos van con la del motor o ninguno: basta con el primero.
+    if run[0].get("credencial"):
+        guion["credencial"] = run[0]["credencial"]
+    return guion
+
+
+def guion_routeros(llamadas, activado=False):
+    """(las llamadas REST decididas) -> las mismas, con cada TRAMO sin credencial fundido.
+
+    Se pide desde `vars/engine.yml` (`engine_routeros_guion`). Es un cambio de TRANSPORTE,
+    no de decisión: la misma capa pura que decidía las N llamadas sigue decidiéndolas, y lo
+    único que cambia es que un TRAMO de escrituras seguidas sin credencial se manda dentro
+    de un solo `/execute`.
+
+    Se funden TRAMOS CONTIGUOS, no todo de golpe, por una razón MEDIDA: la escritura de la
+    CREDENCIAL es lo último que se toca, y en el diseño viejo era una llamada SÍNCRONA que
+    TERMINABA antes de la relectura. Metida dentro de un guion ASÍNCRONO, la relectura (que
+    ya usa la credencial nueva) se adelanta y recibe un 401 -- medido: 'set_identity' salía
+    pendiente porque su relectura llegó antes de que el guion pusiera la credencial. Por eso
+    las llamadas que llevan un campo de credencial NO se funden: se quedan como llamadas
+    sueltas, en su sitio, y el orden entero se conserva.
+
+    Un tramo de UNA sola escritura no se envuelve (un guion de una línea es más opaco sin
+    ahorrar nada); así, si no hay nada que fundir, se devuelven las llamadas TAL CUAL. Y si
+    la lista trae algo SIN TRADUCIR, también tal cual: quien para y lo dice es el driver
+    (`ros_sin_traducir`), no este filtro.
+    """
+    if not _afirmativo(activado):
+        return llamadas
+    escrituras = [l for l in (llamadas or []) if str(l.get("accion")) == "escribir"]
+    otras = [l for l in (llamadas or []) if str(l.get("accion")) != "escribir"]
+    if not escrituras or otras:
+        return llamadas
+    resultante = []
+    tramo = []
+
+    def cerrar():
+        if len(tramo) >= 2:
+            resultante.append(_guion_de(tramo))
+        else:
+            resultante.extend(tramo)
+        del tramo[:]
+
+    for llamada in escrituras:
+        if _llamada_lleva_secreto(llamada):
+            cerrar()
+            resultante.append(llamada)
+        else:
+            tramo.append(llamada)
+    cerrar()
+    if len(resultante) == len(escrituras):
+        return llamadas
+    return resultante
+
+
 # Los DRIVERS que existen hoy en este motor: por vía, y por tipo de interior. Es una
 # lista CORTA a propósito, y es la única verdad sobre qué sabe hacer el motor: la usan
 # `apply.yml` para avisar de lo que va a parar y `paso.yml` para despachar. Si añades un
@@ -2775,6 +3085,7 @@ class FilterModule:
             "interior_lecturas_routeros": lecturas_routeros,
             "interior_leido_routeros": leido_routeros,
             "interior_escrituras_routeros": escrituras_routeros,
+            "interior_guion_routeros": guion_routeros,
             "interior_sin_secretos": sin_secretos,
             "interior_pendiente_de_driver": pendiente_de_driver,
             "interior_leido": leido_de_lecturas,

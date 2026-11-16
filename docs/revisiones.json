@@ -4,9 +4,9 @@
       "deployment_engine/tasks/console.yml": "4799d6ff5fe1b9327f21aafc85a059bc5e51c96faced5eb8ccaba4fc5537e49a",
       "deployment_engine/tasks/interior_ssh.yml": "82bee4b7201604d0accf34c38ca9aaf297319b858a125811d0bd3ea0063a96ca",
       "deployment_engine/tasks/pve_api.yml": "42b30c7d2a79a68b54ea68ef0aadf90b9d3eaa6800aeb89378c7c50d551e2817",
-      "deployment_engine/tasks/ros_api.yml": "1df0100b743ba6ac2e8b849ee4634f963984dba358c9f2ba609d62bf89bbebae",
-      "deployment_engine/templates/lab-region.md.j2": "8c79cb0f0109fc41ee6263a12ada377b67a5d98b3924386118af1ebed729f86d",
-      "deployment_engine/tools/documentos.py": "46f20133cb903f23b6317c01136a41dfaf9d9edfcac92c9dc9176b77f0c5a14c"
+      "deployment_engine/tasks/ros_api.yml": "be9c1b6bd9fdee58d446fe0cb5b7eb4857f15819891a0a8d2804f8fa8405ac67",
+      "deployment_engine/templates/lab-region.md.j2": "38574376167397360d57afbb3bf0923a7d0c74ff5f637490b1edc5df03ec3fc5",
+      "deployment_engine/tools/documentos.py": "44b0f53924e65e8d7e7776767387d0e610dd89025883adc24ce767c802c173f2"
     }
   },
   "GOAL-capa-de-configuracion.md": {
@@ -20,19 +20,19 @@
     "citados": {
       "deployment_engine/filter_plugins/estado.py": "388945b0cf3912b20cd833d36d6af4c912e38c93947d0f46a11d725388af73c5",
       "deployment_engine/filter_plugins/identidad.py": "1daf2bfcbd4ac438ec19bc2ba999c519c73bc2b333b0e2ea4fbbc2c313f11a5c",
-      "deployment_engine/filter_plugins/interior.py": "3ae238fe03bccd01cc60a0b815b20015afdf309c9b2745c3a7dc5f1489be3594",
+      "deployment_engine/filter_plugins/interior.py": "671d005207af504ec30621238467eb930d47796a24e7606712ee3195e28fa9c1",
       "deployment_engine/playbooks/plan.yml": "1a11a151d2e4691ab4611a43f39319503e8153b67145fe450e8f31df70baca24",
       "deployment_engine/tasks/pve_api.yml": "42b30c7d2a79a68b54ea68ef0aadf90b9d3eaa6800aeb89378c7c50d551e2817",
       "deployment_engine/tasks/pve_api_y_esperar.yml": "6226f0c9e87cac7ff936dd4ead8c4f318bea3c5afc1dfaefaf1bf0ec09cd23dc",
-      "deployment_engine/tools/documentos.py": "46f20133cb903f23b6317c01136a41dfaf9d9edfcac92c9dc9176b77f0c5a14c",
+      "deployment_engine/tools/documentos.py": "44b0f53924e65e8d7e7776767387d0e610dd89025883adc24ce767c802c173f2",
       "deployment_engine/tools/framework_check.py": "2fc5fcfd7c844a04d249db4a743bd84efc3dabfe75a17013ad6333ee482285a7",
       "deployment_engine/tools/plan.py": "38e61f37ee4c1065985a3c5ccc9e62349ca76d076a259f6ca43bf69aa20f6314",
-      "deployment_engine/vars/engine.yml": "7d99b30964895a84693001037decd04386bff0de2d311a28c634751cb1c23989"
+      "deployment_engine/vars/engine.yml": "2f6d8f911c1aa90416e70fd43f2d34f189c3d14605b3bc8a2909ba896c502c52"
     }
   },
   "docs/crear-un-lab.md": {
     "citados": {
-      "deployment_engine/filter_plugins/declaracion.py": "cdeba06859afc1f022fdc5018a4768ea4261e021f3a798c4d40f3a467e581b28"
+      "deployment_engine/filter_plugins/declaracion.py": "4333724de0dcef6da949a41a505523b1ea046807dd4a319a7229bf73c670ce51"
     }
   },
   "docs/decisiones/0001-solo-api-de-proxmox.md": {
@@ -48,50 +48,50 @@
   },
   "docs/decisiones/0003-documento-con-dos-regiones.md": {
     "citados": {
-      "deployment_engine/tools/documentos.py": "46f20133cb903f23b6317c01136a41dfaf9d9edfcac92c9dc9176b77f0c5a14c"
+      "deployment_engine/tools/documentos.py": "44b0f53924e65e8d7e7776767387d0e610dd89025883adc24ce767c802c173f2"
     }
   },
   "docs/decisiones/0004-el-tunnel-y-el-token.md": {
     "citados": {
-      "deployment_engine/tasks/tunnel.yml": "0191c5dad47fda128357003fcba8f2aa1e741ee3132bd17713591610d93a995e",
+      "deployment_engine/tasks/tunnel.yml": "3a137d5008ce86103240ba79a095110c1e740e687fec6f827d20c419846748ad",
       "deployment_engine/tools/console.py": "5eb6065a0af95050e86386ffb385cd6f2c512e3f9e4c18800e53571dfed68212",
-      "deployment_engine/vars/engine.yml": "7d99b30964895a84693001037decd04386bff0de2d311a28c634751cb1c23989"
+      "deployment_engine/vars/engine.yml": "2f6d8f911c1aa90416e70fd43f2d34f189c3d14605b3bc8a2909ba896c502c52"
     }
   },
   "docs/decisiones/0005-el-driver-del-interior.md": {
     "citados": {
-      "deployment_engine/filter_plugins/interior.py": "3ae238fe03bccd01cc60a0b815b20015afdf309c9b2745c3a7dc5f1489be3594"
+      "deployment_engine/filter_plugins/interior.py": "671d005207af504ec30621238467eb930d47796a24e7606712ee3195e28fa9c1"
     }
   },
   "docs/decisiones/0006-escribir-en-routeros.md": {
     "citados": {
-      "deployment_engine/filter_plugins/interior.py": "3ae238fe03bccd01cc60a0b815b20015afdf309c9b2745c3a7dc5f1489be3594",
-      "deployment_engine/tasks/ros_api.yml": "1df0100b743ba6ac2e8b849ee4634f963984dba358c9f2ba609d62bf89bbebae"
+      "deployment_engine/filter_plugins/interior.py": "671d005207af504ec30621238467eb930d47796a24e7606712ee3195e28fa9c1",
+      "deployment_engine/tasks/ros_api.yml": "be9c1b6bd9fdee58d446fe0cb5b7eb4857f15819891a0a8d2804f8fa8405ac67"
     }
   },
   "docs/decisiones/0008-una-direccion-por-interface.md": {
     "citados": {
-      "deployment_engine/filter_plugins/interior.py": "3ae238fe03bccd01cc60a0b815b20015afdf309c9b2745c3a7dc5f1489be3594",
+      "deployment_engine/filter_plugins/interior.py": "671d005207af504ec30621238467eb930d47796a24e7606712ee3195e28fa9c1",
       "deployment_engine/tools/plan.py": "38e61f37ee4c1065985a3c5ccc9e62349ca76d076a259f6ca43bf69aa20f6314"
     }
   },
   "docs/decisiones/0009-verify-mira-dentro.md": {
     "citados": {
       "deployment_engine/filter_plugins/estado.py": "388945b0cf3912b20cd833d36d6af4c912e38c93947d0f46a11d725388af73c5",
-      "deployment_engine/filter_plugins/interior.py": "3ae238fe03bccd01cc60a0b815b20015afdf309c9b2745c3a7dc5f1489be3594",
+      "deployment_engine/filter_plugins/interior.py": "671d005207af504ec30621238467eb930d47796a24e7606712ee3195e28fa9c1",
       "deployment_engine/playbooks/verify.yml": "6a653eca5ef7498845658c825aea07761bc5ca377c360cf79435f7456f43b9b2",
       "deployment_engine/tasks/configurar_linux.yml": "46b219af623f4e1c845dff1f71cdc5bc89a4d7ff3a83fee436e88c1f1bb47e66",
-      "deployment_engine/tasks/configurar_routeros.yml": "c911afed27f986be29c404e2f9654505b2efdee91088273d0a6f4cc912a432b8",
+      "deployment_engine/tasks/configurar_routeros.yml": "0d0f0aeca19108470c9b7213e916ac65ccae2ec17b8e162c49455ac5a2c93201",
       "deployment_engine/tasks/interior_verificar.yml": "e6bde50eaef550627ee58f032c71be0cfc2d71a07a96808e5d49dc2f44a485da",
-      "deployment_engine/tasks/ros_api.yml": "1df0100b743ba6ac2e8b849ee4634f963984dba358c9f2ba609d62bf89bbebae"
+      "deployment_engine/tasks/ros_api.yml": "be9c1b6bd9fdee58d446fe0cb5b7eb4857f15819891a0a8d2804f8fa8405ac67"
     }
   },
   "docs/decisiones/0010-el-rest-por-el-tunnel.md": {
     "citados": {
-      "deployment_engine/filter_plugins/interior.py": "3ae238fe03bccd01cc60a0b815b20015afdf309c9b2745c3a7dc5f1489be3594",
-      "deployment_engine/tasks/configurar_routeros.yml": "c911afed27f986be29c404e2f9654505b2efdee91088273d0a6f4cc912a432b8",
-      "deployment_engine/tasks/ros_api.yml": "1df0100b743ba6ac2e8b849ee4634f963984dba358c9f2ba609d62bf89bbebae",
-      "deployment_engine/tasks/tunnel.yml": "0191c5dad47fda128357003fcba8f2aa1e741ee3132bd17713591610d93a995e",
+      "deployment_engine/filter_plugins/interior.py": "671d005207af504ec30621238467eb930d47796a24e7606712ee3195e28fa9c1",
+      "deployment_engine/tasks/configurar_routeros.yml": "0d0f0aeca19108470c9b7213e916ac65ccae2ec17b8e162c49455ac5a2c93201",
+      "deployment_engine/tasks/ros_api.yml": "be9c1b6bd9fdee58d446fe0cb5b7eb4857f15819891a0a8d2804f8fa8405ac67",
+      "deployment_engine/tasks/tunnel.yml": "3a137d5008ce86103240ba79a095110c1e740e687fec6f827d20c419846748ad",
       "deployment_engine/tasks/tunnel_probe.yml": "2aa8e0cc45f3e4e4b2cf6373e7f0af44ea1e57631fd6133412ec49c0693b467e"
     }
   },
@@ -100,19 +100,19 @@
       "deployment_engine/filter_plugins/estado.py": "388945b0cf3912b20cd833d36d6af4c912e38c93947d0f46a11d725388af73c5",
       "deployment_engine/tasks/addresses.yml": "40d77d67530936a86881e55f47ebb2a02137abbee55d1c4665d8839dac2de0ad",
       "deployment_engine/tools/plan.py": "38e61f37ee4c1065985a3c5ccc9e62349ca76d076a259f6ca43bf69aa20f6314",
-      "deployment_engine/vars/engine.yml": "7d99b30964895a84693001037decd04386bff0de2d311a28c634751cb1c23989"
+      "deployment_engine/vars/engine.yml": "2f6d8f911c1aa90416e70fd43f2d34f189c3d14605b3bc8a2909ba896c502c52"
     }
   },
   "docs/decisiones/0012-la-salida-del-lab.md": {
     "citados": {
-      "deployment_engine/filter_plugins/declaracion.py": "cdeba06859afc1f022fdc5018a4768ea4261e021f3a798c4d40f3a467e581b28",
-      "deployment_engine/filter_plugins/interior.py": "3ae238fe03bccd01cc60a0b815b20015afdf309c9b2745c3a7dc5f1489be3594",
+      "deployment_engine/filter_plugins/declaracion.py": "4333724de0dcef6da949a41a505523b1ea046807dd4a319a7229bf73c670ce51",
+      "deployment_engine/filter_plugins/interior.py": "671d005207af504ec30621238467eb930d47796a24e7606712ee3195e28fa9c1",
       "deployment_engine/tools/plan.py": "38e61f37ee4c1065985a3c5ccc9e62349ca76d076a259f6ca43bf69aa20f6314"
     }
   },
   "docs/decisiones/0013-una-estacion-pregunta-un-servidor-dice.md": {
     "citados": {
-      "deployment_engine/filter_plugins/declaracion.py": "cdeba06859afc1f022fdc5018a4768ea4261e021f3a798c4d40f3a467e581b28",
+      "deployment_engine/filter_plugins/declaracion.py": "4333724de0dcef6da949a41a505523b1ea046807dd4a319a7229bf73c670ce51",
       "deployment_engine/tools/plan.py": "38e61f37ee4c1065985a3c5ccc9e62349ca76d076a259f6ca43bf69aa20f6314"
     }
   },
@@ -126,10 +126,26 @@
       "deployment_engine/filter_plugins/identidad.py": "1daf2bfcbd4ac438ec19bc2ba999c519c73bc2b333b0e2ea4fbbc2c313f11a5c"
     }
   },
+  "docs/decisiones/0018-el-transporte-de-la-escritura-de-routeros.md": {
+    "citados": {
+      "deployment_engine/filter_plugins/interior.py": "671d005207af504ec30621238467eb930d47796a24e7606712ee3195e28fa9c1",
+      "deployment_engine/tasks/configurar_routeros.yml": "0d0f0aeca19108470c9b7213e916ac65ccae2ec17b8e162c49455ac5a2c93201",
+      "deployment_engine/tasks/ros_api.yml": "be9c1b6bd9fdee58d446fe0cb5b7eb4857f15819891a0a8d2804f8fa8405ac67",
+      "deployment_engine/vars/engine.yml": "2f6d8f911c1aa90416e70fd43f2d34f189c3d14605b3bc8a2909ba896c502c52"
+    }
+  },
+  "docs/decisiones/0019-el-area-firewall-de-routeros.md": {
+    "citados": {
+      "deployment_engine/filter_plugins/declaracion.py": "4333724de0dcef6da949a41a505523b1ea046807dd4a319a7229bf73c670ce51",
+      "deployment_engine/filter_plugins/interior.py": "671d005207af504ec30621238467eb930d47796a24e7606712ee3195e28fa9c1",
+      "deployment_engine/tasks/configurar_routeros.yml": "0d0f0aeca19108470c9b7213e916ac65ccae2ec17b8e162c49455ac5a2c93201",
+      "deployment_engine/tasks/ros_api.yml": "be9c1b6bd9fdee58d446fe0cb5b7eb4857f15819891a0a8d2804f8fa8405ac67"
+    }
+  },
   "docs/tunnel-del-bastion.md": {
     "citados": {
       "deployment_engine/tasks/console.yml": "4799d6ff5fe1b9327f21aafc85a059bc5e51c96faced5eb8ccaba4fc5537e49a",
-      "deployment_engine/tasks/tunnel.yml": "0191c5dad47fda128357003fcba8f2aa1e741ee3132bd17713591610d93a995e",
+      "deployment_engine/tasks/tunnel.yml": "3a137d5008ce86103240ba79a095110c1e740e687fec6f827d20c419846748ad",
       "deployment_engine/tasks/tunnel_probe.yml": "2aa8e0cc45f3e4e4b2cf6373e7f0af44ea1e57631fd6133412ec49c0693b467e",
       "deployment_engine/tools/console.py": "5eb6065a0af95050e86386ffb385cd6f2c512e3f9e4c18800e53571dfed68212"
     }
@@ -165,7 +181,7 @@
   },
   "labs/07_dunder-mifflin/07_dunder-mifflin.md": {
     "citados": {
-      "deployment_engine/filter_plugins/interior.py": "3ae238fe03bccd01cc60a0b815b20015afdf309c9b2745c3a7dc5f1489be3594"
+      "deployment_engine/filter_plugins/interior.py": "671d005207af504ec30621238467eb930d47796a24e7606712ee3195e28fa9c1"
     }
   },
   "labs/ejemplo-topologia/ejemplo-topologia.md": {

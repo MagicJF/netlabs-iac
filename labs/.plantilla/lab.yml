@@ -39,7 +39,7 @@ containers:
     # El nombre en Proxmox dice QUÉ ES, no de qué lab es (ADR 0015), y se compone de
     # estas dos claves: el tipo de equipo, y el alias (el `nombre:` corto, o el rol si
     # no lo declaras). Aquí: `ws-<rol-de-ejemplo>`.
-    tipo: ws          # rt (router) | srv (servidor) | ws (puesto) | sw (conmutador) | ctl (control)
+    tipo: ws          # rt (router) | fw (cortafuegos) | srv (servidor) | ws (puesto) | sw (conmutador) | ctl (control)
     # nombre: 1       # opcional: con esto el invitado se llamaría `ws-1`, sin el rol
     stage: 1
     cores: 1

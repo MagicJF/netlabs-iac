@@ -8,8 +8,8 @@
      fichero de `deployment_engine/` (regla 7); si necesita una primitiva que no existe, la pide
      al motor con un ADR (regla 15), no la inventa en su YAML.
      LÍMITES: esto describe el vocabulario de HOY. Lo que está declarado como pendiente
-     (puentes y cortafuegos de RouterOS; pasarela, rutas, dns y claves de Linux) se nombra aquí
-     para que no lo busques: no está implementado.
+     (los `bridges` de RouterOS --una máquina que conmute--; y pasarela, rutas, dns y claves de
+     Linux) se nombra aquí para que no lo busques: no está implementado.
      VER: AGENTS.md; README.md; deployment_engine/filter_plugins/declaracion.py;
      labs/04_lab-red-routeros/ (el ejemplo trabajado); ./lab check declaracion -->
 
@@ -86,8 +86,9 @@ Uno por rol, en `vms:` (QEMU) o `containers:` (LXC). Cada uno:
 - **`rol`**: el nombre de la pieza en tu topología (`router-borde`, `puesto-1`). Es lo único que
   te identifica, y de él salen la descripción del invitado (`lab=… rol=…`) y el alias del nombre
   si no declaras uno.
-- **`tipo`**: QUÉ EQUIPO es — `rt` (router), `srv` (servidor), `ws` (puesto de trabajo), `sw`
-  (conmutador o equipo sin dirección), `ctl` (bastión, el bastión del lab).
+- **`tipo`**: QUÉ EQUIPO es — `rt` (router), `fw` (cortafuegos: un CHR que sólo filtra), `srv`
+  (servidor), `ws` (puesto de trabajo), `sw` (conmutador o equipo sin dirección), `ctl`
+  (bastión, el bastión del lab).
   **Obligatorio**, y del vocabulario cerrado: con él y su alias se compone el nombre del invitado
   en Proxmox (`rt-borde`, `srv-1`, `ws-2`) — ADR 0015. Un equipo que no quepa en ninguno pide su
   tipo al motor, con su ADR; no se inventa aquí.
@@ -131,11 +132,13 @@ Un invitado, por defecto, es un aparato vacío que el motor enciende. `config:` 
 además **hay que entrar en él y configurarlo**, con el vocabulario **cerrado** de su driver:
 
 - **RouterOS** (`config.routeros`): `identity`, `addresses`, `ip_services`, `dhcp_client`,
-  `rutas`, `dhcp`, `uplink`. Se configura **por su REST**, a través del túnel (ADR 0010).
+  `routes`, `dhcp_server`, `uplink` y `firewall` (la tabla de filtrado entera, en orden:
+  ADR 0019). Se configura **por su REST**, a través del túnel (ADR 0010).
 - **Linux** (`config.linux`): `tunnel`, `address`, `addresses`, `ip_forward`, `dhcp_server`.
   Se entra **por SSH**, y sólo desde `tasks/interior_ssh.yml`.
-- **Pendiente, y se nota que lo está**: `puentes` y `cortafuegos` (RouterOS); `gateway`,
-  `rutas`, `dns` y `claves` (Linux). **No están implementadas y el validador las rechaza.**
+- **Pendiente, y se nota que lo está**: `bridges` (RouterOS, una máquina que CONMUTE);
+  `gateway`, `routes`, `dns` y `claves` (Linux). **No están implementadas y el validador las
+  rechaza.**
 
 ### `uplink`: que el lab salga a internet
 

@@ -18,6 +18,9 @@
 #              6. con un router ya convergido, CERO operaciones (idempotencia por
 #                 construcción); y con el residuo del cliente de fábrica, el reinicio
 #                 del invitado declarado en el plan.
+#              7. el CORTAFUEGOS: la tabla de filtrado es la declarada ENTERA y en su
+#                 orden, converge la ÚLTIMA (después de la credencial) y es idempotente;
+#                 con una regla de más, se reconstruye con los `.id` leídos.
 # LÍMITES:     no prueba el driver de verdad (eso es el ciclo contra el VPS): aquí no se
 #              toca ningún equipo. Las respuestas están COPIADAS de un CHR 7.25.1 real
 #              (medido, ver `labs/04_lab-red-routeros/` y el ADR del interior).
@@ -365,6 +368,95 @@ igual(
     {"a": [{"password": "···", "otra": "visible"}], "clave": "···", "nombre": "z"},
     "y se tapa también anidada, dentro de listas y de mapas",
 )
+
+# ---------------------------------------------------------------------------
+# 1bis. EL TRANSPORTE: el MISMO cálculo, con cada TRAMO mandado en UNA llamada
+# ---------------------------------------------------------------------------
+# El guion no cambia lo que se decide (eso es `escrituras_routeros`): cambia CÓMO se manda.
+# Se comprueba que (a) sin activar devuelve exactamente lo mismo, (b) activado funde cada
+# TRAMO CONTIGUO de escrituras sin credencial en UNA llamada a `/execute`, (c) las líneas son
+# la consola equivalente de cada llamada, EN EL MISMO ORDEN, (d) las llamadas CON CREDENCIAL
+# (la clave SSH y la contraseña) NO se funden --se quedan sueltas y síncronas, como estaban,
+# que es lo que hace que la relectura no se les adelante--, y (e) el cuerpo del diario no
+# puede llevar una credencial.
+print("\nEL TRANSPORTE: lo mismo, con cada tramo sin credencial en UNA llamada a /execute\n")
+
+igual(
+    motor.guion_routeros(LLAMADAS, False), LLAMADAS,
+    "sin activar, el filtro devuelve las llamadas TAL CUAL: el transporte por defecto no cambia",
+)
+igual(
+    motor.guion_routeros(LLAMADAS, "false"), LLAMADAS,
+    "y un `false` que llegue como TEXTO desde Ansible tampoco activa el guion (un `bool('false')` "
+    "es cierto: se lee con un reconocedor de literales, no con `| bool`)",
+)
+
+ESCRITURAS = [l for l in LLAMADAS if l["accion"] == "escribir"]
+CORTE = next(n for n, l in enumerate(ESCRITURAS) if l["ruta"] == "/user/ssh-keys/add")
+GUION = motor.guion_routeros(LLAMADAS, True)
+
+comprobar(
+    len(GUION) < len(ESCRITURAS),
+    "activado, el transporte BAJA el número de llamadas (cada tramo sin credencial es una)",
+)
+igual(
+    [l["ruta"] for l in GUION],
+    ["/execute", "/user/ssh-keys/add", "/execute", "/user/set"],
+    "el pliegue respeta el ORDEN: funde la cabeza (todo menos lo último), deja la CLAVE SSH "
+    "suelta, deja el guion del INTERCAMBIO suelto y deja la CREDENCIAL la última -- las tres "
+    "llevan credencial o son el corte del intercambio, y sueltas es como estaban",
+)
+igual(
+    (GUION[0]["metodo"], GUION[0]["accion"]), ("POST", "escribir"),
+    "el tramo fundido se manda con un `POST /execute`: el router corre sus líneas de una vez",
+)
+SCRIPT = GUION[0]["cuerpo"]["script"]
+igual(
+    len(SCRIPT.splitlines()), CORTE,
+    "el guion tiene UNA línea por escritura del tramo: no se pierde ni se duplica ninguna",
+)
+comprobar(
+    "/ip address add address=10.40.1.1/24 interface=ether2" in SCRIPT
+    and "/ip route add dst-address=0.0.0.0/0 gateway=10.40.0.1" in SCRIPT
+    and "/ip pool add name=netlabs-10.40.1.100 ranges=10.40.1.100-10.40.1.200" in SCRIPT
+    and "/system identity set name=rt-borde" in SCRIPT,
+    "cada llamada REST se vuelve su línea de consola equivalente (misma tabla, mismos valores), "
+    "y el nombre del equipo va DENTRO porque no lleva credencial",
+)
+comprobar(
+    "/ip dhcp-client remove [find interface=ether1]" in GUION[2]["cuerpo"]["script"],
+    "el guion del INTERCAMBIO de la dirección de gestión sigue siendo SU llamada, tal cual: las "
+    "escrituras con credencial no se funden con lo demás",
+)
+comprobar(
+    "www" not in SCRIPT,
+    "`www` sigue sin aparecer: es donde vive el REST (el túnel de vuelta); el guion no lo toca",
+)
+comprobar(
+    "password" not in SCRIPT and "/user set" not in SCRIPT and "ssh-keys" not in SCRIPT,
+    "la CREDENCIAL no se funde JAMÁS: va en su propia llamada síncrona la última. Metida en un "
+    "guion asíncrono, la relectura --que ya usa la credencial nueva-- se le adelanta y recibe un "
+    "401 (MEDIDO: 'set_identity' salía pendiente por eso)",
+)
+igual(
+    GUION[-1], LLAMADAS[-1],
+    "la llamada de la credencial llega intacta: mismo cuerpo y su `tolerar_sin_respuesta` (el "
+    "corte por diseño --400 `Session closed`-- tiene que seguir llegando al driver)",
+)
+comprobar(
+    motor.sin_secretos(GUION[0]["cuerpo_diario"]) == GUION[0]["cuerpo_diario"]
+    and PARAMETROS_ROUTEROS["clave"] not in GUION[0]["cuerpo_diario"]["script"],
+    "el CUERPO DEL DIARIO pasa el tamiz de secretos: aunque el guion de hoy no lleva ninguno, "
+    "va con una versión tapada por si alguna vez una escritura con credencial se colara dentro",
+)
+igual(
+    len(motor.guion_routeros(LLAMADAS + [{"accion": "sin_traducir", "op": "x"}], True)),
+    len(LLAMADAS) + 1,
+    "con una operación SIN TRADUCIR el filtro NO funde: devuelve tal cual para que el driver pare "
+    "y lo diga (un filtro no para el verbo)",
+)
+igual(motor.guion_routeros([], True), [], "sin escrituras no hay guion: la 2ª pasada queda en sólo lectura")
+
 
 # ---------------------------------------------------------------------------
 # 2. El MISMO router ya convergido: cero operaciones (la idempotencia)
@@ -1007,6 +1099,137 @@ igual(
     [("remove_address", "192.0.2.253/24", "*6")],
     "y la que sobra se quita, con su identificador: la interfaz se queda con UNA -- la que ya "
     "tenía -- en vez de ir dejando una nueva por pasada",
+)
+
+# ---------------------------------------------------------------------------
+# 5. EL CORTAFUEGOS: las reglas de filtrado -- y por qué van LAS ÚLTIMAS
+# ---------------------------------------------------------------------------
+# El orden de una tabla de filtrado ES su semántica (RouterOS para en la primera regla que
+# casa), así que lo declarado es la tabla ENTERA y en su orden, y una regla que no se
+# declara se quita. Y el área va la ÚLTIMA de todo --después incluso de la credencial--
+# porque es la única capaz de dejar al motor FUERA del equipo: se cierra la puerta con
+# todo lo demás ya puesto.
+print("\nEL CORTAFUEGOS: la tabla de filtrado entera, y la última en converger\n")
+
+BORDE_FW = copy.deepcopy(BORDE)
+BORDE_FW["config"]["routeros"]["firewall"] = [
+    {"chain": "input", "action": "accept", "src_address": "10.40.0.0/24", "comment": "gestion entra"},
+    {"chain": "input", "action": "accept", "protocol": "icmp"},
+    {"chain": "input", "action": "drop"},
+    {"chain": "forward", "action": "accept", "connection_state": "established,related"},
+    {"chain": "forward", "action": "drop", "dst_address": "10.40.1.0/24"},
+]
+REGLAS_FW = BORDE_FW["config"]["routeros"]["firewall"]
+
+CRUDO_FW = dict(CRUDO_RECIEN_NACIDO)
+CRUDO_FW["/ip/firewall/filter"] = respuesta([])
+LEIDO_FW = motor.leido_routeros(CRUDO_FW, BORDE_FW, "admin", CLAVE_PUBLICA, "fabrica")
+OPERACIONES_FW = motor.operaciones_de_pasos(
+    motor.pasos_de_convergencia(BORDE_FW, IDENTIDAD, DECLARACION, LEIDO_FW, PARAMETROS)
+)
+
+igual(
+    [op["op"] for op in OPERACIONES_FW][-1], "add_filter_rule",
+    "el cortafuegos converge lo ÚLTIMO: después incluso de la credencial del motor. Es la "
+    "única área capaz de dejar al motor sin acceso a su propio equipo",
+)
+igual(
+    [op["op"] for op in OPERACIONES_FW if op["op"].endswith("filter_rule")],
+    ["add_filter_rule"] * 5,
+    "un router sin reglas propias recibe la tabla declarada ENTERA, en orden",
+)
+
+LLAMADAS_FW = motor.escrituras_routeros(
+    OPERACIONES_FW, BORDE_FW, DECLARACION, IDENTIDAD, PARAMETROS_ROUTEROS, LEIDO_FW
+)
+CALLS_FW = [l for l in LLAMADAS_FW if "firewall" in l["ruta"]]
+igual(
+    [(l["metodo"], l["ruta"]) for l in CALLS_FW],
+    [("POST", "/ip/firewall/filter/add")] * 5,
+    "cada regla es un `add` a `/ip/firewall/filter`",
+)
+igual(
+    {k: v for k, v in CALLS_FW[0]["cuerpo"].items() if k != "disabled"},
+    {"chain": "input", "action": "accept", "src-address": "10.40.0.0/24", "comment": "gestion entra"},
+    "y el cuerpo usa los nombres de RouterOS (`src-address`), no los del lab (`src_address`)",
+)
+igual(
+    {k: v for k, v in CALLS_FW[3]["cuerpo"].items() if k != "disabled"},
+    {"chain": "forward", "action": "accept", "connection-state": "established,related"},
+    "un nombre con guion (`connection-state`) viaja tal cual",
+)
+
+GUION_FW = motor.guion_routeros(LLAMADAS_FW, True)
+SCRIPTS_FW = [g["cuerpo"]["script"] for g in GUION_FW if g["ruta"] == "/execute"]
+igual(
+    len([s for s in SCRIPTS_FW if "firewall filter" in s]), 1,
+    "las cinco reglas viajan en UN solo guion (son un tramo seguido, sin credencial): la "
+    "tabla de filtrado entera es UNA llamada",
+)
+SCRIPT_FW = [s for s in SCRIPTS_FW if "firewall filter" in s][0]
+comprobar(
+    '/ip firewall filter add chain=input action=accept src-address=10.40.0.0/24 '
+    'comment="gestion entra" disabled=no' in SCRIPT_FW,
+    "y dentro del guion cada regla es su línea de consola, con el comentario ENTRE COMILLAS "
+    "(lleva un espacio: sin comillas, la línea se parte y el router no la entiende)",
+)
+
+# 2ª pasada: el router YA tiene esas reglas (leídas) -> no hay nada que escribir.
+LEIDO_FW_AL_DIA = copy.deepcopy(LEIDO_FW)
+LEIDO_FW_AL_DIA["areas"]["firewall"] = {"reglas": [
+    dict(motor._filtro_normalizado(regla, de_declaracion=True), id="*%d" % n)
+    for n, regla in enumerate(REGLAS_FW)
+]}
+igual(
+    [op["op"] for op in motor.operaciones_de_pasos(
+        motor.pasos_de_convergencia(BORDE_FW, IDENTIDAD, DECLARACION, LEIDO_FW_AL_DIA, PARAMETROS)
+    ) if op["op"].endswith("filter_rule")],
+    [],
+    "con la tabla ya puesta, la 2ª pasada NO escribe una sola regla: es idempotente",
+)
+
+# Y si sobra una (alguien la metió a mano), se reconstruye la tabla: se quitan TODAS las
+# leídas --con su `.id`-- y se ponen las declaradas. El orden es lo que no se puede
+# conservar regla a regla sin `move`; la reconstrucción lo garantiza.
+LEIDO_FW_DE_MAS = copy.deepcopy(LEIDO_FW_AL_DIA)
+LEIDO_FW_DE_MAS["areas"]["firewall"]["reglas"].append(
+    dict(motor._filtro_normalizado({"chain": "output", "action": "drop"}, de_declaracion=True), id="*99")
+)
+OPERACIONES_FW_DE_MAS = [
+    op for op in motor.operaciones_de_pasos(
+        motor.pasos_de_convergencia(BORDE_FW, IDENTIDAD, DECLARACION, LEIDO_FW_DE_MAS, PARAMETROS)
+    ) if op["op"].endswith("filter_rule")
+]
+igual(
+    [op["op"] for op in OPERACIONES_FW_DE_MAS],
+    ["remove_filter_rule"] * 6 + ["add_filter_rule"] * 5,
+    "una regla que no se declara dispara la reconstrucción: se quitan las 6 leídas y se ponen "
+    "las 5 declaradas, en orden",
+)
+igual(
+    OPERACIONES_FW_DE_MAS[5].get("id"), "*99",
+    "y se quitan con su `.id` (es lo único con lo que RouterOS deja borrar una regla)",
+)
+
+# Y LA CREDENCIAL de cada escritura: `set_engine_credential` (al final de `identity`) cambia
+# la que vale, así que todo lo que converge DESPUÉS viaja ya con la del MOTOR. Esto no es
+# teoría: en el lab 08, el cortafuegos --que ahora es lo último-- salía con la de fábrica y
+# el RouterOS contestaba 401 a media convergencia.
+CREDENCIALES = [(l["ruta"], l.get("credencial", "")) for l in LLAMADAS_FW]
+posicion_credencial = [n for n, (ruta, _) in enumerate(CREDENCIALES) if ruta == "/user/set"][0]
+igual(
+    [c for _, c in CREDENCIALES[:posicion_credencial]], [""] * posicion_credencial,
+    "lo que se escribe ANTES del cambio de credencial viaja con la que había (la de fábrica)",
+)
+igual(
+    sorted({c for _, c in CREDENCIALES[posicion_credencial + 1:]}), ["motor"],
+    "y lo que se escribe DESPUÉS viaja con la del motor -- el cambio de credencial es un "
+    "antes y un después dentro de la misma convergencia",
+)
+comprobar(
+    all(g.get("credencial") == "motor" for g in GUION_FW
+        if g["ruta"] == "/execute" and "firewall filter" in g["cuerpo"]["script"]),
+    "y el guion del cortafuegos hereda esa credencial: el tramo entero va con la del motor",
 )
 
 print("\n" + "=" * 62)

@@ -39,6 +39,21 @@ El **vmid** (el menor libre de *todo* el clúster) y la **MAC** (`BC:24:11` + lo
 bytes del vmid) los asigna `apply` leyendo el estado de Proxmox: no se declaran aquí y
 no se guardan en ningún fichero del repositorio. Por eso estas dos columnas son un
 guion hasta que exista un despliegue real.
+
+## Cómo se entra a cada equipo
+
+| rol | tipo | usuario | credencial | forma de acceso |
+| --- | --- | --- | --- | --- |
+| workstation-1 | LXC | — | — | no se entra: no declara `config:` |
+
+El **usuario**, la **credencial** (de dónde sale Y cuánto vale) y la **forma de acceso** se
+derivan de la declaración, del motor y de `deployment_engine/secrets.yml`. **Este lab es de un
+solo uso y la contraseña se escribe aquí a la vista a propósito** (decisión explícita del dueño
+del repo): es un cuadro de acceso, no un secreto — en un lab efímero prima poder entrar. El
+puerto sale del **vmid**, que no se conoce hasta `apply`: por eso va como fórmula (`base`+vmid)
+y el número de verdad lo dice el despliegue. Un invitado sin `config:` no se toca, y su fila lo
+dice en vez de fingir un acceso que no hay. (En un Linux la credencial **no es una contraseña**:
+es el **fichero** de la clave del lab, y por eso se enseña su ruta, no un valor.)
 <!-- generado:fin -->
 
 ## Por qué existe este lab

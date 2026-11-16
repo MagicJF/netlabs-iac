@@ -63,6 +63,26 @@ El **vmid** (el menor libre de *todo* el clúster) y la **MAC** (`BC:24:11` + lo
 bytes del vmid) los asigna `apply` leyendo el estado de Proxmox: no se declaran aquí y
 no se guardan en ningún fichero del repositorio. Por eso estas dos columnas son un
 guion hasta que exista un despliegue real.
+
+## Cómo se entra a cada equipo
+
+| rol | tipo | usuario | credencial | forma de acceso |
+| --- | --- | --- | --- | --- |
+| borde | VM (qemu) | admin | `admin` / `BORgAt4kRPsodoOsbm78ehg3` — de `secrets.yml` → `routeros_clave` (HTTP Basic) | REST por el túnel del bastión (`21000`+vmid); su consola, por la serial del nodo |
+| control | LXC | root | clave del lab (`~/.ssh/netlabs_tunnel_07_dunder-mifflin_ed25519`), sin contraseña | SSH a `127.0.0.1`:(`20000`+vmid): él ES el bastión, se entra directo por su túnel |
+| ficheros | LXC | — | — | no se entra: no declara `config:` |
+| puesto-1 | LXC | — | — | no se entra: no declara `config:` |
+| puesto-2 | LXC | — | — | no se entra: no declara `config:` |
+| puesto-3 | LXC | — | — | no se entra: no declara `config:` |
+
+El **usuario**, la **credencial** (de dónde sale Y cuánto vale) y la **forma de acceso** se
+derivan de la declaración, del motor y de `deployment_engine/secrets.yml`. **Este lab es de un
+solo uso y la contraseña se escribe aquí a la vista a propósito** (decisión explícita del dueño
+del repo): es un cuadro de acceso, no un secreto — en un lab efímero prima poder entrar. El
+puerto sale del **vmid**, que no se conoce hasta `apply`: por eso va como fórmula (`base`+vmid)
+y el número de verdad lo dice el despliegue. Un invitado sin `config:` no se toca, y su fila lo
+dice en vez de fingir un acceso que no hay. (En un Linux la credencial **no es una contraseña**:
+es el **fichero** de la clave del lab, y por eso se enseña su ruta, no un valor.)
 <!-- generado:fin -->
 
 ## Por qué así
@@ -210,9 +230,15 @@ el almacén necesitara su servidor, es una línea más aquí -- pero entonces co
 preguntarse si no será otro lab.
 
 **El router no declara puentes ni cortafuegos**, ni el Linux pasarela, rutas, DNS o
-claves: son las áreas que el motor todavía no converge y están declaradas como
-pendientes en `filter_plugins/interior.py`. Este lab no las finge: lo que no se puede
-configurar, no se declara.
+claves: son áreas que el motor todavía no converge —los `bridges` de RouterOS y las cuatro
+de Linux— y están declaradas como pendientes en `filter_plugins/interior.py`. Este lab no
+las finge: lo que no se puede configurar, no se declara.
+
+(Ojo al leer esto hoy: **el cortafuegos ya NO es una de ellas.** El área `firewall` existe
+desde el ADR 0019, y la usa el lab [08_dunder-mifflin-con-fw](../08_dunder-mifflin-con-fw/08_dunder-mifflin-con-fw.md),
+que es donde vive el filtrado. Este lab no declara ninguna regla porque los equipos que
+enrutan aquí no tienen que filtrar: cuando se escribió, repartir esas dos responsabilidades
+entre los mismos CHR era lo que había, y por eso el 08 los separa en equipos distintos.)
 
 **El servidor de ficheros hereda el resolutor del nodo** que lo hospeda, porque un
 contenedor lo hereda y el vocabulario todavía no sabe declarárselo (la última sección

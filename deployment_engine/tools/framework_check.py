@@ -874,8 +874,14 @@ FICHERO_DE_CREDENCIALES = "secrets" + ".yml"
 # Las tres claves del HOST que no pueden llevar valor en un fichero versionado. En
 # `secrets.yml` sí lo llevan, y por eso ese fichero no se versiona.
 CLAVES_DEL_HOST = ("pve_token" + "_secreto", "pve_ssh" + "_usuario", "pve_ssh" + "_password")
+# La clave puede ir DESNUDA, entre comillas (YAML lo admite) o dentro de una entrada JSON,
+# y en cualquier posición de la línea, así que se busca con comillas opcionales. La versión
+# anterior anclaba al principio de la línea y exigía la clave desnuda: una clave
+# entrecomillada, que es YAML válido, se colaba con su valor. Los nombres de las claves no
+# se escriben aquí seguidos de dos puntos a propósito: si no, este mismo comentario
+# encendería el candado que describe.
 EXPRESION_CLAVE_DEL_HOST = re.compile(
-    r"^\s*(" + "|".join(re.escape(clave) for clave in CLAVES_DEL_HOST) + r")\s*:\s*(.*)$"
+    r"[\"']?(" + "|".join(re.escape(clave) for clave in CLAVES_DEL_HOST) + r")[\"']?\s*:\s*(.*)$"
 )
 
 
@@ -891,37 +897,70 @@ def _es_relleno(valor):
     return not limpio or limpio.startswith("<") or limpio.startswith("{{")
 
 
+def _valor_tras_la_clave(resto):
+    """El valor de una entrada `clave: valor`, ya sea YAML o JSON.
+
+    En YAML el valor es todo lo que queda en la línea; en JSON (`{"clave": "v", "otra": 1}`)
+    el valor termina en la primera coma o llave, así que se corta ahí. Se corta por el
+    carácter, no por comillas: un valor entrecomillado con una coma dentro es raro en una
+    credencial y, si ocurriera, cortar de más sólo haría el check MÁS estricto, nunca
+    menos.
+    """
+    return re.split(r"[,}]", resto, maxsplit=1)[0]
+
+
 def _contenido_a_vigilar(staged):
-    """{ruta en el repo: texto} de lo que este check tiene que mirar.
+    """({ruta en el repo: texto}, [rutas que no se han podido leer]) de lo que hay que mirar.
 
     Sin `staged`, todo lo que git versiona (o versionaría: se usa
     `--cached --others --exclude-standard`, así el check vale antes del primer commit
     y no se cae por ficheros ignorados). Con `staged`, EXACTAMENTE lo que está en el
     índice -- que es lo que va a entrar en el commit, aunque el árbol de trabajo ya se
     haya corregido --, y por eso se lee del índice (`git show :ruta`) y no del disco.
+
+    Dos detalles que parecen menores y no lo son:
+
+    - **Los nombres salen con `-z`.** `git diff --name-only` entrecomilla y escapa un
+      nombre con caracteres no ASCII (un acento, un espacio): ese nombre entrecomillado
+      NO es una ruta y `git show` fallaría. Con `-z` cada nombre llega crudo, separado
+      por NUL. Y si aun así una lectura del índice falla, se DEVUELVE como fallo en vez
+      de saltársela en silencio: un fichero que no se ha podido mirar no es un fichero
+      limpio.
+    - **El contenido se lee en BYTES y se decodifica con `replace`.** Un PNG staged no
+      es UTF-8: con `text=True` la lectura lanzaba `UnicodeDecodeError` y el hook
+      bloqueaba un commit perfectamente válido. Un binario se mira igual que el resto
+      (no va a casar con las formas del host), pero no puede tumbar el check.
     """
     contenido = {}
+    ilegibles = []
     if staged:
         salida = subprocess.run(
-            ["git", "diff", "--cached", "--name-only", "--diff-filter=ACMR"],
-            cwd=RAIZ, capture_output=True, text=True, check=False,
+            ["git", "diff", "--cached", "--name-only", "-z", "--diff-filter=ACMR"],
+            cwd=RAIZ, capture_output=True, check=False,
         ).stdout
-        for ruta in [linea.strip() for linea in salida.splitlines() if linea.strip()]:
+        for ruta_bytes in salida.split(b"\0"):
+            if not ruta_bytes:
+                continue
+            ruta = ruta_bytes.decode("utf-8", "surrogateescape")
             volcado = subprocess.run(
-                ["git", "show", ":" + ruta], cwd=RAIZ, capture_output=True, text=True, check=False,
+                [b"git", b"show", b":" + ruta_bytes],
+                cwd=RAIZ, capture_output=True, check=False,
             )
-            if volcado.returncode == 0:
-                contenido[ruta] = volcado.stdout
-        return contenido
+            if volcado.returncode != 0:
+                ilegibles.append(ruta)
+                continue
+            contenido[ruta] = volcado.stdout.decode("utf-8", "replace")
+        return contenido, ilegibles
     for ruta in sorted(_ficheros_versionados()):
         absoluta = os.path.join(RAIZ, ruta)
         if not os.path.isfile(absoluta):
             continue
         try:
-            contenido[ruta] = _leer(absoluta)
-        except (UnicodeDecodeError, OSError):
-            continue  # un binario no lleva una cabecera Authorization
-    return contenido
+            with open(absoluta, "rb") as fichero:
+                contenido[ruta] = fichero.read().decode("utf-8", "replace")
+        except OSError:
+            continue
+    return contenido, ilegibles
 
 
 def check_secretos(staged=False):
@@ -932,8 +971,10 @@ def check_secretos(staged=False):
     valor: un check de secretos que los escupe en el diario de un hook los deja en el
     diario.
     """
-    contenido = _contenido_a_vigilar(staged)
+    contenido, ilegibles = _contenido_a_vigilar(staged)
     fallos = []
+    for ruta in ilegibles:
+        fallos.append(f"{ruta}: no se ha podido leer del índice; no se da por bueno sin mirarlo")
     for ruta, texto in contenido.items():
         if os.path.basename(ruta) == FICHERO_DE_CREDENCIALES:
             fallos.append(f"{ruta}: es el fichero de credenciales del nodo (está "
@@ -943,8 +984,8 @@ def check_secretos(staged=False):
             for descripcion, expresion in FORMAS_DE_ACCESO_AL_HOST:
                 if expresion.search(linea):
                     fallos.append(f"{ruta}:{numero}: hay {descripcion}")
-            clave = EXPRESION_CLAVE_DEL_HOST.match(linea)
-            if clave and not _es_relleno(clave.group(2)):
+            clave = EXPRESION_CLAVE_DEL_HOST.search(linea)
+            if clave and not _es_relleno(_valor_tras_la_clave(clave.group(2))):
                 fallos.append(f"{ruta}:{numero}: `{clave.group(1)}` lleva un valor (las claves "
                               f"del HOST sólo viven en `{FICHERO_DE_CREDENCIALES}`, que no se versiona)")
     if fallos:

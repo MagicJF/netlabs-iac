@@ -51,10 +51,17 @@ def repo_desechable():
 
 
 def con_repo(carpeta, ficheros):
-    """Escribe los ficheros, los deja en el índice y corre el check contra ese repo."""
+    """Escribe los ficheros, los deja en el índice y corre el check contra ese repo.
+
+    Un valor `bytes` se escribe tal cual (para probar un binario); un `str`, en UTF-8.
+    """
     for nombre, contenido in ficheros.items():
-        with open(os.path.join(carpeta, nombre), "w", encoding="utf-8") as fichero:
-            fichero.write(contenido)
+        if isinstance(contenido, (bytes, bytearray)):
+            with open(os.path.join(carpeta, nombre), "wb") as fichero:
+                fichero.write(contenido)
+        else:
+            with open(os.path.join(carpeta, nombre), "w", encoding="utf-8") as fichero:
+                fichero.write(contenido)
     subprocess.run(["git", "add", "-A"], cwd=carpeta, check=True)
     anterior, modulo.RAIZ = modulo.RAIZ, carpeta
     modulo._CACHE_VERSIONADOS = None
@@ -81,6 +88,12 @@ casos = [
     ("2.5 · el fichero de credenciales maestras", {"secrets.yml": "pve_nodo: 10.0.0.1\n"}),
     ("2.6 · una clave del HOST con valor", {"cfg.yml": 'pve_ssh' + '_password: "no-es-un-hueco"\n'}),
     ("2.7 · el secreto del token con valor", {"cfg.yml": "pve_token" + '_secreto: 9f8e7d6c\n'}),
+    ("2.8 · una clave del HOST ENTRECOMILLADA (YAML válido)",
+     {"cfg.yml": '"pve_token' + '_secreto": "9f8e7d6c-1a2b-3c4d"\n'}),
+    ("2.9 · una clave del HOST en una entrada JSON",
+     {"cfg.json": '{"pve_ssh' + '_password": "no-es-un-hueco", "otra": 1}\n'}),
+    ("2.10 · la clave en un fichero con ACENTO en el nombre (nombre no ASCII)",
+     {"configuración.yml": "pve_ssh" + '_usuario: "no-es-un-hueco"\n'}),
 ]
 for texto, ficheros in casos:
     carpeta = repo_desechable()
@@ -104,6 +117,18 @@ for texto, ficheros in permisos:
         comprobar(con_repo(carpeta, ficheros) == 0, texto)
     finally:
         shutil.rmtree(carpeta, ignore_errors=True)
+
+# --- 4. lo que no puede TUMBAR el candado ------------------------------------
+# Un binario en el índice no es un secreto, pero antes reventaba el check con un
+# UnicodeDecodeError y bloqueaba un commit válido. Aquí se prueba que no lo hace.
+print("\n4. lo que no puede tumbar el candado")
+carpeta = repo_desechable()
+try:
+    binario = bytes(range(256))  # no es UTF-8 válido a propósito
+    comprobar(con_repo(carpeta, {"logo.png": binario, "nota.md": "sin secretos\n"}) == 0,
+              "4.1 · un fichero binario en el índice no bloquea el commit")
+finally:
+    shutil.rmtree(carpeta, ignore_errors=True)
 
 if FALLOS:
     print(f"\nRESULTADO: {len(FALLOS)} fallo(s).")

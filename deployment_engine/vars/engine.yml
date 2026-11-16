@@ -240,6 +240,13 @@ engine_sonda_pausa: 5         # segundos entre intento e intento
 # así que la ventana es más corta que la de la sonda: si el lab hace lo que dice, la
 # prueba pasa en el primer intento y no se espera nada.
 engine_prueba_intentos: 6     # número de intentos por prueba
+# --- La convergencia (reintento por vmid ocupado, informe §6.7) -------------
+# Cuántas veces se ejecuta el plan como mucho. Si un `crear_guest` falla porque otro
+# `apply` se llevó ese vmid entre la lectura del mundo y la creación, el motor re-lee
+# el mundo y recalcula el plan: el vmid libre de verdad es otro. Dos intentos bastan
+# para convertir el choque en convergencia; un tercero sería esconder que hay algo que
+# no cuadra.
+engine_intentos_converger: 2  # ejecuciones del plan, como mucho
 # --- Tareas asíncronas ----------------------------------------------------
 # Proxmox crea, borra y recarga la red EN SEGUNDO PLANO: la llamada devuelve un
 # UPID y el trabajo continúa después de responder. Para que un paso no corra

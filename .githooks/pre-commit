@@ -33,7 +33,20 @@ if [ -n "$FICHEROS_MOTOR" ]; then
     echo ""
 fi
 
-# --- 2. Bloquear: la región generada tiene que coincidir con su render --------
+# --- 2. Bloquear: lo que abre el NODO no puede estar en lo versionado -------------
+# Un ticket de sesión o una clave privada en un fichero es un hecho mecánico, igual
+# que la región generada: no admite criterio, o está o no está. Se mira el ÍNDICE (lo
+# que va a entrar en este commit), así que aunque el árbol de trabajo ya se haya
+# corregido, el commit no pasa con el secreto dentro.
+if ! python3 "$CHECKS" secretos --staged; then
+    echo "" >&2
+    echo "pre-commit BLOQUEADO: hay una forma de acceso al NODO en lo que ibas a" >&2
+    echo "commitear. Quita el valor (o el fichero) y vuelve a intentarlo. Los labs" >&2
+    echo "pueden citar SUS credenciales; las del host, no (ADR 0024)." >&2
+    exit 1
+fi
+
+# --- 3. Bloquear: la región generada tiene que coincidir con su render --------
 if ! python3 "$CHECKS" docs; then
     echo "" >&2
     echo "pre-commit BLOQUEADO: la parte de datos de algún documento no coincide con" >&2
@@ -42,6 +55,6 @@ if ! python3 "$CHECKS" docs; then
     exit 1
 fi
 
-# --- 3. Avisar: prosa que ha dejado de estar revisada -------------------------
+# --- 4. Avisar: prosa que ha dejado de estar revisada -------------------------
 python3 "$CHECKS" refs | grep '^AVISO' || true
 echo "pre-commit: ok (recuerda sellar la prosa que hayas revisado: ./lab check docs --sellar <doc>)"

@@ -839,10 +839,132 @@ def check_address_space():
 
 
 # ---------------------------------------------------------------------------
+# check secretos — lo que abre el HOST no entra en el repositorio
+# ---------------------------------------------------------------------------
+#
+# La política es explícita y asimétrica (ADR 0024): las credenciales de los labs
+# --las de los CHR y los LXC-- se citan en claro y no pasa nada, porque son de un
+# banco de pruebas; lo que abre el NODO no se versiona jamás. Este check vigila la
+# segunda mitad y SÓLO esa: no busca contraseñas en general (bloquearía la prosa de
+# los labs, que es legítima) sino las formas que dan acceso al host -- el token de la
+# API con su valor, un ticket de sesión, una clave privada y el propio fichero de
+# credenciales maestras.
+#
+# Las formas se arman por piezas para que este fichero no las contenga: un check que
+# se cae a sí mismo no es un check.
+
+_MARCA_TICKET = "PVE" + ":"
+_MARCA_CSRF = "CSRFPrevention" + "Token"
+_MARCA_TOKEN = "PVEAPI" + "Token="
+_MARCA_CLAVE = "PRIVATE" + " KEY-----"
+
+FORMAS_DE_ACCESO_AL_HOST = (
+    ("un ticket de sesión de la API",
+     re.compile(_MARCA_TICKET + r"[A-Za-z0-9_.@-]+:[0-9A-Fa-f]{8}")),
+    ("un CSRFPreventionToken",
+     re.compile(_MARCA_CSRF + r"\s*:\s*[0-9A-Fa-f]{8,}")),
+    ("el token de la API con su valor",
+     re.compile(_MARCA_TOKEN + r"(?!\{\{)(?!<)[A-Za-z0-9_.-]+@[A-Za-z0-9.-]+!"
+                r"[A-Za-z0-9_.-]+=[0-9A-Fa-f-]{8,}")),
+    ("una clave privada",
+     re.compile(r"-{5}BEGIN [A-Z ]*" + _MARCA_CLAVE)),
+)
+
+FICHERO_DE_CREDENCIALES = "secrets" + ".yml"
+# Las tres claves del HOST que no pueden llevar valor en un fichero versionado. En
+# `secrets.yml` sí lo llevan, y por eso ese fichero no se versiona.
+CLAVES_DEL_HOST = ("pve_token" + "_secreto", "pve_ssh" + "_usuario", "pve_ssh" + "_password")
+EXPRESION_CLAVE_DEL_HOST = re.compile(
+    r"^\s*(" + "|".join(re.escape(clave) for clave in CLAVES_DEL_HOST) + r")\s*:\s*(.*)$"
+)
+
+
+def _es_relleno(valor):
+    """¿Este valor es un hueco y no un secreto?
+
+    Un hueco se escribe `<...>` o `{{ ... }}`, o se deja vacío. Se mira el VALOR y no
+    el carácter que sigue a los dos puntos porque un hueco puede ir entre comillas
+    (`pve_ssh_usuario: "<usuario>"`) y una expresión regular que mirase la forma de la
+    línea se equivocaría con eso.
+    """
+    limpio = valor.strip().strip("\"'").strip()
+    return not limpio or limpio.startswith("<") or limpio.startswith("{{")
+
+
+def _contenido_a_vigilar(staged):
+    """{ruta en el repo: texto} de lo que este check tiene que mirar.
+
+    Sin `staged`, todo lo que git versiona (o versionaría: se usa
+    `--cached --others --exclude-standard`, así el check vale antes del primer commit
+    y no se cae por ficheros ignorados). Con `staged`, EXACTAMENTE lo que está en el
+    índice -- que es lo que va a entrar en el commit, aunque el árbol de trabajo ya se
+    haya corregido --, y por eso se lee del índice (`git show :ruta`) y no del disco.
+    """
+    contenido = {}
+    if staged:
+        salida = subprocess.run(
+            ["git", "diff", "--cached", "--name-only", "--diff-filter=ACMR"],
+            cwd=RAIZ, capture_output=True, text=True, check=False,
+        ).stdout
+        for ruta in [linea.strip() for linea in salida.splitlines() if linea.strip()]:
+            volcado = subprocess.run(
+                ["git", "show", ":" + ruta], cwd=RAIZ, capture_output=True, text=True, check=False,
+            )
+            if volcado.returncode == 0:
+                contenido[ruta] = volcado.stdout
+        return contenido
+    for ruta in sorted(_ficheros_versionados()):
+        absoluta = os.path.join(RAIZ, ruta)
+        if not os.path.isfile(absoluta):
+            continue
+        try:
+            contenido[ruta] = _leer(absoluta)
+        except (UnicodeDecodeError, OSError):
+            continue  # un binario no lleva una cabecera Authorization
+    return contenido
+
+
+def check_secretos(staged=False):
+    """¿Está en lo versionado alguna de las formas que dan acceso al NODO?
+
+    Bloquea, no avisa: que un ticket o una clave estén en un fichero es un hecho
+    mecánico, como que la región generada de un documento no cuadre. Y no imprime el
+    valor: un check de secretos que los escupe en el diario de un hook los deja en el
+    diario.
+    """
+    contenido = _contenido_a_vigilar(staged)
+    fallos = []
+    for ruta, texto in contenido.items():
+        if os.path.basename(ruta) == FICHERO_DE_CREDENCIALES:
+            fallos.append(f"{ruta}: es el fichero de credenciales del nodo (está "
+                          f"gitignored: si ha llegado aquí es que se ha forzado con `git add -f`)")
+            continue
+        for numero, linea in enumerate(texto.splitlines(), start=1):
+            for descripcion, expresion in FORMAS_DE_ACCESO_AL_HOST:
+                if expresion.search(linea):
+                    fallos.append(f"{ruta}:{numero}: hay {descripcion}")
+            clave = EXPRESION_CLAVE_DEL_HOST.match(linea)
+            if clave and not _es_relleno(clave.group(2)):
+                fallos.append(f"{ruta}:{numero}: `{clave.group(1)}` lleva un valor (las claves "
+                              f"del HOST sólo viven en `{FICHERO_DE_CREDENCIALES}`, que no se versiona)")
+    if fallos:
+        print("FALLA secretos: lo que abre el NODO está en lo versionado:")
+        for fallo in fallos:
+            print(f"  - {fallo}")
+        print("  Quita el valor (o el fichero) y vuelve a intentarlo. El valor no se imprime a propósito.")
+        return 1
+    donde = "lo que va a entrar en el commit" if staged else f"{len(contenido)} fichero(s) versionados"
+    print(f"OK    secretos: ni el token del nodo, ni una clave privada, ni un ticket de la API "
+          f"están en {donde}")
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # Orquestación
 # ---------------------------------------------------------------------------
 
 CHECKS = {
+    "secretos": check_secretos,
     "links": check_links,
     "docs": check_docs,
     "refs": check_refs,
@@ -881,6 +1003,10 @@ def main(argumentos):
 
     if orden == "all":
         return ejecutar_todos()
+    if orden == "secretos":
+        # `--staged` mira el ÍNDICE, no el árbol: es lo que usa el hook de pre-commit
+        # para bloquear antes de que el secreto exista en un commit.
+        return check_secretos(staged="--staged" in resto)
     if orden == "refs" and resto:
         return check_refs(resto[0])
     if orden == "docs" and resto:

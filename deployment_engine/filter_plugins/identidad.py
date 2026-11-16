@@ -459,10 +459,7 @@ class FilterModule:
         return {
             "identidad_mac": identidad_mac,
             "identidad_pool": identidad_pool,
-            "identidad_rol_de_descripcion": rol_de_descripcion,
-            "identidad_lab_de_comentario": lab_de_comentario,
             "identidad_asignar": identidad_asignar,
             "identidad_guest_por_rol": identidad_guest_por_rol,
             "identidad_por_stage": identidad_por_stage,
-            "identidad_direcciones": direcciones_resolver,
         }

@@ -185,9 +185,8 @@ engine_privilegios_vedados:
 # Nombre del rol del invitado que es el bastión. Es vocabulario del
 # MOTOR: cualquier lab que declare un túnel tendrá un invitado con este rol.
 engine_rol_control: "control"
-# El `config:` con esta clave es el bastión: en vez de un interior que
-# se converge por SSH, lo que se le pide es que SEPA salir hacia casa.
-engine_clave_tunnel: "tunnel"
+# La clave del bastión en el `config:` (`tunnel`) no es una variable del motor: vive
+# en el vocabulario del interior (`interior.CLAVE_TUNNEL`), que es quien la valida.
 # Puerto local del nodo de control donde el puesto deja su sshd reenviado. Se
 # DERIVA del vmid del puesto: no se guarda ni se declara. El rango (este valor +
 # el vmid) deja sitio de sobra sin pisar el 22 ni puertos privilegiados.

@@ -105,9 +105,9 @@ Léelo en este orden, y **no toques nada hasta entender las cuatro ideas que lo 
   de red: §9.3 no es un extra, es la vía de acceso de entrada.
 - `ansible` 2.22.0 en `/home/hermes/.local/bin`; **no hay ninguna colección instalada** y el motor
   usa sólo `ansible.builtin`. `ansible-lint` y `yamllint` están instalados; si dudas, `uvx`.
-- `secrets.yml` ya declara `pve_nodo`, `pve_puerto`, `pve_token_id`, `pve_token_secreto`,
-  `pve_verificar_tls`, y **también** `pve_ssh_usuario`/`pve_ssh_password` (la vía de depuración del
-  §Depuración por SSH de `AGENTS.md`, que es del que diagnostica, nunca del motor).
+- `secrets.yml` ya declara `pve_nodo`, `pve_puerto`, `pve_token_id`, `pve_token_secreto` y
+  `pve_verificar_tls`. Las `pve_ssh_usuario`/`pve_ssh_password` que declaraba se dieron de
+  baja: no había ni un fichero del motor que las leyera, y el nodo no acepta contraseña.
 
 ### 1.2 El anti-patrón — `/home/hermes/repos/ansible-netlabs-v3`, y qué se salva de él
 

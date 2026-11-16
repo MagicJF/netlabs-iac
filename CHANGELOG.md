@@ -16,6 +16,24 @@ aquí está su entrada; los tres tienen que contar lo mismo, y eso es lo que vig
 `./lab check version`. Lo que entra en `main` sin publicarse se apunta bajo
 `[No publicado]`, y se convierte en una versión el día que se publica.
 
+## [No publicado]
+
+### Añadido
+
+- **`./lab check secretos`** (ADR 0024): el candado de lo que abre el **nodo**. Caza en lo
+  versionado el token de la API con su valor, un ticket de sesión, una clave privada y el propio
+  `secrets.yml`, y se cierra en el hook de pre-commit mirando el **índice** —lo que va a entrar en
+  el commit, no el árbol de trabajo—. Las credenciales de los labs se siguen citando en claro: la
+  política es asimétrica, y ahora está escrita y vigilada en vez de confiada.
+
+### Cambiado
+
+- **Fuera la configuración muerta.** Se fueron las claves `pve_ssh_usuario`/`pve_ssh_password`
+  (ningún fichero del motor las leía, y el nodo no acepta contraseña), `engine_clave_tunnel` (la
+  clave vive en el vocabulario del interior, no en una variable) y quince alias viejos del registro
+  de filtros, más dos funciones que ya no llamaba nadie. Nada de eso se ejecutaba: por eso ningún
+  lab cambia de comportamiento.
+
 ## [0.2.0] - 2026-11-16
 
 ### Añadido

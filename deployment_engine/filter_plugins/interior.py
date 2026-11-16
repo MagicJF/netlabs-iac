@@ -2137,17 +2137,6 @@ def operaciones_de_pasos(pasos):
     return operaciones
 
 
-def requiere_lectura(area, leido):
-    """¿El área declarada necesita releerse para comprobar la convergencia?
-
-    Se relee TODO lo declarado y declarado-se-compara: la verificación no es «el
-    comando no dio error», es «el estado real coincide con lo declarado» (los dos
-    sentidos). Función aparte porque el orden importa: primero se escribe, después se
-    lee, y lo que se lee es lo mismo que se leyó antes.
-    """
-    return area in (leido or {}).get("areas", {})
-
-
 # ---------------------------------------------------------------------------
 # RouterOS: lo que se lee por su REST y lo que se escribe por su REST
 # ---------------------------------------------------------------------------
@@ -2721,12 +2710,6 @@ def _a_texto(valor):
 def _sin_prefijo(direccion):
     """'10.40.0.11/24' -> '10.40.0.11' (el prefijo se mira aparte)."""
     return str(direccion or "").split("/")[0]
-
-
-def _prefijo_de(direccion):
-    """'10.40.0.11/24' -> '24'; sin prefijo, ''."""
-    partes = str(direccion or "").split("/")
-    return partes[1] if len(partes) > 1 else ""
 
 
 def _intercambio_de_la_gestion(operaciones, declaracion, guest, leido):
@@ -3368,9 +3351,7 @@ class FilterModule:
         return {
             "interior_tipo": tipo_de,
             "interior_areas": areas_de,
-            "interior_areas_a_leer": areas_a_leer,
             "interior_lecturas_linux": lecturas_linux,
-            "interior_leido_linux": leido_linux,
             "interior_escrituras_linux": escrituras_linux,
             "interior_lecturas_routeros": lecturas_routeros,
             "interior_leido_routeros": leido_routeros,
@@ -3381,25 +3362,15 @@ class FilterModule:
             "interior_leido": leido_de_lecturas,
             "interior_operaciones": operaciones_de_pasos,
             "interior_sin_driver": pasos_sin_driver,
-            "interior_tiene_driver": tiene_driver,
-            "interior_configuracion_dnsmasq": configuracion_dnsmasq,
-            "interior_declara": declara_interior,
-            "interior_tiene_tunnel": tiene_tunnel,
             "interior_bastion": bastion,
-            "interior_direccion_libre": direccion_libre,
-            "interior_interfaces": interfaces_del_bastion,
             "interior_salida": salida_derivada,
-            "interior_puerto_tunnel": puerto_tunnel,
             "interior_puerto_rest": puerto_rest_tunnel,
             "interior_permitlisten": permitlisten_de,
             "interior_interfaces_rest": interfaces_rest_del_bastion,
             "interior_guion_tunnel": guion_tunnel,
             "interior_linea_consola": linea_consola,
             "interior_marca_tunnel": marca_tunnel,
-            "interior_reservas": reservas_derivadas,
-            "interior_residuo": residuo_dinamico,
             "interior_pasos": pasos_de_convergencia,
-            "interior_espera": espera_de_servicio,
             "interior_pruebas": pruebas_de,
             "interior_captura": captura_de,
             "interior_impairment": impairment_de,

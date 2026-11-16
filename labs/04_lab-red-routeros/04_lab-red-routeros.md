@@ -10,6 +10,29 @@ que nadie más toque el hipervisor ni la red del lab.
 _Datos derivados de `04_lab-red-routeros.yml`. Los reescribe `./lab check docs --actualizar`;
 si los editas a mano, `./lab check docs` falla._
 
+## Topología
+
+```mermaid
+graph TD
+    b_vmb_gestion(["vmb_gestion<br/>10.40.0.1/24"])
+    b_vmb_lan1(["vmb_lan1<br/>10.40.1.1/24"])
+    b_vmb_lan2(["vmb_lan2<br/>10.40.2.1/24"])
+    i_borde["borde<br/>VM (qemu) · etapa 1"]
+    i_borde --- b_vmb_gestion
+    i_borde --- b_vmb_lan1
+    i_control["control<br/>LXC · etapa 1"]
+    i_control --- b_vmb_gestion
+    i_nucleo["nucleo<br/>VM (qemu) · etapa 2"]
+    i_nucleo --- b_vmb_lan1
+    i_nucleo --- b_vmb_lan2
+    i_servidor["servidor<br/>LXC · etapa 2"]
+    i_servidor --- b_vmb_lan1
+    i_puesto_1["puesto-1<br/>LXC · etapa 3"]
+    i_puesto_1 --- b_vmb_lan1
+    i_puesto_2["puesto-2<br/>LXC · etapa 3"]
+    i_puesto_2 --- b_vmb_lan2
+```
+
 ## Invitados declarados
 
 | rol | tipo | stage | cores | memory (MB) | disk (GB) | bridge | address |
@@ -57,9 +80,9 @@ guion hasta que exista un despliegue real.
 
 | rol | tipo | usuario | credencial | forma de acceso |
 | --- | --- | --- | --- | --- |
-| borde | VM (qemu) | admin | `admin` / `BORgAt4kRPsodoOsbm78ehg3` — de `secrets.yml` → `routeros_clave` (HTTP Basic) | REST por el túnel del bastión (`21000`+vmid); su consola, por la serial del nodo |
+| borde | VM (qemu) | admin | `admin` / la de `secrets.yml` → `routeros_clave` (HTTP Basic) | REST por el túnel del bastión (`21000`+vmid); su consola, por la serial del nodo |
 | control | LXC | root | clave del lab (`~/.ssh/netlabs_tunnel_04_lab-red-routeros_ed25519`), sin contraseña | SSH a `127.0.0.1`:(`20000`+vmid): él ES el bastión, se entra directo por su túnel |
-| nucleo | VM (qemu) | admin | `admin` / `BORgAt4kRPsodoOsbm78ehg3` — de `secrets.yml` → `routeros_clave` (HTTP Basic) | REST por el túnel del bastión (`21000`+vmid); su consola, por la serial del nodo |
+| nucleo | VM (qemu) | admin | `admin` / la de `secrets.yml` → `routeros_clave` (HTTP Basic) | REST por el túnel del bastión (`21000`+vmid); su consola, por la serial del nodo |
 | servidor | LXC | root | clave del lab (`~/.ssh/netlabs_tunnel_04_lab-red-routeros_ed25519`), sin contraseña | SSH por el bastión (salta por su túnel), a su dirección en el lab |
 | puesto-1 | LXC | root | clave del lab (`~/.ssh/netlabs_tunnel_04_lab-red-routeros_ed25519`), sin contraseña | SSH por el bastión (salta por su túnel), a su dirección en el lab |
 | puesto-2 | LXC | root | clave del lab (`~/.ssh/netlabs_tunnel_04_lab-red-routeros_ed25519`), sin contraseña | SSH por el bastión (salta por su túnel), a su dirección en el lab |

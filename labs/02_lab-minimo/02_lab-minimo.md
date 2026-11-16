@@ -11,6 +11,15 @@ contenedor**.
 _Datos derivados de `02_lab-minimo.yml`. Los reescribe `./lab check docs --actualizar`;
 si los editas a mano, `./lab check docs` falla._
 
+## Topología
+
+```mermaid
+graph TD
+    b_vmb_lab_minimo(["vmb_lab_minimo<br/>198.51.100.1/24"])
+    i_workstation_1["workstation-1<br/>LXC · etapa 1"]
+    i_workstation_1 --- b_vmb_lab_minimo
+```
+
 ## Invitados declarados
 
 | rol | tipo | stage | cores | memory (MB) | disk (GB) | bridge | address |

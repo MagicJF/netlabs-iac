@@ -4,6 +4,11 @@
 # a mano.
 deployment_engine/secrets.yml
 
+# La clave privada de age, que descifra `secrets.sops.yml`. Es tan de nadie como el
+# `secrets.yml` en claro: lo que se versiona es el fichero CIFRADO (`secrets.sops.yml`),
+# nunca la clave que lo abre (informe §6.6).
+deployment_engine/age.key
+
 # Artefactos de ejecucion de cada lab: diario de API, log humano de Ansible y
 # informes de verificacion. Son de ejecucion, rotan, y describen infraestructura
 # real: no se versionan. Lo que SI se versiona es la evidencia que se cita en la

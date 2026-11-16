@@ -21,6 +21,29 @@ enseñar.
 _Datos derivados de `07_dunder-mifflin.yml`. Los reescribe `./lab check docs --actualizar`;
 si los editas a mano, `./lab check docs` falla._
 
+## Topología
+
+```mermaid
+graph TD
+    b_vmb_dm_gestion(["vmb_dm_gestion<br/>10.43.0.1/24"])
+    b_vmb_dm_oficina(["vmb_dm_oficina<br/>10.43.1.1/24"])
+    b_vmb_dm_almacen(["vmb_dm_almacen<br/>10.43.2.1/24"])
+    i_borde["borde<br/>VM (qemu) · etapa 1"]
+    i_borde --- b_vmb_dm_gestion
+    i_borde --- b_vmb_dm_oficina
+    i_borde --- b_vmb_dm_almacen
+    i_control["control<br/>LXC · etapa 1"]
+    i_control --- b_vmb_dm_gestion
+    i_ficheros["ficheros<br/>LXC · etapa 2"]
+    i_ficheros --- b_vmb_dm_oficina
+    i_puesto_1["puesto-1<br/>LXC · etapa 3"]
+    i_puesto_1 --- b_vmb_dm_oficina
+    i_puesto_2["puesto-2<br/>LXC · etapa 3"]
+    i_puesto_2 --- b_vmb_dm_oficina
+    i_puesto_3["puesto-3<br/>LXC · etapa 3"]
+    i_puesto_3 --- b_vmb_dm_almacen
+```
+
 ## Invitados declarados
 
 | rol | tipo | stage | cores | memory (MB) | disk (GB) | bridge | address |
@@ -68,7 +91,7 @@ guion hasta que exista un despliegue real.
 
 | rol | tipo | usuario | credencial | forma de acceso |
 | --- | --- | --- | --- | --- |
-| borde | VM (qemu) | admin | `admin` / `BORgAt4kRPsodoOsbm78ehg3` — de `secrets.yml` → `routeros_clave` (HTTP Basic) | REST por el túnel del bastión (`21000`+vmid); su consola, por la serial del nodo |
+| borde | VM (qemu) | admin | `admin` / la de `secrets.yml` → `routeros_clave` (HTTP Basic) | REST por el túnel del bastión (`21000`+vmid); su consola, por la serial del nodo |
 | control | LXC | root | clave del lab (`~/.ssh/netlabs_tunnel_07_dunder-mifflin_ed25519`), sin contraseña | SSH a `127.0.0.1`:(`20000`+vmid): él ES el bastión, se entra directo por su túnel |
 | ficheros | LXC | — | — | no se entra: no declara `config:` |
 | puesto-1 | LXC | — | — | no se entra: no declara `config:` |

@@ -1,0 +1,85 @@
+---
+# PROPÓSITO:   ejecutar los pasos del plan y, si el primer `crear_guest` choca con un
+#              vmid que se ocupó entre la lectura del mundo y la creación (dos `apply`
+#              en paralelo), RE-DERIVAR el mundo, recalcular el plan y reintentarlo
+#              UNA vez (informe §6.7). Así el fallo se vuelve convergencia sin
+#              guardar estado en disco.
+# INVARIANTES: el plan se ejecuta EN ORDEN, paso a paso (`paso.yml`), igual que si no
+#              hubiera reintento: aquí sólo se envuelve el bucle, no se reordena nada.
+#              Sólo se reintenta ante un CHOQUE DE VMID (`es_colision_de_vmid`): otro
+#              error se propaga tal cual, porque reintentarlo no lo arregla y lo
+#              escondería. El número de intentos es finito y baja en cada vuelta.
+# LÍMITES:     no guarda el vmid elegido ni lo reserva por adelantado: re-deriva
+#              leyendo la API, como todo el motor (regla 11). Si dos applies chocan
+#              dos veces seguidas, el segundo PARA con el error real en la mano.
+# VER:         deployment_engine/filter_plugins/colision.py;
+#              docs/informe-estado-del-arte-2026-11.md §6.7; AGENTS.md §Identidad
+
+# `intentos_restantes` lo pasa el verbo (o la vuelta anterior). `plan_pasos` y `estado`
+# viven como hechos del play, así que el reintento los recalcula y sobreescribe.
+
+- name: "CONVERGER · ejecutar el plan ({{ intentos_restantes }} intento(s) disponibles)"
+  block:
+    - name: "CONVERGER · los pasos, en orden"
+      ansible.builtin.include_tasks: paso.yml
+      loop: "{{ plan_pasos }}"
+
+  rescue:
+    # El fallo de la última tarea se recuerda: `ansible_failed_result` sólo está
+    # disponible DENTRO del `rescue`, y hace falta para decidir y para el mensaje.
+    - name: "CONVERGER · apuntar el fallo"
+      ansible.builtin.set_fact:
+        converger_fallo: "{{ ansible_failed_result | default({}) }}"
+
+    # Se junta el mensaje del fallo con el ÚLTIMO cuerpo que devolvió la API: el error
+    # de vmid ocupado llega en el `errors` del cuerpo, no en el mensaje de Ansible.
+    - name: "CONVERGER · decidir si se reintenta: ¿fue un vmid que se ocupó?"
+      ansible.builtin.set_fact:
+        converger_es_colision: >-
+          {{ ((converger_fallo.msg | default('')) ~ ' ' ~ (pve_api_ultimo_cuerpo | default('')))
+             | es_colision_de_vmid }}
+
+    - name: "CONVERGER · propaga el fallo si no es un choque de vmid (o no quedan intentos)"
+      ansible.builtin.fail:
+        msg: >-
+          {{ converger_fallo.msg | default('el plan falló y no hay nada que reintentar') }}
+      when: >-
+        not (converger_es_colision | bool)
+        or (intentos_restantes | int) <= 1
+
+    - name: "CONVERGER · el vmid elegido está ocupado: se re-deriva el mundo"
+      ansible.builtin.include_tasks: identity.yml
+
+    # `identity.yml` no falla si la API no contesta: deja `pve_mundo_error` puesto y sigue
+    # (así el verbo que llama decide qué decir). Aquí la decisión es la misma que en
+    # `apply.yml`, y por eso se repite: sin estado NUEVO no se rehace el plan, o el
+    # reintento escribiría desde la foto de ANTES del choque. `identidad`/`estado` pueden
+    # ser los viejos --`identity.yml` los deja como estaban--, y reusarlos es justo lo que
+    # no se puede hacer.
+    - name: "CONVERGER · parar si la relectura del mundo falló"
+      ansible.builtin.fail:
+        msg: |-
+          El vmid elegido estaba ocupado y, al re-leer el mundo para reintentar, la API
+          no contestó para el lab '{{ pve_lab }}':
+            {{ pve_mundo_error }}
+          No se reintenta con la foto vieja del clúster: eso escribiría sobre un mundo
+          que ya no es el que se leyó. El error real que abrió el reintento:
+            {{ converger_fallo.msg | default('(sin mensaje)') }}
+      when: (pve_mundo_error | default('') | length) > 0
+
+    - name: "CONVERGER · recalcular el plan con el mundo re-leído"
+      ansible.builtin.set_fact:
+        plan_pasos: "{{ declaracion | estado_plan(estado, identidad, parametros_motor) }}"
+
+    # El contador baja en una variable PROPIA, nunca en `intentos_restantes` sobre sí
+    # misma: `vars:` de un `include_tasks` es perezoso y `{{ intentos_restantes | int - 1 }}`
+    # se resolvería contra sí mismo (bucle de plantilla) en vez de contra el número del
+    # llamante. Se calcula aquí y se pasa por su nombre.
+    - name: "CONVERGER · descontar el intento que se consumió"
+      ansible.builtin.set_fact:
+        converger_intentos_siguientes: "{{ intentos_restantes | int - 1 }}"
+
+    - name: "CONVERGER · reintentar el plan (queda(n) {{ converger_intentos_siguientes }} intento(s))"
+      ansible.builtin.include_tasks: converger.yml
+      vars:
+        intentos_restantes: "{{ converger_intentos_siguientes }}"

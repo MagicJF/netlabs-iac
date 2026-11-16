@@ -22,6 +22,24 @@ y que el motor no sabe nada de ninguna de las dos —el reparto entre `perimetro
 _Datos derivados de `03_lab-dos-redes.yml`. Los reescribe `./lab check docs --actualizar`;
 si los editas a mano, `./lab check docs` falla._
 
+## Topología
+
+```mermaid
+graph TD
+    b_vmb_perimetro(["vmb_perimetro<br/>203.0.113.1/24"])
+    b_vmb_nucleo(["vmb_nucleo<br/>203.0.113.129/24"])
+    i_borde["borde<br/>VM (qemu) · etapa 1"]
+    i_borde --- b_vmb_perimetro
+    i_nucleo["nucleo<br/>VM (qemu) · etapa 2"]
+    i_nucleo --- b_vmb_nucleo
+    i_puesto_1["puesto-1<br/>LXC · etapa 3"]
+    i_puesto_1 --- b_vmb_nucleo
+    i_puesto_2["puesto-2<br/>LXC · etapa 3"]
+    i_puesto_2 --- b_vmb_nucleo
+    i_servidor["servidor<br/>LXC · etapa 3"]
+    i_servidor --- b_vmb_perimetro
+```
+
 ## Invitados declarados
 
 | rol | tipo | stage | cores | memory (MB) | disk (GB) | bridge | address |

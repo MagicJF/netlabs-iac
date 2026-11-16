@@ -252,6 +252,32 @@ que la API conteste `596 no such node`.
 necesita la API, y lo dice en claro si falta. `plan` sin `--api` no lo necesita:
 usa un fixture.
 
+#### Si prefieres no tenerlos en claro: sops/age (ADR 0025)
+
+Los mismos secretos pueden vivir **cifrados y versionados** en
+`deployment_engine/secrets.sops.yml` (con [sops](https://github.com/getsops/sops) y
+age). El wrapper es el único que lo sabe: si encuentra el cifrado y no hay un
+`secrets.yml` en claro más nuevo, lo descifra a ese mismo `secrets.yml` (gitignored,
+0600) y sigue. **Ninguna tarea del motor cambia.**
+
+La clave privada vive en `deployment_engine/age.key` (gitignored, 0600) y se le pasa a
+sops con `--age-key-file`, **una bandera y no una variable**: el motor sigue sin leer
+`os.environ` (regla 3). Cifrar, una vez:
+
+```sh
+age-keygen -o deployment_engine/age.key            # guarda la PÚBLICA que imprime
+chmod 600 deployment_engine/age.key
+sops --encrypt --age <tu-clave-pública> --input-type yaml --output-type yaml \
+     deployment_engine/secrets.yml > deployment_engine/secrets.sops.yml
+git add deployment_engine/secrets.sops.yml         # el CIFRADO sí; la clave NO
+```
+
+Si falta el binario `sops` o la clave, el verbo **para** diciendo cuál falta — pero
+**sólo si el verbo va a hablar con la API**: `plan` sin `--api` planifica contra un
+fixture y no necesita credenciales, así que no las descifra. El candado
+`./lab check secretos` no bloquea el fichero cifrado (un valor `ENC[...]` no es
+un secreto en claro) y sí reconoce la forma de la clave de age, que no se versiona.
+
 Cuidado con la vía de SSH, que es **sólo para quien diagnostica** (el motor no entra
 por SSH jamás, ni para converger ni para leer): no hay contraseña en `secrets.yml` que
 valga —el nodo **no acepta contraseña**: su `sshd` ofrece `publickey` a secas—. Lo que
@@ -706,6 +732,9 @@ python3 test/test_interior.py        # el driver PURO del interior: (declarado, 
 python3 test/test_routeros.py        # el driver de RouterOS: el baile de credenciales, la retirada
 python3 test/test_declaracion.py     # el validador: caza lo que tiene que cazar
 python3 test/test_regresion_planes.py  # los labs de fase 1 no cambian ni un paso
+python3 test/test_secretos.py        # el candado: caza lo que abre el NODO, deja en paz lo demás
+python3 test/test_secretos_cifrados.py  # el descifrado de `secrets.sops.yml` (sops/age)
+python3 test/test_colision.py        # la decisión de reintentar por un vmid que se ocupó
 ansible-lint                         # perfil basic, 0 hallazgos
 yamllint -c .yamllint .              # 0 hallazgos
 for p in deployment_engine/playbooks/*.yml; do ansible-playbook --syntax-check "$p"; done
@@ -713,15 +742,25 @@ for p in deployment_engine/playbooks/*.yml; do ansible-playbook --syntax-check "
 ./lab --lab <lab> plan               # offline: no hace falta ningún Proxmox
 ```
 
+Eso mismo es lo que corre el **CI** en cada push a `main` y en cada pull request
+(`.github/workflows/ci.yml`): las pruebas, `./lab check`, `ansible-lint` y `yamllint`,
+**sin credenciales y sin tocar ningún Proxmox**. El ciclo `destroy → apply → verify`
+contra el nodo de verdad NO lo cubre el CI —necesita el host— y sigue siendo lo que
+hace falta antes de dar un cambio por bueno (AGENTS.md §Commits y subida a GitHub).
+
 ---
 
 ## Decisiones conscientes
 
 - **Las credenciales van en claro** en `deployment_engine/secrets.yml`
-  (gitignored, 0600, escrito a mano: no se versiona ningún `.example`). En este
-  MVP, funcionalidad y simplicidad por encima de seguridad; no hay cifrado de
-  secretos ni lectura de variables de entorno. El aviso está en la cabecera de
-  `AGENTS.md` §Reglas duras.
+  (gitignored, 0600, escrito a mano: no se versiona ningún `.example`) — o **cifradas**
+  en `deployment_engine/secrets.sops.yml` si prefieres versionarlas (ADR 0025). En este
+  MVP, funcionalidad y simplicidad por encima de seguridad; **nunca** se leen variables
+  de entorno. El aviso está en la cabecera de `AGENTS.md` §Reglas duras.
+- **La región generada de un lab no lleva credenciales, ni depende de ellas.** La tabla
+  de acceso cita la credencial por su **origen** (`secrets.yml` → `routeros_clave`), no
+  por su valor: si dependiera del valor, la región dejaría de ser función de la
+  declaración y `./lab check docs` no podría pasar en un clon sin `secrets.yml` (el CI).
 - **No hay variables de entorno, by design.** Ningún valor de configuración se lee
   de `os.environ`: sale de `secrets.yml`, `vars/engine.yml` y la declaración del
   lab. El wrapper `./lab` no exporta nada.

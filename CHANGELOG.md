@@ -20,6 +20,17 @@ aquí está su entrada; los tres tienen que contar lo mismo, y eso es lo que vig
 
 ### Añadido
 
+- **CI offline** (`.github/workflows/ci.yml`, informe §6.5): en cada push a `main` y en cada pull
+  request corren las pruebas del motor, `./lab check`, `ansible-lint` y `yamllint` **sin
+  credenciales y sin tocar Proxmox**.
+- **Los secretos pueden ir cifrados** (ADR 0025, informe §6.6): `deployment_engine/secrets.sops.yml`
+  vive versionado y cifrado con sops/age, y el wrapper lo descifra al `secrets.yml` de siempre antes
+  de lanzar nada. La clave se pasa con `--age-key-file` (bandera, no variable), así que el motor
+  sigue sin leer el entorno.
+- **El choque de vmid converge** (informe §6.7): si dos `apply` en paralelo eligen el mismo vmid, el
+  motor re-lee el mundo, recalcula el plan y lo reintenta una vez — sin guardar estado en disco.
+- **El diagrama de la topología, autogenerado** (informe §6.8): la región generada de cada lab lleva
+  ahora un **Mermaid** derivado de la declaración (bridges como segmentos, invitados por tipo).
 - **`./lab check secretos`** (ADR 0024): el candado de lo que abre el **nodo**. Caza en lo
   versionado el token de la API con su valor, un ticket de sesión, una clave privada y el propio
   `secrets.yml`, y se cierra en el hook de pre-commit mirando el **índice** —lo que va a entrar en
@@ -28,11 +39,37 @@ aquí está su entrada; los tres tienen que contar lo mismo, y eso es lo que vig
 
 ### Cambiado
 
+- **La raíz en su sitio.** `informe-rendimiento-despliegue.md` se fue a `docs/`,
+  `GOAL-capa-de-configuracion.md` a `docs/encargo-capa-de-configuracion.md`, y `analizar_perfil.py` y
+  `perfilar.sh` a `scripts/` (herramientas de DESARROLLO). El mapa del README y de AGENTS.md ya
+  mencionan `scripts/`, y las referencias internas están actualizadas.
+- **El candado de los secretos, más fino.** Cierra las formas escurridizas que destaparon las
+  revisiones: nombres de fichero no ASCII, claves entrecomilladas o en JSON, valores en la línea
+  siguiente, valores entrecomillados con coma, comentarios entre comillas — y no bloquea un binario
+  ni un fichero limpio con una línea hermana.
 - **Fuera la configuración muerta.** Se fueron las claves `pve_ssh_usuario`/`pve_ssh_password`
   (ningún fichero del motor las leía, y el nodo no acepta contraseña), `engine_clave_tunnel` (la
   clave vive en el vocabulario del interior, no en una variable) y quince alias viejos del registro
   de filtros, más dos funciones que ya no llamaba nadie. Nada de eso se ejecutaba: por eso ningún
   lab cambia de comportamiento.
+
+### Corregido
+
+- **La región generada de un lab ya no depende de `secrets.yml`.** La tabla de acceso imprimía
+  el VALOR de `routeros_clave` leído de `secrets.yml`, así que en un clon sin credenciales (el CI)
+  rendía otra cosa — `./lab check docs` no podía pasar nunca — y el `.md` publicado llevaba la
+  contraseña dentro. Ahora se cita la credencial **por su origen**. Lo destapó el CI del §6.5 en su
+  primera pasada; ADR 0024 y el README quedan corregidos.
+- **El reintento por choque de vmid (§6.7) ya no se muerde la cola.** `intentos_restantes` se
+  descontaba sobre sí misma en el `vars:` del `include_tasks` —autorreferencia, bucle de
+  plantilla—; ahora el contador baja en una variable propia. Y si la relectura del mundo falla, el
+  reintento **para** en vez de rehacer el plan con la foto de ANTES del choque.
+- **`plan` sin `--api` ya no exige credenciales.** El descifrado de sops/age sólo ocurre cuando el
+  verbo va a hablar con la API: un clon con `secrets.sops.yml` versionado y sin `sops` ni la clave
+  de age puede seguir planificando contra un fixture.
+- **El diagrama no confunde un bridge con un invitado.** Los identificadores de Mermaid llevan la
+  clase por delante (`b_`/`i_`): un bridge llamado `control` y un rol `control` compartían nodo y el
+  diagrama dibujaba un bucle sobre sí mismo en vez de una pata.
 
 ## [0.2.0] - 2026-11-16
 

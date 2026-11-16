@@ -121,6 +121,8 @@ casos = [
      {"cfg.json": '{"pve_ssh' + '_usuario":"<usuario>","pve_token' + '_secreto":"9f8e7d6c-1a2b"}\n'}),
     ("2.14 · una contraseña ENTRECOMILLADA que empieza por almohadilla",
      {"cfg.yml": 'pve_ssh' + '_password: "#no-es-un-comentario"\n'}),
+    ("2.15 · la clave privada de age (la que abre `secrets.sops.yml`)",
+     {"clave.txt": "AGE-SECRET-KEY-1" + "A" * 40 + "\n"}),
 ]
 for texto, ficheros in casos:
     carpeta = repo_desechable()
@@ -141,6 +143,8 @@ permisos = [
      {"cfg.yml": "config:\n  pve_token" + "_secreto:\n  pve_puerto: 8006\n"}),
     ("3.7 · una clave del HOST que sólo lleva un comentario",
      {"cfg.yml": "pve_ssh" + '_usuario: # se pone en secrets.yml\n'}),
+    ("3.8 · el fichero CIFRADO con sops (un valor `ENC[...]` no es un secreto en claro)",
+     {"secrets.sops.yml": "pve_token" + '_secreto: ENC[AES256_GCM,data:abc,iv:def,type:str]\n'}),
 ]
 for texto, ficheros in permisos:
     carpeta = repo_desechable()

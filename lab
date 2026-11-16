@@ -24,6 +24,10 @@ RAIZ = os.path.dirname(os.path.abspath(__file__))
 DIRECTORIO_LABS = os.path.join(RAIZ, "labs")
 PLANTILLA = os.path.join(DIRECTORIO_LABS, ".plantilla")
 SECRETS = os.path.join(RAIZ, "deployment_engine", "secrets.yml")
+# El MISMO `secrets.yml`, pero cifrado con sops/age y SÍ versionado. Si existe y no hay
+# uno en claro más nuevo, el wrapper lo descifra antes de lanzar Ansible (informe §6.6).
+SECRETS_CIFRADOS = os.path.join(RAIZ, "deployment_engine", "secrets.sops.yml")
+CLAVE_AGE = os.path.join(RAIZ, "deployment_engine", "age.key")
 PLAYBOOKS = os.path.join(RAIZ, "deployment_engine", "playbooks")
 CHECKS = os.path.join(RAIZ, "deployment_engine", "tools", "framework_check.py")
 FIXTURE_VACIO = os.path.join(RAIZ, "test", "fixtures", "cluster-vacio.json")
@@ -124,6 +128,49 @@ def comprobar_entorno():
         return "falta ansible.cfg en la raíz del repositorio"
     if ruta_ansible_playbook() is None:
         return "no encuentro `ansible-playbook` (¿está en el PATH o en ~/.local/bin?)"
+    return None
+
+
+def descifrar_secretos():
+    """Si hay `secrets.sops.yml` y no hay un `secrets.yml` al día, lo descifra en claro.
+
+    Devuelve None cuando no hay nada que hacer (o cuando todo fue bien) o un mensaje de
+    error. Es la puerta del informe §6.6: los secretos pueden vivir CIFRADOS y
+    versionados, y el wrapper (que es el único punto de entrada) los deja en el mismo
+    `secrets.yml` gitignored que ya espera el motor -- así no cambia ni una tarea.
+
+    NO exporta ninguna variable de entorno: la clave se pasa a sops con `--age-key-file`,
+    que es una BANDERA y no una variable, así que el motor sigue sin leer `os.environ`
+    (regla 4.4). La clave privada (`deployment_engine/age.key`) vive en modo 0600 y no se
+    versiona; lo que se versiona es el fichero cifrado.
+    """
+    if not os.path.exists(SECRETS_CIFRADOS):
+        return None
+    # Un `secrets.yml` en claro más nuevo que el cifrado MANDA: es el caso de "lo edité a
+    # mano hace un momento" y no se pisa con algo más viejo.
+    if os.path.exists(SECRETS) and os.path.getmtime(SECRETS) >= os.path.getmtime(SECRETS_CIFRADOS):
+        return None
+    sops = shutil.which("sops")
+    if sops is None:
+        return ("hay deployment_engine/secrets.sops.yml pero no encuentro el binario "
+                "`sops`: instálalo (https://github.com/getsops/sops) o descifra a mano a "
+                "deployment_engine/secrets.yml")
+    if not os.path.exists(CLAVE_AGE):
+        return (f"hay deployment_engine/secrets.sops.yml pero falta la clave privada "
+                f"{os.path.relpath(CLAVE_AGE, RAIZ)} (modo 0600; no se versiona)")
+    orden = [
+        sops, "--decrypt", "--input-type", "yaml", "--output-type", "yaml",
+        "--age-key-file", CLAVE_AGE, "--output", SECRETS, SECRETS_CIFRADOS,
+    ]
+    proceso = subprocess.run(orden, cwd=RAIZ, capture_output=True, text=True, check=False)
+    if proceso.returncode != 0:
+        # El error de sops puede nombrar la clave, pero no su valor; se enseña tal cual.
+        detalle = (proceso.stderr or proceso.stdout or "").strip().splitlines()
+        return ("sops no pudo descifrar deployment_engine/secrets.sops.yml"
+                + (": " + detalle[-1] if detalle else ""))
+    os.chmod(SECRETS, 0o600)
+    print("credenciales: descifradas de deployment_engine/secrets.sops.yml a "
+          "deployment_engine/secrets.yml (0600)")
     return None
 
 
@@ -233,6 +280,11 @@ def ejecutar_verbo(lab, verbo, opciones):
         )
 
     usa_api = verbo in VERBOS_CON_API or "--api" in opciones
+    # Antes de mirar si hay credenciales: si están cifradas, se descifran aquí. Es el
+    # único punto por el que pasa todo verbo, así que el motor no cambia nada (§6.6).
+    error_credenciales = descifrar_secretos()
+    if error_credenciales:
+        return fallo(error_credenciales)
     if usa_api and not os.path.exists(SECRETS):
         return fallo(
             "faltan las credenciales: crea deployment_engine/secrets.yml a mano, dale "

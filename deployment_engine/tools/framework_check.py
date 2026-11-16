@@ -873,6 +873,11 @@ FORMAS_DE_ACCESO_AL_HOST = (
                 r"[A-Za-z0-9_.-]+=[0-9A-Fa-f-]{8,}")),
     ("una clave privada",
      re.compile(r"-{5}BEGIN [A-Z ]*" + _MARCA_CLAVE)),
+    # La clave privada de age (la que descifra `secrets.sops.yml`): se reconoce por su
+    # prefijo, que es fijo (`AGE-SECRET-KEY-1` + base32). Es tan de nadie como
+    # `secrets.yml`: el fichero CIFRADO sí se versiona, la clave no.
+    ("la clave privada de age",
+     re.compile(r"AGE-SECRET-KEY-1[0-9A-Z]{20,}")),
 )
 
 FICHERO_DE_CREDENCIALES = "secrets" + ".yml"
@@ -895,16 +900,18 @@ def _es_relleno(valor):
     """¿Este valor es un hueco y no un secreto?
 
     Un hueco se escribe `<...>` o `{{ ... }}`, se deja vacío, o es un comentario (`# ...`).
-    Se mira el VALOR y no el carácter que sigue a los dos puntos porque un hueco puede ir
-    entre comillas (`pve_ssh_usuario: "<usuario>"`) y una expresión regular que mirase la
-    forma de la línea se equivocaría con eso.
+    Y un valor `ENC[...]` es un secreto CIFRADO (sops): el fichero cifrado sí se versiona
+    (informe §6.6), así que su valor no es un secreto en claro y no puede contar como si
+    lo fuera. Se mira el VALOR y no el carácter que sigue a los dos puntos porque un hueco
+    puede ir entre comillas (`pve_ssh_usuario: "<usuario>"`) y una expresión regular que
+    mirase la forma de la línea se equivocaría con eso.
 
     El comentario se comprueba ANTES de quitar las comillas: `"#esto-no-es-un-comentario"`
     es una contraseña entrecomillada, no un comentario, y si se quitaran las comillas
     primero pasaría por vacía.
     """
     texto = valor.strip()
-    if not texto or texto.startswith("#"):
+    if not texto or texto.startswith("#") or texto.startswith("ENC["):
         return True
     limpio = texto.strip("\"'").strip()
     return not limpio or limpio.startswith("<") or limpio.startswith("{{")

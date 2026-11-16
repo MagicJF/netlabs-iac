@@ -87,6 +87,17 @@ engine_usuario_guest: root
 engine_routeros_usuario: admin
 engine_routeros_clave_fabrica: ""
 
+# --- Cómo se MANDA una escritura a un RouterOS (transporte) ---------------
+# El motor decide IGUAL (el diff sigue decidiendo): esto sólo elige el transporte de la
+# escritura. `false` = una llamada REST por operación (el transporte de siempre). `true` =
+# cada TRAMO CONTIGUO de escrituras sin credencial se serializa en las líneas de consola
+# equivalentes y se manda en UNA sola llamada a `/execute` (el mismo mecanismo que ya usaba
+# el intercambio de la dirección de gestión). Las escrituras CON credencial --la clave SSH y
+# la contraseña-- NO se funden: se quedan sueltas y síncronas, porque un guion es asíncrono y
+# la relectura se les adelantaría (medido). La convergencia la prueba la RELECTURA, no el
+# silencio. El porqué entero y el A/B medido, en docs/decisiones/0018.
+engine_routeros_guion: true
+
 # --- Privilegios: lo que el motor EXIGE y lo que VEDA ---------------------
 # No son valores del entorno: son la lista de lo que el motor necesita hacer y de lo
 # que nunca debe poder hacer. Van POR ROL, y un rol por RUTA: conceder un solo rol en

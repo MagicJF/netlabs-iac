@@ -32,11 +32,11 @@
          DEL LAB). Si contara, el motor la quitaría --y con ella la salida-- en la primera
          pasada.
      LÍMITES: `uplink` es "esta caja es la vía de acceso", no "escríbeme reglas". El área
-     `cortafuegos` de RouterOS (puentes y reglas generales) SIGUE PENDIENTE: el
-     masquerade de aquí es la consecuencia de ser la salida, no una primitiva de
-     cortafuegos. No se filtran entradas, no se admiten servicios de fuera y no se
-     publica nada hacia dentro. El motor tampoco sabe LEER el interior de un LXC (las
-     rutas y los DNS que el cliente aplica de verdad): el driver de Linux no tiene esa
+     `firewall` de RouterOS es OTRA cosa y tiene su ADR (0019: la tabla de filtrado entera,
+     que converge después de todo); aquí el masquerade es la consecuencia de ser la salida,
+     no una primitiva de cortafuegos: `uplink` no filtra entradas, no admite servicios de
+     fuera y no publica nada hacia dentro. El motor tampoco sabe LEER el interior de un LXC
+     (las rutas y los DNS que el cliente aplica de verdad): el driver de Linux no tiene esa
      área todavía, así que la salida del contenedor se comprueba por lo que el router
      dice que repartió -- y lo que no se puede medir se dice, no se maquilla.
      VER: deployment_engine/filter_plugins/interior.py (área `uplink`, `interfaz_exterior`,
@@ -116,9 +116,10 @@ en la vía de acceso y anuncia ESE resolutor a todas sus redes (una sola boca qu
 lab), en vez de encender un resolutor en cada router. Es una decisión del lab, y está escrita
 en su documento; el motor no la impone -- lo que hace es no estorbar para ninguna de las dos.
 
-**Lo que esto NO es.** No es el área `cortafuegos` de RouterOS, que sigue pendiente: aquí no
-se escriben reglas generales, no se filtran entradas y no se publica nada hacia dentro. Es
-una primitiva cerrada con un nombre honesto: "esta caja es la vía de acceso".
+**Lo que esto NO es.** No es el área `firewall` de RouterOS (esa tiene su ADR, el 0019): aquí
+no se escriben reglas de filtrado, no se filtran entradas y no se publica nada hacia dentro.
+Es una primitiva cerrada con un nombre honesto: "esta caja es la vía de acceso". Si un lab
+quiere un cortafuegos, declara `firewall` en un equipo cuya RESPONSABILIDAD sea filtrar.
 
 **Cómo se comprueba.** Por las cuatro cosas que el motor sabe leer del equipo, y ninguna se
 supone: la dirección en la interfaz de fuera (¿es la derivada?), la ruta por defecto (¿hay

@@ -131,7 +131,7 @@ lab:
       address: 192.0.2.1/24
 vms:                       # invitados QEMU
   - rol: <rol>             # el rol identifica a un invitado y sólo a uno
-    tipo: rt               # QUÉ equipo es: rt/srv/ws/sw/ctl -- obligatorio (ADR 0015)
+    tipo: rt               # QUÉ equipo es: rt/fw/srv/ws/sw/ctl -- obligatorio (ADR 0015)
     nombre: 1              # opcional: su alias corto. Sin él, el alias es el rol
     stage: 1
     cores: 2
@@ -163,8 +163,8 @@ configurar dentro** de cada equipo, y el motor lo converge como una fase más de
 
 - **`config:`**, con **exactamente una clave de tipo** (`linux` o `routeros`), que elige el
   driver. Dentro van las **áreas** (los campos que el motor sabe tocar y de los que
-  responde): `identity`, `ip_services`, `addresses`, `rutas`, `dhcp`, `uplink`,
-  `ip_forward`, `dhcp_server`, `tunnel`…
+  responde): `identity`, `ip_services`, `addresses`, `routes`, `dhcp_server`, `uplink`,
+  `firewall` (la tabla de filtrado entera, en orden: ADR 0019), `ip_forward`, `tunnel`…
 - **`image:`** en una VM QEMU: el disco de fábrica que se importa al crearla (un CHR).
 - **`address:`** admite tres formas: `<ip>/<prefijo>` (estática), **`dhcp`** (dinámica: el
   invitado no la declara; se lee del host y, si hay túnel, de la concesión del router) o
@@ -359,7 +359,7 @@ vmids, ni el nombre de un bridge. Sí hay **reglas**.
 | El lab declara | El motor deriva |
 | --- | --- |
 | roles lógicos y su virtualización (VM/LXC) | el **vmid**: el menor libre **de todo el clúster** |
-| el **tipo de equipo** de cada invitado (`tipo:`: `rt`/`srv`/`ws`/`sw`/`ctl`) | el **nombre**: `<tipo>-<alias>` — qué EQUIPO es, no de qué lab es (ADR 0015) |
+| el **tipo de equipo** de cada invitado (`tipo:`: `rt`/`fw`/`srv`/`ws`/`sw`/`ctl`) | el **nombre**: `<tipo>-<alias>` — qué EQUIPO es, no de qué lab es (ADR 0015) |
 | el `nombre:` corto de un invitado (opcional: su alias) | ...y si no lo declara, el alias es su rol: `rt-borde`, `srv-1`, `ws-2` |
 | recursos (cores, memoria, disco) | la **MAC**: derivada del vmid (`BC:24:11:` + los 3 bytes bajos) |
 | bridges del lab y direcciones | la **descripción**: `lab=<lab> rol=<rol> gestionado por netlabs_v4_b` |

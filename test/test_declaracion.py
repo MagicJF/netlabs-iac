@@ -125,9 +125,9 @@ comprobar(dice(errores, "clave") or dice(errores, "credencial"), "y una clave pr
 
 print("\nEL VOCABULARIO ES CERRADO\n")
 
-errores = errores_de(lambda d: d["vms"][0]["config"]["routeros"].__setitem__("firewall", {}))
+errores = errores_de(lambda d: d["vms"][0]["config"]["routeros"].__setitem__("bridges", {}))
 comprobar(
-    dice(errores, "firewall") and (dice(errores, "no") or dice(errores, "pendiente")),
+    dice(errores, "bridges") and (dice(errores, "no") or dice(errores, "pendiente")),
     "un área que el motor todavía no converge se RECHAZA con su motivo: aquí no se finge",
 )
 errores = errores_de(lambda d: d["vms"][0]["config"]["routeros"].__setitem__("inventado", {}))
@@ -379,6 +379,54 @@ igual(sueltos, set(), "todos los códigos de consejo están en CONSEJOS_CONOCIDO
 
 
 # ---------------------------------------------------------------------------
+
+print("\nEL CORTAFUEGOS: forma cerrada, y la guarda que evita el tiro en el pie\n")
+
+
+def con_reglas(reglas):
+    return lambda d: d["vms"][0]["config"]["routeros"].__setitem__("firewall", reglas)
+
+
+igual(
+    errores_de(con_reglas([
+        {"chain": "input", "action": "accept", "src_address": "10.40.0.0/24"},
+        {"chain": "input", "action": "drop"},
+        {"chain": "forward", "action": "accept", "connection_state": "established,related"},
+    ])),
+    [],
+    "una tabla de filtrado bien formada pasa: el `accept` de ENTRADA va antes del `drop`",
+)
+comprobar(
+    dice(errores_de(con_reglas([{"chain": "input", "action": "accept", "inventado": 1}])),
+         "no están en el vocabulario"),
+    "un campo que no está en el vocabulario se caza, y se dice cuáles hay",
+)
+comprobar(
+    dice(errores_de(con_reglas([{"chain": "adelante", "action": "accept"}])), "chain"),
+    "una cadena que no es input/forward/output se caza",
+)
+comprobar(
+    dice(errores_de(con_reglas([{"chain": "input", "action": "borrar"}])), "action"),
+    "una acción que no es accept/drop/reject se caza",
+)
+comprobar(
+    dice(errores_de(lambda d: d["vms"][0]["config"]["routeros"].__setitem__(
+        "firewall", {"chain": "input", "action": "accept"})), "LISTA"),
+    "`firewall` tiene que ser una LISTA: el orden es la semántica, y un mapa no lo guarda",
+)
+comprobar(
+    dice(errores_de(con_reglas([{"chain": "input", "action": "drop"}])), "cierra la entrada"),
+    "un `drop` de ENTRADA sin un `accept` de entrada ANTES se caza: el motor entra por el "
+    "túnel y se quedaría fuera de su propio equipo (habría que ir por consola)",
+)
+igual(
+    errores_de(con_reglas([
+        {"chain": "input", "action": "accept", "src_address": "10.40.0.0/24"},
+        {"chain": "input", "action": "drop"},
+    ])),
+    [],
+    "y con el `accept` de entrada delante, el `drop` general pasa: la excepción es obligatoria",
+)
 
 if FALLOS:
     print(f"\nRESULTADO: {len(FALLOS)} fallo(s).")

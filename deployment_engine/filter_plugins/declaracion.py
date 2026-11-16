@@ -102,6 +102,7 @@ CLAVES_TUNNEL = ("salida", "host", "puerto")
 # equipo que no quepa en ninguno pide su tipo al motor, con su ADR -- no se inventa aquí.
 TIPOS_DE_EQUIPO = {
     "rt": "router (un CHR: la vía de acceso de una red)",
+    "fw": "cortafuegos (un CHR que sólo filtra: no enruta, no traduce, no reparte)",
     "srv": "servidor (nace con su dirección fija y su pasarela)",
     "ws": "puesto de trabajo (pide su dirección por DHCP)",
     "sw": "conmutador (un equipo que conmuta, o uno sin dirección)",
@@ -311,6 +312,56 @@ def _validar_routeros(declarado, etiqueta, rol, errores):
     for indice, ruta in enumerate(declarado.get("routes") or []):
         if not isinstance(ruta, dict) or not ruta.get("dst_address") or not ruta.get("gateway"):
             errores.append(f"`{etiqueta}` ({rol}): `routes[{indice}]` necesita `dst_address` y `gateway`")
+
+    # El CORTAFUEGOS: una LISTA de reglas en orden (el orden es la semántica), con el
+    # vocabulario cerrado de `CAMPOS_FILTRO` y dos campos obligatorios (`chain` y `action`).
+    # Y una guarda que no es de forma sino de SUPERVIVENCIA: un `drop` de entrada sin un
+    # `accept` de entrada ANTES deja al motor fuera del equipo (su túnel es una conexión de
+    # ENTRADA), y recuperarlo pide consola. Se caza aquí, antes de tocar nada.
+    cortafuegos = declarado.get("firewall")
+    if cortafuegos is not None:
+        if not isinstance(cortafuegos, list):
+            errores.append(
+                f"`{etiqueta}` ({rol}): `firewall` es una LISTA de reglas, en orden "
+                "(el orden es la semántica: RouterOS para en la primera que casa)"
+            )
+        else:
+            conocidos = {declarado_key for declarado_key, _ in modulo_interior.CAMPOS_FILTRO}
+            acciones = {"accept", "drop", "reject"}
+            hay_accept_entrada = False
+            for indice, regla in enumerate(cortafuegos):
+                if not isinstance(regla, dict):
+                    errores.append(f"`{etiqueta}` ({rol}): `firewall[{indice}]` no es un mapa")
+                    continue
+                inventados = sorted(set(regla) - conocidos)
+                if inventados:
+                    errores.append(
+                        f"`{etiqueta}` ({rol}): `firewall[{indice}]` usa campos que no están "
+                        f"en el vocabulario ({', '.join(inventados)}); los que hay: "
+                        f"{', '.join(sorted(conocidos))}"
+                    )
+                cadena = str(regla.get("chain") or "")
+                accion = str(regla.get("action") or "")
+                if cadena not in ("input", "forward", "output"):
+                    errores.append(
+                        f"`{etiqueta}` ({rol}): `firewall[{indice}].chain` tiene que ser "
+                        f"input, forward u output (y es {cadena or 'nada'!r})"
+                    )
+                if accion not in acciones:
+                    errores.append(
+                        f"`{etiqueta}` ({rol}): `firewall[{indice}].action` tiene que ser "
+                        f"{', '.join(sorted(acciones))} (y es {accion or 'nada'!r})"
+                    )
+                if cadena == "input" and accion == "accept":
+                    hay_accept_entrada = True
+                if cadena == "input" and accion in ("drop", "reject") and not hay_accept_entrada:
+                    errores.append(
+                        f"`{etiqueta}` ({rol}): `firewall[{indice}]` cierra la entrada "
+                        f"(`{accion}` en `input`) sin haber dejado pasar nada antes. El motor "
+                        "entra por ahí (el túnel del bastión es una conexión de ENTRADA): sin "
+                        "un `accept` de `input` ANTES, el equipo deja de obedecer y hay que "
+                        "recuperarlo por consola"
+                    )
 
     for indice, servidor in enumerate(declarado.get("dhcp_server") or []):
         if not isinstance(servidor, dict) or not servidor.get("interface"):

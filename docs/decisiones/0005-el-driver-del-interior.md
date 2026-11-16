@@ -138,5 +138,7 @@ algo.
 - Añadir un tipo de invitado es añadir un driver (`tasks/configurar_<tipo>.yml`) y declararlo
   en `DRIVERS` (`interior.py`): `test/test_interior.py` comprueba que la lista y los ficheros
   cuadran, y `apply` avisa de lo que aún no sabe hacer sin mentir.
-- El driver de RouterOS (su REST, su imagen de fábrica) sigue pendiente, y se dirá igual:
-  qué se intentó, qué se midió y qué falta.
+- El driver de RouterOS **llegó después** —su REST por el túnel (ADR 0010), su imagen de
+  fábrica— y se contó igual: qué se intentó, qué se midió y qué falta. Lo que aún no converge
+  el motor está declarado como pendiente en `interior.py` y la validación lo rechaza con su
+  motivo, en vez de aceptarlo y no hacer nada.

@@ -35,6 +35,8 @@
 #   ros_metodo       GET | POST | PUT | DELETE
 #   ros_ruta         ruta relativa a /rest (p. ej. /system/identity)
 #   ros_cuerpo       (opcional) los parámetros de la llamada, en JSON
+#   ros_cuerpo_diario  (opcional) lo que se ESCRIBE en el diario en lugar de `ros_cuerpo`:
+#                    lo usa el guion, que lleva la contraseña DENTRO del texto del script
 #   ros_area         (opcional) el área del interior a la que pertenece la llamada
 #   ros_acumular     (opcional) guardar el resultado en `ros_leidos`, por ruta: es lo
 #                    que permite leer VARIAS rutas en un bucle sin quedarse sólo con
@@ -183,7 +185,7 @@
       guest: "{{ ros_guest | default('') }}"
       method: "{{ ros_metodo }}"
       path: "{{ ros_ruta }}"
-      params: "{{ ros_cuerpo | default({}) | interior_sin_secretos }}"
+      params: "{{ (ros_cuerpo_diario | default(ros_cuerpo)) | default({}) | interior_sin_secretos }}"
       status: "{{ ros_ultimo_status }}"
       duration_ms: "{{ ros_duracion_ms }}"
       etiqueta: "{{ ros_etiqueta | default('') }}"

@@ -124,7 +124,7 @@ falla una tarea— existe una vía de depuración por SSH **para quien diagnosti
 
 - El **lab declara roles** (`switch`, `workstation-1`), su topología (bridges,
   direcciones, recursos), el **tipo de equipo** de cada invitado (`tipo:`, obligatorio y del
-  vocabulario cerrado `rt`/`srv`/`ws`/`sw`/`ctl`) y, si quiere que el motor entre en ellos,
+  vocabulario cerrado `rt`/`fw`/`srv`/`ws`/`sw`/`ctl`) y, si quiere que el motor entre en ellos,
   **qué configurar dentro** (`config:`, `image:`). Un `nombre:` corto por invitado es
   opcional: es su alias, y si falta se usa el rol. **El lab no declara vmids ni MACs, nunca**
   (la MAC es función del vmid, y las reservas DHCP se derivan de él: regla 14).

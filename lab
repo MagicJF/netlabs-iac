@@ -38,12 +38,12 @@ EXPRESION_ENTRADA_CHANGELOG = re.compile(
     r"^## \[(\d+\.\d+\.\d+)\] - (\d{4}-\d{2}-\d{2})$", re.MULTILINE
 )
 
-VERBOS = ("plan", "preflight", "apply", "verify", "destroy")
+VERBOS = ("plan", "preflight", "apply", "verify", "test", "capture", "impair", "destroy")
 
 # Verbos que necesitan credenciales para leer el estado del mundo. `plan` no está en
 # la lista a propósito: por defecto planifica contra un clúster vacío simulado, así
 # que es demostrable sin credenciales. Con `--api` sí las necesita.
-VERBOS_CON_API = ("preflight", "apply", "verify", "destroy")
+VERBOS_CON_API = ("preflight", "apply", "verify", "test", "capture", "impair", "destroy")
 
 # El fichero en el que cada verbo deja su resumen humano, para imprimirlo al final.
 RESUMEN_DE = {
@@ -51,6 +51,7 @@ RESUMEN_DE = {
     "preflight": "preflight.txt",
     "apply": "ultimo-verify.txt",
     "verify": "ultimo-verify.txt",
+    "test": "ultimo-test.txt",
 }
 
 AYUDA = """\
@@ -64,6 +65,12 @@ netlabs-iac — motor de despliegue en Proxmox por su API REST
     ./lab --lab <nombre> preflight  sólo lectura: qué hay, qué falta, qué difiere
     ./lab --lab <nombre> apply      converge lo declarado + verifica
     ./lab --lab <nombre> verify     TEST FINAL: ¿existe de verdad lo declarado?
+    ./lab --lab <nombre> test       lanza las PRUEBAS FUNCIONALES que declara el lab
+                                    (¿hace lo que dice que hace? ping, servicio, dns);
+    ./lab --lab <nombre> capture    mira el tráfico de un bridge desde el bastión
+                                    (lo declarado en `capture:` → logs/captura-*.txt)
+    ./lab --lab <nombre> impair     estropea un bridge (retardo/pérdida) desde el
+                                    bastión y lo apaga solo (`impairment:`)
     ./lab --lab <nombre> destroy    único verbo que destruye; pide confirmación
     ./lab check [nombre]            checks del motor, sin credenciales ni Proxmox
                                     (`version` es del repositorio: VERSION, tag y

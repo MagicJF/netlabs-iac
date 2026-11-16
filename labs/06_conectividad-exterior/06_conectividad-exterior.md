@@ -32,9 +32,9 @@ si los editas a mano, `./lab check docs` falla._
 
 | bridge | dirección del bridge |
 | --- | --- |
-| vmb_ext_gestion | 10.42.0.1/24 |
-| vmb_ext_lan1 | 10.42.1.1/24 |
-| vmb_ext_lan2 | 10.42.2.1/24 |
+| vmb_ext_gestion | derived |
+| vmb_ext_lan1 | derived |
+| vmb_ext_lan2 | derived |
 
 ## Orden de arranque (etapas)
 

@@ -49,7 +49,7 @@
         porque: "{{ sonda_porque }}"
         comando: >-
           bash -c 'i=0;
-          while [ $i -lt {{ engine_sonda_intentos }} ]; do
+          while [ $i -lt {{ sonda_intentos | default(engine_sonda_intentos, true) }} ]; do
           i=$((i+1));
           if timeout {{ engine_sonda_espera }} bash -c "</dev/tcp/{{ sonda_direccion }}/{{ sonda_puerto }}" 2>/dev/null; then
           echo "SONDA OK {{ sonda_direccion }}:{{ sonda_puerto }} en el intento $i"; exit 0;

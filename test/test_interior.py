@@ -1219,6 +1219,159 @@ comprobar(
 
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# 6.2 / 6.3 / 6.4 · Las pruebas, la barrera y la intromisión (ADR 0021-0023)
+# ---------------------------------------------------------------------------
+
+# 6.2 · Las PRUEBAS FUNCIONALES. Lo que se prueba aquí es la FORMA del comando que se
+# lanza en el invitado: un fallo ahí no se ve hasta que hay un lab desplegado delante.
+_pruebas = motor.pruebas_de(
+    {
+        "tests": [
+            {"nombre": "ping", "desde": "ws-1", "tipo": "ping", "hacia": "10.0.0.1"},
+            {"nombre": "web", "desde": "ws-1", "tipo": "servicio", "hacia": "10.0.0.9", "puerto": 80},
+            {"nombre": "nombres", "desde": "ws-1", "tipo": "dns", "hacia": "ejemplo.test", "espera": 60},
+        ]
+    },
+    intentos_por_defecto=6,
+)
+comprobar(
+    [p["tipo"] for p in _pruebas] == ["ping", "servicio", "dns"],
+    "6.2 · `pruebas_de` respeta el orden en que el lab las declara",
+)
+comprobar(
+    _pruebas[2]["intentos"] == 10 and _pruebas[0]["intentos"] == 6,
+    "6.2 · `espera` son SEGUNDOS: 60 s -> 10 intentos de 6 s; sin espera, los del motor",
+)
+comprobar(
+    all(p["comando"].count("'") == 2 for p in _pruebas),
+    "6.2 · cada comando va en UN `bash -c '...'`: ni UNA comilla simple dentro (partiría el entrecomillado)",
+)
+comprobar(
+    "exit 3" in _pruebas[0]["comando"] and "exit 3" in _pruebas[2]["comando"],
+    "6.2 · ping y dns distinguen «no se pudo comprobar» (3) de «falló» (1): sin eso, el entorno sale en rojo",
+)
+comprobar(
+    "exit 3" not in _pruebas[1]["comando"],
+    "6.2 · una prueba de `servicio` no tiene «no se pudo comprobar»: un puerto o contesta o no contesta",
+)
+comprobar(
+    "10.0.0.9:80" in _pruebas[1]["comando"] and "ping -c 2 -W 2 10.0.0.1" in _pruebas[0]["comando"],
+    "6.2 · el comando apunta al destino que declara el lab (y al puerto, en un servicio)",
+)
+
+
+# 6.3 · La BARRERA declarada. Sin `ready` el motor insinúa (y eso no puede cambiar);
+# con `ready` el lab decide.
+def _invitado(rol, address, interior="linux", **extra):
+    """Un invitado de mentira, con su `config` -- que es lo que hace que el motor
+    insinúe una barrera. Un invitado SIN `config` no tiene ninguna (y eso es justo lo
+    que el `ready:` viene a arreglar)."""
+    base = {
+        "rol": rol,
+        "tipo": "ws",
+        "stage": 1,
+        "address": address,
+        "config": {interior: {}},
+    }
+    base.update(extra)
+    return base
+
+
+comprobar(
+    motor.espera_de_servicio(_invitado("ws-1", "10.0.0.11/24"))["parametros"]["puerto"] == 22
+    and motor.espera_de_servicio(_invitado("r1", "10.0.0.1/24", interior="routeros"))["parametros"][
+        "puerto"
+    ]
+    == 80,
+    "6.3 · sin `ready:`, la barrera sigue siendo la que el motor insinúa por el tipo (nada cambia para los labs de hoy)",
+)
+comprobar(
+    motor.espera_de_servicio({"rol": "ws-1", "tipo": "ws", "stage": 1, "address": "10.0.0.11/24"})
+    is None,
+    "6.3 · y sin `config` declarado sigue sin haber barrera (que es el agujero que `ready:` cierra)",
+)
+comprobar(
+    motor.espera_de_servicio(
+        {"rol": "ws-1", "tipo": "ws", "stage": 1, "address": "10.0.0.11/24", "ready": {"tipo": "ssh"}}
+    )["parametros"]["puerto"]
+    == 22,
+    "6.3 · `ready: {tipo: ssh}` da barrera a un invitado que no declaraba interior (antes no se podía pedir)",
+)
+comprobar(
+    motor.espera_de_servicio(_invitado("ws-1", "10.0.0.11/24", ready={"tipo": "ninguno"})) is None,
+    "6.3 · `ready: {tipo: ninguno}` QUITA la barrera: el lab dice que ese invitado no tiene que contestar",
+)
+comprobar(
+    motor.espera_de_servicio(_invitado("ws-1", "10.0.0.11/24", ready={"tipo": "ssh", "espera": 70}))[
+        "parametros"
+    ]["intentos"]
+    == 10,
+    "6.3 · `ready.espera` son SEGUNDOS: la barrera espera lo que dice el lab (70 s -> 10 intentos de 7 s)",
+)
+comprobar(
+    motor.espera_de_servicio(_invitado("ws-1", "10.0.0.11/24"))["parametros"]["intentos"] is None,
+    "6.3 · sin `espera`, la ventana es la del motor (`None` = `engine_sonda_intentos`)",
+)
+comprobar(
+    motor.espera_de_servicio(_invitado("ws-1", "dhcp")) is None,
+    "6.3 · a un invitado con `address: dhcp` no se le sondea: no hay dirección que preguntar",
+)
+
+
+# 6.4 · La CAPTURA y el IMPAIRMENT desde el bastión
+_INTROMISION = {
+    "lab": {
+        "nombre": "p0_intromision",
+        "bridges": [{"nombre": "vmb_gestion"}, {"nombre": "vmb_lan"}],
+    },
+    "containers": [
+        {
+            "rol": "control",
+            "tipo": "ctl",
+            "nombre": 1,
+            "bridges": ["vmb_gestion", "vmb_lan"],
+            "config": {"linux": {"tunnel": {}}},
+        },
+        {"rol": "srv-1", "tipo": "srv", "nombre": 1, "bridge": "vmb_lan"},
+    ],
+    "capture": {"bridge": "vmb_lan", "filtro": "tcp port 80", "segundos": 20},
+    "impairment": {"bridge": "vmb_lan", "retardo": "200ms", "perdida": "5%", "segundos": 15},
+}
+_captura = motor.captura_de(_INTROMISION)
+_impairment = motor.impairment_de(_INTROMISION)
+comprobar(
+    _captura["interfaz"] == "eth1" and _impairment["interfaz"] == "eth1",
+    "6.4 · la interfaz del bastión sale del ORDEN de sus patas (vmb_lan es la 2a -> eth1)",
+)
+comprobar(
+    "tcpdump -i eth1 -n -l tcp port 80" in _captura["comando"] and "timeout 20" in _captura["comando"],
+    "6.4 · la captura mira SU interfaz, con el filtro del lab, y se acota con sus segundos",
+)
+comprobar(
+    "netem delay 200ms loss 5%" in _impairment["comando"],
+    "6.4 · el impairment se traduce a `netem` tal cual lo declara el lab",
+)
+comprobar(
+    _impairment["comando"].count("tc qdisc del") == 2 and "sleep 15" in _impairment["comando"],
+    "6.4 · el impairment es ACOTADO: se pone, se espera y SE QUITA en el mismo comando (nunca queda puesto)",
+)
+comprobar(
+    motor.captura_de(
+        {
+            "lab": {"nombre": "x", "bridges": [{"nombre": "vmb_uno"}]},
+            "containers": [{"rol": "ws-1", "tipo": "ws", "nombre": 1, "bridge": "vmb_uno"}],
+            "capture": {"bridge": "vmb_uno", "segundos": 5},
+        }
+    )["error"].startswith("el bastión"),
+    "6.4 · sin bastión no hay dónde montarlo, y `captura_de` lo dice en vez de devolver un comando a medias",
+)
+comprobar(
+    motor.captura_de({"lab": {"nombre": "x"}}) is None,
+    "6.4 · sin `capture:` declarado no hay nada que capturar: el verbo lo dice, no adivina por dónde mirar",
+)
+
+
 if FALLOS:
     print(f"\nRESULTADO: {len(FALLOS)} fallo(s).")
     sys.exit(1)

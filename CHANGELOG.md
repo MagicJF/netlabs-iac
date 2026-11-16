@@ -36,6 +36,26 @@ aquí está su entrada; los tres tienen que contar lo mismo, y eso es lo que vig
   método, el **valor** de la credencial con la que se entra y **de dónde sale**
   (`secrets.yml`). Es una decisión explícita para labs efímeros de aprendizaje: se citan
   para poder entrar, no porque el secreto importe.
+- **`derived` en una dirección** (ADR 0020): el lab escribe la marca y el motor calcula el
+  valor repartiendo en orden desde `lab.address_space` (la pasarela de cada bridge primero,
+  los routers antes que los puestos). Un valor explícito manda. Es opcional y aditivo: donde
+  no se declara, nada cambia.
+- **`ready:` por invitado** (ADR 0021): el lab declara cuánto se le espera antes de
+  configurar lo que va detrás —`tipo: ssh|routeros_rest|ninguno` y `espera:` en segundos—, y
+  ahora también un invitado **sin `config:`** puede declarar su barrera (antes no podía
+  ninguna). Sin `ready:`, cada invitado se comporta exactamente como antes.
+- **`./lab test`** (ADR 0022): las **pruebas funcionales** que declara el lab (`tests:`, con
+  `ping`, `servicio` y `dns`). Contesta lo que `verify` no puede —«¿el lab HACE lo que
+  promete?»— con tres salidas: `0` OK, `1` KO y **`3` OMITIDA** cuando el entorno no puede
+  comprobar algo (un `ping` sin privilegios no es un lab roto). Deja evidencia por prueba en
+  `labs/<lab>/logs/`. Sólo prueba desde donde el motor llega (el bastión).
+- **`./lab capture` y `./lab impair`** (ADR 0023): mirar el tráfico de un bridge y estropearlo
+  desde el bastión, **acotado** (se aplica, se espera y se retira en el mismo comando, así que
+  no queda un `netem` huérfano). Son experimentos: `apply` no los toca. Ojo a lo que hace el
+  impairment: estropea el tráfico **del bastión**, no el del bridge.
+- **El informe de estado del arte** (`docs/informe-estado-del-arte-2026-11.md`), con las cuatro
+  P0 **medidas sobre labs reales**: lo que aporta cada una, lo que no hace, y el A/B en frío de
+  un lab mínimo (665 s antes, 662 s después: no cuestan despliegue).
 
 ### Cambiado
 

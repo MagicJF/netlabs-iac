@@ -13,6 +13,7 @@
 #              en silencio.
 # VER:         README.md §Identidad; AGENTS.md §Identidad; test/test_identidad.py
 
+import copy
 import re
 
 try:
@@ -254,6 +255,203 @@ def identidad_por_stage(identidad):
     return {stage: agrupado[stage] for stage in sorted(agrupado)}
 
 
+# ---------------------------------------------------------------------------
+# 6.1 · El asignador de DIRECCIONES (IPAM). Ver docs/decisiones/0020.
+#
+# La misma idea que `static_leases: derived`, extendida a todo lo que el lab
+# puede dejar en `derived`: la dirección de un bridge, la de un invitado, las
+# LANs que un RouterOS sirve y los rangos y redes de sus servidores DHCP.
+#
+# Lo que NO hace, y es la mitad del diseño: un valor EXPLÍCITO siempre GANA. El
+# IPAM sólo rellena lo que el lab dejó sin escribir, así que un lab puede derivar
+# todo (y no repetir números) o escribir cada dirección a mano (y no depender de
+# ninguna convención), y las dos formas conviven en el mismo fichero.
+# ---------------------------------------------------------------------------
+
+DERIVADO = "derived"
+
+# La máscara de una subred derivada. El espacio de direcciones de un lab es un
+# /16 y sus bridges son /24: el IPAM trabaja en bloques de /24, que es lo que el
+# repo usa hoy. Con un espacio más estrecho que /24 se dice y no se deriva (ver
+# `direcciones_resolver`): un cálculo fino aquí sería otra cosa que puede estar
+# mal sin que nadie lo note.
+PREFIJO_DERIVADO = 24
+# El primer y el último huésped que se reparten en una subred derivada. El 1 es
+# la propia subred (la puerta del bridge), y el 100..200 está reservado para el
+# DHCP: por eso los huéspedes fijos se reparten desde el 10 hacia arriba.
+PRIMER_HUESPED = 10
+PRIMER_DHCP = 100
+ULTIMO_DHCP = 200
+
+
+def _es_derivado(valor):
+    """¿El lab pidió que esto lo derive el motor?"""
+    return isinstance(valor, str) and valor.strip() == DERIVADO
+
+
+def _es_direccion(valor):
+    """¿Esto es una dirección con máscara, y no una marca ni un `dhcp`?
+
+    El IPAM no puede dar por hecho que lo que hay en un `address:` sea una dirección:
+    puede ser `derived` (que él mismo acaba de dejar sin resolver, si no cabía en el
+    espacio) o `dhcp`. Parsear eso como si fuera una IP revienta con un `ValueError`
+    que no dice nada -- y pasó.
+    """
+    if not isinstance(valor, str) or "/" not in valor:
+        return False
+    try:
+        return all(0 <= int(o) <= 255 for o in valor.split("/")[0].split(".")) and len(
+            valor.split("/")[0].split(".")
+        ) == 4
+    except ValueError:
+        return False
+
+
+def _a_entero(direccion):
+    """`192.0.2.11/24` o `192.0.2.11` -> un entero de 32 bits."""
+    octetos = [int(o) for o in str(direccion).split("/")[0].split(".")]
+    return (octetos[0] << 24) | (octetos[1] << 16) | (octetos[2] << 8) | octetos[3]
+
+
+def _a_texto(entero):
+    """Un entero de 32 bits -> `192.0.2.11`."""
+    return ".".join(str((entero >> bits) & 0xFF) for bits in (24, 16, 8, 0))
+
+
+def _subred(direccion):
+    """La subred /24 que contiene a esa dirección, como entero."""
+    return (_a_entero(direccion) >> (32 - PREFIJO_DERIVADO)) << (32 - PREFIJO_DERIVADO)
+
+
+def _huesped(subred_entero, numero):
+    """La dirección `numero` de esa subred /24, con su máscara: `10.42.1.11/24`."""
+    return f"{_a_texto(subred_entero + numero)}/{PREFIJO_DERIVADO}"
+
+
+def _patas_de(guest):
+    """Las interfaces declaradas de un invitado, EN ORDEN. Las dos formas."""
+    if guest.get("bridges"):
+        return list(guest["bridges"])
+    if guest.get("bridge"):
+        return [guest["bridge"]]
+    return []
+
+
+def _numero_de_interfaz(interfaz):
+    """`ether2` -> 2, `eth0` -> 0. Es el índice que da el ORDEN de `bridges:`."""
+    digitos = re.sub(r"[^0-9]", "", str(interfaz))
+    return int(digitos) if digitos else 0
+
+
+def _primera_libre(subred_entero, ocupadas, desde=PRIMER_HUESPED):
+    """El primer huésped de esa subred que no esté ocupado."""
+    for numero in range(desde, PRIMER_DHCP):
+        if subred_entero + numero not in ocupadas:
+            return numero
+    return None
+
+
+def direcciones_resolver(declaracion):
+    """Resuelve los `derived` de una declaración. PURA: (declaración) -> declaración.
+
+    Devuelve una COPIA con cada `derived` convertido en una dirección de verdad.
+    El reparto es estable (no depende de nada que no esté en la declaración), que
+    es lo que exige la idempotencia: la segunda pasada deriva exactamente lo mismo.
+
+    Lo que se deriva, y en este orden (el orden ES el reparto):
+      1. `lab.bridges[].address` -> la subred /24 siguiente del `address_space`, y
+         la dirección `.1` de esa subred (la puerta del bridge).
+      2. `guest.address` -> el primer huésped libre de la subred de SU PRIMER bridge.
+      3. `config.routeros.addresses[].address` -> el `.1` de la subred del bridge
+         que le toca por el ORDEN de las interfaces (`etherN` -> la pata N-1).
+      4. `config.routeros.dhcp_server[].pool.rango` -> `.100-.200` de su subred;
+         y `network.address` / `network.gateway` / `network.dns` -> la subred, la
+         puerta de esa subred y esa misma puerta como resolutor.
+    """
+    salida = copy.deepcopy(declaracion)
+    lab = salida.get("lab") or {}
+    # Una declaración NORMALIZADA no se toca: su `lab` es un NOMBRE, no un mapa, y no hay
+    # nada que derivar en ella (lo derivado ya es dirección de verdad). Sin esto, pasarle
+    # una normalizada revienta con un `AttributeError` en vez de no hacer nada.
+    if not isinstance(lab, dict):
+        return salida
+    espacio = lab.get("address_space")
+    puentes = lab.get("bridges") or []
+    if puentes and not isinstance(puentes[0], dict):
+        return salida
+    invitados = (salida.get("vms") or []) + (salida.get("containers") or [])
+
+    # 1. Los bridges, y con ellos las subredes del lab.
+    subred_de_puente = {}
+    puerta_de_subred = {}
+    ocupadas = set()
+    siguiente_subred = 0
+    for puente in puentes:
+        if _es_derivado(puente.get("address")):
+            if espacio and int(str(espacio).split("/")[1]) <= PREFIJO_DERIVADO:
+                base = _subred(espacio) + siguiente_subred * (1 << (32 - PREFIJO_DERIVADO))
+                # El bloque tiene que CABER en el espacio: un /24 no da para dos /24, y
+                # derivar una dirección fuera del espacio sería peor que no derivarla
+                # -- el check lo cazaría, pero con un error que manda a mirar el sitio
+                # equivocado. Si no cabe, se queda en `derived` y lo dice el validador.
+                limite = _a_entero(espacio) + (1 << (32 - int(str(espacio).split("/")[1])))
+                if base + (1 << (32 - PREFIJO_DERIVADO)) <= limite:
+                    siguiente_subred += 1
+                    puente["address"] = _huesped(base, 1)
+        if _es_direccion(puente.get("address")):
+            subred = _subred(puente["address"])
+            subred_de_puente[puente["nombre"]] = subred
+            puerta_de_subred[subred] = _a_entero(str(puente["address"]).split("/")[0])
+            ocupadas.add(_a_entero(puente["address"]))
+
+    for guest in invitados:
+        patas = _patas_de(guest)
+
+        # 2. La dirección del invitado, en su PRIMER bridge.
+        if _es_derivado(guest.get("address")):
+            subred = subred_de_puente.get(patas[0]) if patas else None
+            if subred is not None:
+                numero = _primera_libre(subred, ocupadas)
+                if numero is not None:
+                    guest["address"] = _huesped(subred, numero)
+                    ocupadas.add(subred + numero)
+
+        interior = ((guest.get("config") or {}).get("routeros") or {})
+
+        # 3. Las LANs que el RouterOS sirve: la interfaz `etherN` es la pata N-1.
+        for entrada in interior.get("addresses") or []:
+            if not _es_derivado(entrada.get("address")):
+                continue
+            indice = _numero_de_interfaz(entrada.get("interface"))
+            subred = subred_de_puente.get(patas[indice - 1]) if 0 < indice <= len(patas) else None
+            if subred is None:
+                continue
+            entrada["address"] = _huesped(subred, 1)
+            puerta_de_subred.setdefault(subred, _a_entero(entrada["address"]))
+            ocupadas.add(_a_entero(entrada["address"]))
+
+        # 4. El DHCP que sirve: su rango, su red y su puerta salen de la subred.
+        for servidor in interior.get("dhcp_server") or []:
+            indice = _numero_de_interfaz(servidor.get("interface"))
+            subred = subred_de_puente.get(patas[indice - 1]) if 0 < indice <= len(patas) else None
+            if subred is None:
+                continue
+            if _es_derivado((servidor.get("pool") or {}).get("rango")):
+                servidor["pool"]["rango"] = (
+                    f"{_a_texto(subred + PRIMER_DHCP)}-{_a_texto(subred + ULTIMO_DHCP)}"
+                )
+            red = servidor.get("network") or {}
+            if _es_derivado(red.get("address")):
+                red["address"] = f"{_a_texto(subred)}/{PREFIJO_DERIVADO}"
+            puerta = puerta_de_subred.get(subred)
+            if _es_derivado(red.get("gateway")) and puerta is not None:
+                red["gateway"] = _a_texto(puerta)
+            if _es_derivado(red.get("dns")) and puerta is not None:
+                red["dns"] = [_a_texto(puerta)]
+
+    return salida
+
+
 class FilterModule:
     """Filtros que Ansible ve como `| identidad_asignar`."""
 
@@ -266,4 +464,5 @@ class FilterModule:
             "identidad_asignar": identidad_asignar,
             "identidad_guest_por_rol": identidad_guest_por_rol,
             "identidad_por_stage": identidad_por_stage,
+            "identidad_direcciones": direcciones_resolver,
         }

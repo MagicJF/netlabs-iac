@@ -428,6 +428,26 @@ igual(
     "y con el `accept` de entrada delante, el `drop` general pasa: la excepción es obligatoria",
 )
 
+print("\n6.4 · SE MIDE DONDE SE PISA\n")
+
+
+def con_captura_en(puente):
+    """El lab de aceptación con una captura pedida en `puente` (que se añade si no está)."""
+    def mutar(d):
+        d["capture"] = {"bridge": puente, "filtro": "icmp", "segundos": 15}
+        if puente not in [b["nombre"] for b in d["lab"]["bridges"]]:
+            d["lab"]["bridges"].append({"nombre": puente, "address": "10.40.9.1/24"})
+    return mutar
+
+
+# El bastión NO pisa todos los bridges del lab (su dotación es el de gestión más los que
+# declara en `bridges:`), y una captura pedida donde no tiene pata se puede declarar pero
+# no se puede montar. Se caza al LEER, no al ejecutar el verbo con el lab desplegado.
+comprobar(
+    dice(errores_de(con_captura_en("vmb_sin_pata")), "no tiene una interfaz ahí"),
+    "6.4 · una captura en un bridge del lab donde el bastión NO tiene pata se caza al leer la declaración",
+)
+
 if FALLOS:
     print(f"\nRESULTADO: {len(FALLOS)} fallo(s).")
     sys.exit(1)

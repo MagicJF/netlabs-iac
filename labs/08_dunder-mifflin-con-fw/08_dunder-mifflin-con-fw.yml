@@ -6,6 +6,12 @@
 #              verdad (`/ip/firewall/filter`), y una máquina por responsabilidad -- un
 #              router que enruta y sale, tres cortafuegos que filtran, ninguna que haga
 #              las dos cosas.
+#
+#              ESTA ES LA VERSIÓN POST de la comparación A/B del informe §6 sobre el LAB
+#              COMPLEJO: la misma topología que la versión de `main`, declarando las P0
+#              que este lab PUEDE declarar (`ready:` 6.3, `tests:` 6.2, `capture:` /
+#              `impairment:` 6.4). NO declara `derived` (6.1) a propósito, y el motivo
+#              está escrito abajo, donde estaban las direcciones.
 # INVARIANTES: esta es la FUENTE DE VERDAD del lab. Aquí NO hay ningún vmid, ninguna MAC
 #              y NINGUNA dirección de la red de casa: la identidad la deriva el motor
 #              (regla 11) y la interfaz de fuera del router de salida toma su dirección,
@@ -59,6 +65,15 @@ lab:
   # EL CONMUTADOR SIGUE SIN SER UN INVITADO: un bridge de Linux conmuta (aprende MACs y
   # reenvía), así que una caja que "conmuta" sería una caja que no hace nada. El
   # vocabulario del interior no tiene `puentes` y el validador lo rechaza.
+  #
+  # 6.1 · AQUÍ `derived` NO SE DECLARA, y es una decisión medida, no una omisión: el
+  # direccionamiento de este lab es un PLAN (el troncal en 10.44.10.x, la DMZ en .3.x, los
+  # cortafuegos en .12/.13/.14) y las rutas del router apuntan a direcciones concretas de
+  # ese plan (10.44.10.10/.11/.12). El IPAM reparte subredes /24 EN ORDEN desde el espacio
+  # del lab, así que el troncal --que hoy es la SEGUNDA subred-- pasaría a ser la quinta,
+  # y las rutas (que sí se quedan escritas, porque el motor no puede adivinar a quién
+  # apuntan) apuntarían a direcciones que ya no existen. En un lab con plan de
+  # direccionamiento, `derived` no es «menos YAML»: es renumerar el plan.
   bridges:
     - nombre: vmb_fw_gestion
       address: 10.44.0.1/24
@@ -93,6 +108,9 @@ vms:
     # vmb_fw_troncal -> ether2, y la de fuera (que añade el motor) -> ether3.
     bridges: [vmb_fw_gestion, vmb_fw_troncal]
     address: 10.44.0.11/24
+    # 6.3 · La barrera DECLARADA: un CHR tarda en arrancar, y esto dice cuánto se le
+    # espera en SEGUNDOS (antes era un número del motor, metido en `engine.yml`).
+    ready: {tipo: routeros_rest, espera: 240}
     config:
       routeros:
         identity: rt-nucleo
@@ -136,6 +154,7 @@ vms:
     image: chr-7.25.1.raw
     bridges: [vmb_fw_gestion, vmb_fw_troncal, vmb_fw_oficina]
     address: 10.44.0.12/24
+    ready: {tipo: routeros_rest, espera: 240}
     config:
       routeros:
         identity: fw-oficina
@@ -167,6 +186,7 @@ vms:
     image: chr-7.25.1.raw
     bridges: [vmb_fw_gestion, vmb_fw_troncal, vmb_fw_almacen]
     address: 10.44.0.13/24
+    ready: {tipo: routeros_rest, espera: 240}
     config:
       routeros:
         identity: fw-almacen
@@ -200,6 +220,7 @@ vms:
     image: chr-7.25.1.raw
     bridges: [vmb_fw_gestion, vmb_fw_troncal, vmb_fw_dmz]
     address: 10.44.0.14/24
+    ready: {tipo: routeros_rest, espera: 240}
     config:
       routeros:
         identity: fw-servidores
@@ -236,6 +257,7 @@ containers:
     disk: 4
     bridge: vmb_fw_gestion
     address: 10.44.0.10/24
+    ready: {tipo: ssh, espera: 120}
     config:
       linux:
         tunnel: {}
@@ -252,6 +274,11 @@ containers:
 
   # EL SERVIDOR DE FICHEROS DE LA OFICINA: dirección y pasarela a mano. Su pasarela es su
   # CORTAFUEGOS (`fw-oficina`, 10.44.1.1), que es quien lo saca. No se entra en él.
+  #
+  # 6.3 · `ready: {tipo: ninguno}` -- estos cinco hosts NO declaran `config:` (no se entra
+  # en ellos), y antes un invitado sin `config:` no podía decir NADA sobre su barrera: el
+  # motor no insinuaba ninguna y el lab no tenía forma de pedirla. Ahora el lab dice
+  # explícitamente que a éste no se le espera porque no ofrece nada por lo que preguntarle.
   - rol: ficheros
     tipo: srv         # -> 'srv-1'
     nombre: 1
@@ -262,6 +289,7 @@ containers:
     bridge: vmb_fw_oficina
     address: 10.44.1.10/24
     gateway: 10.44.1.1
+    ready: {tipo: ninguno}
 
   # EL SERVIDOR WEB: el que vive en la DMZ, y el único al que se le puede llegar desde
   # fuera de su zona (por 80 y 443, y por nada más).
@@ -275,6 +303,7 @@ containers:
     bridge: vmb_fw_dmz
     address: 10.44.3.10/24
     gateway: 10.44.3.1
+    ready: {tipo: ninguno}
 
   # LOS PUESTOS DE LA OFICINA: con su dirección y su pasarela puestas a mano -- nada que
   # repartir, así que ningún cortafuegos tiene que llevar un servidor DHCP que no le toca.
@@ -288,6 +317,7 @@ containers:
     bridge: vmb_fw_oficina
     address: 10.44.1.11/24
     gateway: 10.44.1.1
+    ready: {tipo: ninguno}
 
   - rol: puesto-2
     tipo: ws          # -> 'ws-2'
@@ -299,6 +329,7 @@ containers:
     bridge: vmb_fw_oficina
     address: 10.44.1.12/24
     gateway: 10.44.1.1
+    ready: {tipo: ninguno}
 
   # EL PUESTO DEL ALMACÉN: cuelga de SU cortafuegos, y por eso no ve la oficina ni la DMZ
   # salvo que el suyo lo deje (y hoy no lo deja: sale, y nada más).
@@ -312,4 +343,67 @@ containers:
     bridge: vmb_fw_almacen
     address: 10.44.2.11/24
     gateway: 10.44.2.1
+    ready: {tipo: ninguno}
 #     ↑ sin `vmid` ni `mac`: los deriva el motor leyendo el estado del clúster.
+
+# ---------------------------------------------------------------------------
+# 6.2 · LAS PRUEBAS FUNCIONALES del lab: `./lab --lab 08_dunder-mifflin-con-fw test`.
+#
+# Qué pregunta contestan aquí, en un lab CON CORTAFUEGOS: `verify` ya dice que cada
+# `firewall` del lab es lo que la declaración dice que es (regla a regla). Lo que NO dice
+# es si el filtrado DEJA PASAR lo que tiene que dejar pasar -- y eso es lo que se prueba.
+#
+# Todas se lanzan desde el BASTIÓN (el único invitado al que el motor llega: tiene túnel),
+# y todas van al PLANO DE GESTIÓN de los cuatro CHR, que es lo que sus tablas `input`
+# permiten a la red de gestión. Un cortafuegos que filtrara de más y se dejara fuera al
+# motor se vería aquí, y no en `verify`.
+#
+# LÍMITE CONOCIDO Y MEDIDO: el vocabulario de pruebas es `ping`/`servicio`/`dns`, que
+# esperan ÉXITO. Este lab tiene una cosa que se debería poder probar y hoy no se puede
+# decir: que el tráfico que DEBE caer, cae (por ejemplo, que desde el bastión NO se llega a
+# la oficina: las tablas `forward` de `fw-oficina` lo tiran). Hace falta un tipo que espere
+# un fallo (`bloqueado`), y todavía no existe.
+# ---------------------------------------------------------------------------
+tests:
+  - nombre: el router contesta en la red de gestión
+    desde: control
+    tipo: ping
+    hacia: 10.44.0.11
+  - nombre: el cortafuegos de la oficina contesta en gestión
+    desde: control
+    tipo: ping
+    hacia: 10.44.0.12
+  - nombre: el cortafuegos del almacen contesta en gestion
+    desde: control
+    tipo: ping
+    hacia: 10.44.0.13
+  - nombre: el cortafuegos de los servidores contesta en gestion
+    desde: control
+    tipo: ping
+    hacia: 10.44.0.14
+  - nombre: el REST del router esta en pie
+    desde: control
+    tipo: servicio
+    hacia: 10.44.0.11
+    puerto: 80
+
+# ---------------------------------------------------------------------------
+# 6.4 · LOS EXPERIMENTOS sobre el lab complejo: mirar desde el bastión (que tiene una
+# pata ahí) y estropear esa pata durante 15 s. El impairment se apaga solo.
+#
+# MEDIDO, y es una baza que conviene saber: el bastión NO pisa todos los bridges del lab.
+# Su dotación es el de gestión más los que declara en `bridges:` -- y este bastión sólo
+# declara el de gestión --, así que una captura pedida en la oficina no tendría desde dónde
+# montarse: el motor la rechaza («el bastión no tiene una interfaz en el bridge ...»), y
+# ahora el validador también, al leer la declaración. Se mide en gestión, igual que la
+# línea base; medir DENTRO de una zona pide antes darle al bastión una pata ahí.
+# ---------------------------------------------------------------------------
+capture:
+  bridge: vmb_fw_gestion
+  filtro: icmp or arp
+  segundos: 15
+
+impairment:
+  bridge: vmb_fw_gestion
+  retardo: 300ms
+  segundos: 15

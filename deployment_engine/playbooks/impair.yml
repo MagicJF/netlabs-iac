@@ -1,0 +1,127 @@
+---
+# PROPÓSITO:   el verbo `impair`: ESTRECHA un bridge del lab (retardo, jitter, pérdida) con
+#              `tc netem` desde el bastión, para poder mirar cómo se comporta algo cuando la
+#              red va mal. Está pensado para acompañar a `test`: se estropea, se prueba, y
+#              el impairment se apaga solo.
+# INVARIANTES: el impairment es ACOTADO y se apaga SIEMPRE. Se aplica, se espera lo que el
+#              lab declara en `segundos` y se quita -- en el mismo comando, así que ni un
+#              fallo del motor deja un `netem` puesto. Un lab estropeado sin dueño es peor
+#              que un lab sin impairment.
+# LÍMITES:     `netem` se pone en la interfaz del BASTIÓN, así que lo que estropea es el
+#              tráfico QUE PASA POR EL BASTIÓN -- el suyo. El de dos invitados que hablan
+#              entre ellos no lo ve: en un bridge de Linux cada invitado tiene su propia
+#              interfaz y el tráfico de los demás no pasa por la del bastión. Si lo que
+#              quieres es estropear el tráfico de otros, este verbo NO lo hace (medido: ver
+#              docs/informe-estado-del-arte-2026-11.md §6.4).
+# VER:         filter_plugins/interior.py (impairment_de); docs/decisiones/0023-*.md
+
+- name: "IMPAIR · estropear la red del lab desde el bastión"
+  hosts: proxmox_api
+  gather_facts: false
+  vars_files:
+    - ../vars/engine.yml
+  tasks:
+    - name: "IMPAIR · cargar la declaración del lab"
+      ansible.builtin.include_vars:
+        file: "{{ pve_archivo_lab }}"
+        name: declaracion_cruda
+
+    - name: "IMPAIR · validar la coherencia de la declaración"
+      ansible.builtin.include_tasks: ../tasks/validar.yml
+
+    - name: "IMPAIR · leer el mundo y re-derivar la identidad"
+      ansible.builtin.include_tasks: ../tasks/identity.yml
+
+    - name: "IMPAIR · parámetros del entorno (los mismos que usa `apply`)"
+      ansible.builtin.set_fact:
+        parametros_motor:
+          nodo: "{{ pve_nombre_nodo | default(pve_nodo) }}"
+          ostemplate_lxc: "{{ engine_ostemplate_lxc }}"
+          comentario_pool: "topología gestionada por netlabs_v4_b (motor por API)"
+          comentario_bridge: "{{ engine_plantilla_comentario_bridge }}"
+          bridge_gestion: "{{ pve_bridge_gestion | default('') }}"
+          tunnel_host: "{{ pve_tunnel_salida_host | default('') }}"
+          tunnel_puerto: "{{ pve_tunnel_salida_puerto | default(443) }}"
+          tunnel_usuario: "{{ pve_tunnel_usuario | default('') }}"
+          tunnel_puerto_base: "{{ engine_tunnel_puerto_base }}"
+          tunnel_rest_puerto_base: "{{ engine_tunnel_rest_puerto_base }}"
+          mac_prefijo: "{{ engine_prefijo_mac }}"
+          tunnel_clave: "{{ engine_tunnel_clave_base }}_{{ pve_lab }}_ed25519"
+          rol_control: "{{ engine_rol_control }}"
+          almacenamiento_imagen: "{{ engine_almacenamiento_imagen }}"
+          tunnel_clave_publica: "{{ tunnel_clave_publica | default('') }}"
+
+    - name: "IMPAIR · leer si el túnel del lab está en pie (es la vía de acceso al bastión)"
+      ansible.builtin.include_tasks: ../tasks/tunnel_probe.yml
+
+    - name: "IMPAIR · parar si no hay estado del mundo"
+      ansible.builtin.fail:
+        msg: "No se puede estropear el lab '{{ pve_lab }}': no hay estado del mundo. {{ pve_mundo_error | default('') }}"
+      when: (pve_mundo_error | default('') | length) > 0
+
+    - name: "IMPAIR · parar si el túnel no responde"
+      ansible.builtin.fail:
+        msg: |-
+          No se puede estropear el lab '{{ pve_lab }}': su túnel no responde.
+            ./lab --lab {{ pve_lab }} apply   reconstruye el túnel
+      when: not (estado.tunnel.responde | default(false))
+
+    - name: "IMPAIR · lo que el lab declara estropear"
+      ansible.builtin.set_fact:
+        impairment: "{{ declaracion | interior_impairment }}"
+
+    - name: "IMPAIR · parar si el lab no declara impairment"
+      ansible.builtin.fail:
+        msg: |-
+          El lab '{{ pve_lab }}' no declara `impairment:`. Este verbo ejecuta lo declarado,
+          no inventa cuánto estropear. Para pedir uno, decláralo:
+
+            impairment:
+              bridge: {{ (declaracion.lab.bridges | default([{'nombre': 'vmb_...'}]))[0].nombre }}
+              retardo: 200ms
+              perdida: 5%
+              segundos: 20
+      when: impairment is none
+
+    - name: "IMPAIR · parar si el impairment no se puede montar"
+      ansible.builtin.fail:
+        msg: "No se puede montar el impairment del lab '{{ pve_lab }}': {{ impairment.error }}"
+      when: impairment.error is defined
+
+    - name: "IMPAIR · estropear '{{ impairment.interfaz }}' ({{ impairment.netem }}) durante {{ impairment.segundos }} s"
+      ansible.builtin.include_tasks: ../tasks/interior_ssh.yml
+      vars:
+        interior_rol: "{{ declaracion | interior_bastion }}"
+        interior_tipo: "linux"
+        interior_comandos:
+          - accion: "leer"
+            area: "impairment"
+            declarado: "{{ impairment.porque }}"
+            porque: "{{ impairment.porque }}"
+            comando: "{{ impairment.comando }}"
+
+    - name: "IMPAIR · guardar la evidencia (logs/impairment-<sello>.txt)"
+      ansible.builtin.copy:
+        content: |-
+          # IMPAIRMENT del lab '{{ pve_lab }}' — {{ now().strftime('%Y-%m-%dT%H:%M:%S') }}Z
+          # bridge={{ impairment.bridge }} interfaz={{ impairment.interfaz }} netem='{{ impairment.netem }}' segundos={{ impairment.segundos }}
+          # rc={{ interior_resultados[0].rc | default(-1) }}  (0 = se aplicó, se esperó y se quitó)
+          {{ interior_resultados[0].stdout | default('') }}
+        dest: "{{ pve_carpeta_logs }}/impairment-{{ now().strftime('%Y%m%dT%H%M%SZ') }}.txt"
+        mode: '0640'
+      changed_when: false
+
+    - name: "IMPAIR · cómo ha ido"
+      ansible.builtin.debug:
+        msg: >-
+          {% if (interior_resultados[0].rc | default(-1) | int) == 0 %}
+          impairment '{{ impairment.netem }}' aplicado en {{ impairment.interfaz }} durante
+          {{ impairment.segundos }} s y QUITADO: el lab está como estaba.
+          {% elif (interior_resultados[0].rc | default(-1) | int) == 3 %}
+          OMITIDO: el bastión no tiene `tc` (hace falta iproute2).
+          {% else %}
+          KO: el bastión no aceptó el impairment. El lab NO se ha quedado estropeado
+          (el comando limpia el `netem` antes de intentarlo).
+          {% endif %}
+          Evidencia: {{ pve_carpeta_logs }}/impairment-*.txt
+      changed_when: false

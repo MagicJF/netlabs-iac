@@ -74,6 +74,14 @@
     sonda_tipo: "{{ item.parametros.tipo }}"
     sonda_direccion: "{{ item.parametros.address }}"
     sonda_puerto: "{{ item.parametros.puerto }}"
+    # 6.3 · La ventana que declara el lab (en segundos, ya traducida a intentos por
+    # `espera_de_servicio`). Sin declararla, la del motor (ADR 0021).
+    #
+    # `default(..., true)` con el `true`: sin él, un `None` NO dispara el `default` (Jinja
+    # sólo sustituye lo INDEFINIDO), y el tope llegaba a la sonda como cadena VACÍA. El
+    # comando quedaba en `while [ $i -lt  ]`, que es un error de shell: la barrera no podía
+    # pasar NUNCA, tardara lo que tardara el invitado. Medido en un `apply` en frío real.
+    sonda_intentos: "{{ item.parametros.intentos | default(engine_sonda_intentos, true) }}"
     sonda_porque: "{{ item.porque }}"
   when: (item.via | default('api')) == 'sonda'
 

@@ -29,7 +29,9 @@ tercera copia: no se crea.*
 | `labs/<lab>/<lab>.md` | la topología explicada: región generada + región de prosa | **dos escritores** |
 | `labs/<lab>/logs/` | `api.jsonl`, `interior.jsonl`, `console.jsonl` (los diarios), el **`resumen.md`** que se lee, `ultimo-verify.txt` (el veredicto), `plan.txt` y el último `verify-<sello>.json` (gitignored) | el motor, nunca a mano |
 | `docs/decisiones/NNNN-*.md` | ADR: decisión + porqué, no se regenera | a mano |
+| `docs/*.md` (crear-un-lab, tunnel-del-bastion, informes, encargos) | prosa de trabajo: guía, informe o registro de una fase; no se regenera | a mano |
 | `docs/revisiones.json` | sellado por hash de los docs (caducidad) | `./lab check docs --sellar` |
+| `scripts/` | herramientas de DESARROLLO (p. ej. perfilar un verbo). El motor no las usa | a mano |
 | `test/` | pruebas del asignador; `test/fixtures/` = clústeres simulados | a mano |
 
 `./lab` es el **único** punto de entrada, y se ejecuta **desde la raíz del repo**:

@@ -12,7 +12,7 @@
 #              `127.0.0.1:<puerto derivado del vmid>`. Así las llamadas se ejecutan en
 #              UN solo sitio (el motor), el puesto sólo hace de túnel, y se mide: la
 #              misma llamada delegada costaba 4,4 s y así cuesta ~0,3 s
-#              (informe-rendimiento-despliegue.md).
+#              (docs/informe-rendimiento-despliegue.md).
 #
 # INVARIANTES: una línea JSON por petición en `logs/api.jsonl`, SIEMPRE, salga bien o
 #              mal, con `api: routeros` y el rol del invitado. La contraseña NO se

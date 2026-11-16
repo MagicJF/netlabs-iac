@@ -6,7 +6,7 @@
       "deployment_engine/tasks/pve_api.yml": "42b30c7d2a79a68b54ea68ef0aadf90b9d3eaa6800aeb89378c7c50d551e2817",
       "deployment_engine/tasks/ros_api.yml": "4c046afb65edc202ec05535611f9b5069914ded3aabf572c6534ab579090d309",
       "deployment_engine/templates/lab-region.md.j2": "f574153ca4f3c8ceae6ba5c534ad816a18f56046f1892ab3f6d340b92ba2ffc9",
-      "deployment_engine/tools/documentos.py": "8b47a1cea69d11d8d6558410b5cce7f4bb37cf2261be3a6582cfe817272d6aea"
+      "deployment_engine/tools/documentos.py": "eaf8418b23f41f2df27f43ed2b78d7d22cc1d3884662eff8f5ccae4fb279c571"
     }
   },
   "README.md": {
@@ -17,7 +17,7 @@
       "deployment_engine/playbooks/plan.yml": "1a11a151d2e4691ab4611a43f39319503e8153b67145fe450e8f31df70baca24",
       "deployment_engine/tasks/pve_api.yml": "42b30c7d2a79a68b54ea68ef0aadf90b9d3eaa6800aeb89378c7c50d551e2817",
       "deployment_engine/tasks/pve_api_y_esperar.yml": "6226f0c9e87cac7ff936dd4ead8c4f318bea3c5afc1dfaefaf1bf0ec09cd23dc",
-      "deployment_engine/tools/documentos.py": "8b47a1cea69d11d8d6558410b5cce7f4bb37cf2261be3a6582cfe817272d6aea",
+      "deployment_engine/tools/documentos.py": "eaf8418b23f41f2df27f43ed2b78d7d22cc1d3884662eff8f5ccae4fb279c571",
       "deployment_engine/tools/framework_check.py": "630692aa772f3db8155cd57fed9281bcbe395f86ba1d0fc79b1a16144a2013a7",
       "deployment_engine/tools/plan.py": "38e61f37ee4c1065985a3c5ccc9e62349ca76d076a259f6ca43bf69aa20f6314",
       "deployment_engine/vars/engine.yml": "a8f147b01f83db6ac821e69988a4b4e641dbff39155592b72910da71af710a7d"
@@ -41,7 +41,7 @@
   },
   "docs/decisiones/0003-documento-con-dos-regiones.md": {
     "citados": {
-      "deployment_engine/tools/documentos.py": "8b47a1cea69d11d8d6558410b5cce7f4bb37cf2261be3a6582cfe817272d6aea"
+      "deployment_engine/tools/documentos.py": "eaf8418b23f41f2df27f43ed2b78d7d22cc1d3884662eff8f5ccae4fb279c571"
     }
   },
   "docs/decisiones/0004-el-tunnel-y-el-token.md": {

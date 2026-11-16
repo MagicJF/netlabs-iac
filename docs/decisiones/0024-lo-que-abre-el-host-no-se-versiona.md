@@ -16,9 +16,18 @@ limpia, pero eso es un resultado, no una garantía.
 
 ## La decisión
 
-**1. La política es explícita y ASIMÉTRICA.** Las credenciales de los labs se citan en claro en sus
-documentos: son de sandbox y sirven para entrar a mirar. Lo que abre el NODO no entra jamás en lo
-versionado: ni el token, ni una contraseña, ni una clave privada, ni un ticket de sesión.
+**1. La política es explícita y ASIMÉTRICA.** Las credenciales de los labs son de sandbox, y lo que
+abre el NODO no entra jamás en lo versionado: ni el token, ni una contraseña, ni una clave privada,
+ni un ticket de sesión.
+
+> **Corrección (16-nov-2026, al añadir el CI del informe §6.5).** «Se citan en claro en sus
+> documentos» dejó de ser cierto, y con razón: la región generada de un lab citaba el VALOR de
+> `routeros_clave` leyéndolo de `secrets.yml`, y eso hacía que **no fuera función de la
+> declaración** — en un clon sin credenciales (el CI) rendía otra cosa, `./lab check docs` no
+> podía pasar nunca, y el `.md` publicado llevaba la contraseña dentro. Ahora la tabla de acceso
+> cita la credencial **por su origen** (`secrets.yml` → `routeros_clave`), nunca por su valor. La
+> asimetría sigue: un secreto de LAB citado a mano en la prosa de un lab no se bloquea; lo que no
+> entra es un valor en la región generada.
 
 **2. Se vigila con un CHECK, no con un `.gitignore`.** `./lab check secretos` busca las cuatro
 formas que dan acceso al host —el token de la API con su valor, un ticket de sesión, una clave

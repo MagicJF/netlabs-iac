@@ -21,11 +21,11 @@ si los editas a mano, `./lab check docs` falla._
 
 ```mermaid
 graph TD
-    n_vmb_research(["vmb_research<br/>10.41.0.1/24"])
-    n_chr_agente["chr-agente<br/>VM (qemu) · etapa 1"]
-    n_chr_agente --- n_vmb_research
-    n_control["control<br/>LXC · etapa 1"]
-    n_control --- n_vmb_research
+    b_vmb_research(["vmb_research<br/>10.41.0.1/24"])
+    i_chr_agente["chr-agente<br/>VM (qemu) · etapa 1"]
+    i_chr_agente --- b_vmb_research
+    i_control["control<br/>LXC · etapa 1"]
+    i_control --- b_vmb_research
 ```
 
 ## Invitados declarados

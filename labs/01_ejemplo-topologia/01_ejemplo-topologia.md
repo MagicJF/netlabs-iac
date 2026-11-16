@@ -23,13 +23,13 @@ si los editas a mano, `./lab check docs` falla._
 
 ```mermaid
 graph TD
-    n_vmb_ejemplo(["vmb_ejemplo<br/>192.0.2.1/24"])
-    n_switch["switch<br/>VM (qemu) · etapa 1"]
-    n_switch --- n_vmb_ejemplo
-    n_workstation_1["workstation-1<br/>LXC · etapa 2"]
-    n_workstation_1 --- n_vmb_ejemplo
-    n_workstation_2["workstation-2<br/>LXC · etapa 2"]
-    n_workstation_2 --- n_vmb_ejemplo
+    b_vmb_ejemplo(["vmb_ejemplo<br/>192.0.2.1/24"])
+    i_switch["switch<br/>VM (qemu) · etapa 1"]
+    i_switch --- b_vmb_ejemplo
+    i_workstation_1["workstation-1<br/>LXC · etapa 2"]
+    i_workstation_1 --- b_vmb_ejemplo
+    i_workstation_2["workstation-2<br/>LXC · etapa 2"]
+    i_workstation_2 --- b_vmb_ejemplo
 ```
 
 ## Invitados declarados

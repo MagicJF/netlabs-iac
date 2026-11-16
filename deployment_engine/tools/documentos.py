@@ -70,17 +70,22 @@ def _guests_normalizados(declaracion):
     return guests
 
 
-def _id_mermaid(texto):
+def _id_mermaid(texto, clase):
     """Un identificador de nodo Mermaid a partir de un nombre del lab.
 
     Mermaid no admite guiones, puntos ni acentos en un identificador, así que todo lo que
-    no sea alfanumérico o `_` pasa a `_`, y se antepone `n_` para que no empiece por dígito.
-    Dos nombres distintos pueden colisionar (`puente-a` y `puente_a`): en un identificador
-    eso da un nodo compartido, y por eso el nombre de verdad viaja SIEMPRE en la etiqueta,
-    que es la que se lee.
+    no sea alfanumérico o `_` pasa a `_`, y se antepone la CLASE para que no empiece por
+    dígito. Dos nombres distintos pueden colisionar (`puente-a` y `puente_a`): en un
+    identificador eso da un nodo compartido, y por eso el nombre de verdad viaja SIEMPRE
+    en la etiqueta, que es la que se lee.
+
+    La clase (`b` para un bridge, `i` para un invitado) no es decorativa: el espacio de
+    nombres de un lab es uno solo, así que un bridge llamado igual que un rol --`control`
+    es las dos cosas-- compartiría nodo y el diagrama dibujaría un bucle sobre sí mismo
+    en vez de una pata. Son DOS clases de cosa y se ven como dos.
     """
     limpio = "".join(c if c.isalnum() or c == "_" else "_" for c in texto)
-    return "n_" + limpio
+    return clase + "_" + limpio
 
 
 def _diagrama_mermaid(guests, bridges):
@@ -96,14 +101,14 @@ def _diagrama_mermaid(guests, bridges):
         etiqueta = puente["nombre"]
         if puente.get("address"):
             etiqueta += "<br/>" + puente["address"]
-        lineas.append("    " + _id_mermaid(puente["nombre"]) + '(["' + etiqueta + '"])')
+        lineas.append("    " + _id_mermaid(puente["nombre"], "b") + '(["' + etiqueta + '"])')
     for invitado in guests:
         etiqueta = f"{invitado['rol']}<br/>{ETIQUETA_TIPO[invitado['tipo']]} · etapa {invitado['stage']}"
-        lineas.append("    " + _id_mermaid(invitado["rol"]) + '["' + etiqueta + '"]')
+        lineas.append("    " + _id_mermaid(invitado["rol"], "i") + '["' + etiqueta + '"]')
         patas = invitado.get("bridges") or ([invitado["bridge"]] if invitado.get("bridge") else [])
         for nombre_puente in patas:
             lineas.append(
-                "    " + _id_mermaid(invitado["rol"]) + " --- " + _id_mermaid(nombre_puente)
+                "    " + _id_mermaid(invitado["rol"], "i") + " --- " + _id_mermaid(nombre_puente, "b")
             )
     lineas.append("```")
     return "\n".join(lineas)

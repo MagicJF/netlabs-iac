@@ -15,9 +15,9 @@ si los editas a mano, `./lab check docs` falla._
 
 ```mermaid
 graph TD
-    n_vmb_lab_minimo(["vmb_lab_minimo<br/>198.51.100.1/24"])
-    n_workstation_1["workstation-1<br/>LXC · etapa 1"]
-    n_workstation_1 --- n_vmb_lab_minimo
+    b_vmb_lab_minimo(["vmb_lab_minimo<br/>198.51.100.1/24"])
+    i_workstation_1["workstation-1<br/>LXC · etapa 1"]
+    i_workstation_1 --- b_vmb_lab_minimo
 ```
 
 ## Invitados declarados

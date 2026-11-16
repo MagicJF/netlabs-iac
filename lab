@@ -280,11 +280,15 @@ def ejecutar_verbo(lab, verbo, opciones):
         )
 
     usa_api = verbo in VERBOS_CON_API or "--api" in opciones
-    # Antes de mirar si hay credenciales: si están cifradas, se descifran aquí. Es el
-    # único punto por el que pasa todo verbo, así que el motor no cambia nada (§6.6).
-    error_credenciales = descifrar_secretos()
-    if error_credenciales:
-        return fallo(error_credenciales)
+    # Si las credenciales están cifradas, se descifran aquí. Es el único punto por el que
+    # pasa todo verbo, así que el motor no cambia nada (§6.6). SÓLO cuando el verbo va a
+    # hablar con la API: `plan` sin `--api` planifica contra un fixture y no necesita
+    # credenciales, así que un clon que trae `secrets.sops.yml` versionado pero no tiene
+    # `sops` ni la clave de age (o no quiere tenerlos) tiene que poder seguir usándolo.
+    if usa_api:
+        error_credenciales = descifrar_secretos()
+        if error_credenciales:
+            return fallo(error_credenciales)
     if usa_api and not os.path.exists(SECRETS):
         return fallo(
             "faltan las credenciales: crea deployment_engine/secrets.yml a mano, dale "

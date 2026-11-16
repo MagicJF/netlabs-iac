@@ -23,38 +23,38 @@ si los editas a mano, `./lab check docs` falla._
 
 ```mermaid
 graph TD
-    n_vmb_fw_gestion(["vmb_fw_gestion<br/>10.44.0.1/24"])
-    n_vmb_fw_troncal(["vmb_fw_troncal<br/>10.44.10.1/24"])
-    n_vmb_fw_oficina(["vmb_fw_oficina<br/>10.44.1.1/24"])
-    n_vmb_fw_almacen(["vmb_fw_almacen<br/>10.44.2.1/24"])
-    n_vmb_fw_dmz(["vmb_fw_dmz<br/>10.44.3.1/24"])
-    n_almacen["almacen<br/>VM (qemu) · etapa 1"]
-    n_almacen --- n_vmb_fw_gestion
-    n_almacen --- n_vmb_fw_troncal
-    n_almacen --- n_vmb_fw_almacen
-    n_control["control<br/>LXC · etapa 1"]
-    n_control --- n_vmb_fw_gestion
-    n_nucleo["nucleo<br/>VM (qemu) · etapa 1"]
-    n_nucleo --- n_vmb_fw_gestion
-    n_nucleo --- n_vmb_fw_troncal
-    n_oficina["oficina<br/>VM (qemu) · etapa 1"]
-    n_oficina --- n_vmb_fw_gestion
-    n_oficina --- n_vmb_fw_troncal
-    n_oficina --- n_vmb_fw_oficina
-    n_servidores["servidores<br/>VM (qemu) · etapa 1"]
-    n_servidores --- n_vmb_fw_gestion
-    n_servidores --- n_vmb_fw_troncal
-    n_servidores --- n_vmb_fw_dmz
-    n_ficheros["ficheros<br/>LXC · etapa 2"]
-    n_ficheros --- n_vmb_fw_oficina
-    n_puesto_1["puesto-1<br/>LXC · etapa 2"]
-    n_puesto_1 --- n_vmb_fw_oficina
-    n_puesto_2["puesto-2<br/>LXC · etapa 2"]
-    n_puesto_2 --- n_vmb_fw_oficina
-    n_puesto_3["puesto-3<br/>LXC · etapa 2"]
-    n_puesto_3 --- n_vmb_fw_almacen
-    n_web["web<br/>LXC · etapa 2"]
-    n_web --- n_vmb_fw_dmz
+    b_vmb_fw_gestion(["vmb_fw_gestion<br/>10.44.0.1/24"])
+    b_vmb_fw_troncal(["vmb_fw_troncal<br/>10.44.10.1/24"])
+    b_vmb_fw_oficina(["vmb_fw_oficina<br/>10.44.1.1/24"])
+    b_vmb_fw_almacen(["vmb_fw_almacen<br/>10.44.2.1/24"])
+    b_vmb_fw_dmz(["vmb_fw_dmz<br/>10.44.3.1/24"])
+    i_almacen["almacen<br/>VM (qemu) · etapa 1"]
+    i_almacen --- b_vmb_fw_gestion
+    i_almacen --- b_vmb_fw_troncal
+    i_almacen --- b_vmb_fw_almacen
+    i_control["control<br/>LXC · etapa 1"]
+    i_control --- b_vmb_fw_gestion
+    i_nucleo["nucleo<br/>VM (qemu) · etapa 1"]
+    i_nucleo --- b_vmb_fw_gestion
+    i_nucleo --- b_vmb_fw_troncal
+    i_oficina["oficina<br/>VM (qemu) · etapa 1"]
+    i_oficina --- b_vmb_fw_gestion
+    i_oficina --- b_vmb_fw_troncal
+    i_oficina --- b_vmb_fw_oficina
+    i_servidores["servidores<br/>VM (qemu) · etapa 1"]
+    i_servidores --- b_vmb_fw_gestion
+    i_servidores --- b_vmb_fw_troncal
+    i_servidores --- b_vmb_fw_dmz
+    i_ficheros["ficheros<br/>LXC · etapa 2"]
+    i_ficheros --- b_vmb_fw_oficina
+    i_puesto_1["puesto-1<br/>LXC · etapa 2"]
+    i_puesto_1 --- b_vmb_fw_oficina
+    i_puesto_2["puesto-2<br/>LXC · etapa 2"]
+    i_puesto_2 --- b_vmb_fw_oficina
+    i_puesto_3["puesto-3<br/>LXC · etapa 2"]
+    i_puesto_3 --- b_vmb_fw_almacen
+    i_web["web<br/>LXC · etapa 2"]
+    i_web --- b_vmb_fw_dmz
 ```
 
 ## Invitados declarados

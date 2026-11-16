@@ -272,8 +272,10 @@ sops --encrypt --age <tu-clave-pública> --input-type yaml --output-type yaml \
 git add deployment_engine/secrets.sops.yml         # el CIFRADO sí; la clave NO
 ```
 
-Si falta el binario `sops` o la clave, el verbo **para** diciendo cuál falta. El
-candado `./lab check secretos` no bloquea el fichero cifrado (un valor `ENC[...]` no es
+Si falta el binario `sops` o la clave, el verbo **para** diciendo cuál falta — pero
+**sólo si el verbo va a hablar con la API**: `plan` sin `--api` planifica contra un
+fixture y no necesita credenciales, así que no las descifra. El candado
+`./lab check secretos` no bloquea el fichero cifrado (un valor `ENC[...]` no es
 un secreto en claro) y sí reconoce la forma de la clave de age, que no se versiona.
 
 Cuidado con la vía de SSH, que es **sólo para quien diagnostica** (el motor no entra

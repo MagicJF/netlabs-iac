@@ -748,6 +748,12 @@ Eso mismo es lo que corre el **CI** en cada push a `main` y en cada pull request
 contra el nodo de verdad NO lo cubre el CI —necesita el host— y sigue siendo lo que
 hace falta antes de dar un cambio por bueno (AGENTS.md §Commits y subida a GitHub).
 
+Además, cada **pull request** pasa por dos revisores automáticos: **Greptile** y
+**CodeRabbit** (`.coderabbit.yaml`). CodeRabbit sólo revisa a petición mientras el
+repositorio tenga menos de 10 estrellas (es su plan OSS); aun así, su configuración
+está en el árbol para que revise con las reglas de la casa el día que le toque.
+Ninguno de los dos sustituye al ciclo `destroy → apply → verify`.
+
 ---
 
 ## Decisiones conscientes

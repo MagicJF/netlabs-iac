@@ -1,0 +1,45 @@
+# ===========================================================================
+# CodeRabbit — configuración del revisor automático de pull requests.
+#
+# POR QUÉ EXISTE ESTE FICHERO: CodeRabbit SÍ está instalado en el repositorio
+#   (comenta en los PRs), pero su plan OSS no lanza revisiones AUTOMÁTICAS en
+#   repositorios con menos de 10 estrellas —lo dice él mismo en el PR—. Sin este
+#   fichero revisaba con sus valores por defecto; con él, cuando revisa (a mano,
+#   con `@coderabbitai review`, o cuando el repositorio llegue a las 10 estrellas)
+#   lo hace con las reglas de la casa.
+#
+# Qué NO hace: no fuerza la revisión automática (eso depende del plan, no de un
+#   fichero) ni sustituye al ciclo `destroy → apply → verify`, que sigue siendo lo
+#   que de verdad valida un cambio.
+#
+# Se ejecuta solo, del lado de CodeRabbit. `yamllint` lo mira como a cualquier
+#   YAML (está en el árbol).
+# ===========================================================================
+language: "es-ES"
+
+reviews:
+  # `chill`: comenta lo que importa y no convierte cada matiz de estilo en un
+  # hallazgo. El repo ya tiene sus propios trinquetes (ansible-lint, yamllint,
+  # `./lab check`); CodeRabbit mira lo que ellos no ven.
+  profile: "chill"
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: false
+  review_status: true
+  collapse_walkthrough: false
+
+  # Lo que NO hay que revisar: son artefactos de ejecución de cada lab (diarios,
+  # resúmenes, el último verify) y son gitignored, pero si alguna vez entraran, no
+  # es ahí donde está el cambio.
+  path_filters:
+    - "!labs/*/logs/**"
+    - "!**/__pycache__/**"
+
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches:
+      - main
+
+chat:
+  auto_reply: true

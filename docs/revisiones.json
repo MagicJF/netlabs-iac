@@ -41,7 +41,7 @@
   },
   "docs/decisiones/0003-documento-con-dos-regiones.md": {
     "citados": {
-      "deployment_engine/tools/documentos.py": "eaf8418b23f41f2df27f43ed2b78d7d22cc1d3884662eff8f5ccae4fb279c571"
+      "deployment_engine/tools/documentos.py": "85ea0c2b6552d0f1d4d9c30a62a3e9f22c3709f3d39505169162a610d155b93c"
     }
   },
   "docs/decisiones/0004-el-tunnel-y-el-token.md": {

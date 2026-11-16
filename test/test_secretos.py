@@ -72,6 +72,25 @@ def con_repo(carpeta, ficheros):
         modulo._CACHE_VERSIONADOS = None
 
 
+def con_repo_sin_staged(carpeta, ficheros):
+    """Como `con_repo`, pero corre el modo por defecto (lee del DISCO vía `git ls-files`).
+
+    Es el modo que usa `./lab check secretos` sin `--staged`, y el único que pasa por
+    `_ficheros_versionados()`: aquí es donde un nombre con acento se escapaba.
+    """
+    for nombre, contenido in ficheros.items():
+        with open(os.path.join(carpeta, nombre), "w", encoding="utf-8") as fichero:
+            fichero.write(contenido)
+    subprocess.run(["git", "add", "-A"], cwd=carpeta, check=True)
+    anterior, modulo.RAIZ = modulo.RAIZ, carpeta
+    modulo._CACHE_VERSIONADOS = None
+    try:
+        return modulo.check_secretos(staged=False)
+    finally:
+        modulo.RAIZ = anterior
+        modulo._CACHE_VERSIONADOS = None
+
+
 # --- 1. el repositorio de verdad, limpio --------------------------------------
 # La primera prueba de un candado es no quedarse cerrado con la llave dentro.
 print("\n1. el repositorio, hoy")
@@ -94,6 +113,12 @@ casos = [
      {"cfg.json": '{"pve_ssh' + '_password": "no-es-un-hueco", "otra": 1}\n'}),
     ("2.10 · la clave en un fichero con ACENTO en el nombre (nombre no ASCII)",
      {"configuración.yml": "pve_ssh" + '_usuario: "no-es-un-hueco"\n'}),
+    ("2.11 · un valor ENTRECOMILLADO que empieza por coma",
+     {"cfg.yml": 'pve_ssh' + '_password: ",no-es-un-hueco"\n'}),
+    ("2.12 · el valor en la LÍNEA SIGUIENTE (YAML en bloque)",
+     {"cfg.yml": "pve_token" + '_secreto:\n  9f8e7d6c-1a2b-3c4d-5e6f-001122334455\n'}),
+    ("2.13 · dos claves en la MISMA línea (JSON), la segunda con valor",
+     {"cfg.json": '{"pve_ssh' + '_usuario":"<usuario>","pve_token' + '_secreto":"9f8e7d6c-1a2b"}\n'}),
 ]
 for texto, ficheros in casos:
     carpeta = repo_desechable()
@@ -127,6 +152,15 @@ try:
     binario = bytes(range(256))  # no es UTF-8 válido a propósito
     comprobar(con_repo(carpeta, {"logo.png": binario, "nota.md": "sin secretos\n"}) == 0,
               "4.1 · un fichero binario en el índice no bloquea el commit")
+finally:
+    shutil.rmtree(carpeta, ignore_errors=True)
+
+# --- 5. el modo por defecto también ve los nombres raros ----------------------
+print("\n5. el modo por defecto ve los nombres con acento")
+carpeta = repo_desechable()
+try:
+    comprobar(con_repo_sin_staged(carpeta, {"configuración.yml": "pve_token" + '_secreto: 9f8e7d6c\n'}) == 1,
+              "5.1 · sin `-z`, `git ls-files` escondía el fichero con acento")
 finally:
     shutil.rmtree(carpeta, ignore_errors=True)
 

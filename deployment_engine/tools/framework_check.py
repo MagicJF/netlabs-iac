@@ -181,12 +181,17 @@ def _rutas_versionadas_bajo(prefijo):
     Se usa `--cached --others --exclude-standard`: lo ya añadido MÁS lo que no está
     ignorado. Así el check funciona igual antes del primer commit, y se cae
     `secrets.yml` (gitignored) sin tener que nombrarlo.
+
+    `-z` y bytes: sin eso, git entrecomilla y escapa un nombre con caracteres no ASCII
+    (`"configuraci\\303\\263n.yml"`), y esa representación NO es una ruta de verdad -- se
+    pide el nombre crudo, separado por NUL, o el fichero se saltaría en silencio.
     """
     salida = subprocess.run(
-        ["git", "ls-files", "--cached", "--others", "--exclude-standard", "--", prefijo],
-        cwd=RAIZ, capture_output=True, text=True, check=False,
+        [b"git", b"ls-files", b"--cached", b"--others", b"--exclude-standard", b"-z",
+         b"--", prefijo.encode("utf-8")],
+        cwd=RAIZ, capture_output=True, check=False,
     ).stdout
-    return {linea.strip() for linea in salida.splitlines() if linea.strip()}
+    return {ruta.decode("utf-8", "surrogateescape") for ruta in salida.split(b"\0") if ruta}
 
 
 def _ficheros_versionados():
@@ -881,32 +886,40 @@ CLAVES_DEL_HOST = ("pve_token" + "_secreto", "pve_ssh" + "_usuario", "pve_ssh" +
 # se escriben aquí seguidos de dos puntos a propósito: si no, este mismo comentario
 # encendería el candado que describe.
 EXPRESION_CLAVE_DEL_HOST = re.compile(
-    r"[\"']?(" + "|".join(re.escape(clave) for clave in CLAVES_DEL_HOST) + r")[\"']?\s*:\s*(.*)$"
+    r"[\"']?(" + "|".join(re.escape(clave) for clave in CLAVES_DEL_HOST) + r")[\"']?\s*:\s*"
+    r"(\"[^\"]*\"|'[^']*'|[^,}\n]*)"
 )
 
 
 def _es_relleno(valor):
     """¿Este valor es un hueco y no un secreto?
 
-    Un hueco se escribe `<...>` o `{{ ... }}`, o se deja vacío. Se mira el VALOR y no
-    el carácter que sigue a los dos puntos porque un hueco puede ir entre comillas
-    (`pve_ssh_usuario: "<usuario>"`) y una expresión regular que mirase la forma de la
-    línea se equivocaría con eso.
+    Un hueco se escribe `<...>` o `{{ ... }}`, se deja vacío, o es un comentario (`# ...`).
+    Se mira el VALOR y no el carácter que sigue a los dos puntos porque un hueco puede ir
+    entre comillas (`pve_ssh_usuario: "<usuario>"`) y una expresión regular que mirase la
+    forma de la línea se equivocaría con eso.
     """
     limpio = valor.strip().strip("\"'").strip()
-    return not limpio or limpio.startswith("<") or limpio.startswith("{{")
+    return not limpio or limpio.startswith("<") or limpio.startswith("{{") or limpio.startswith("#")
 
 
-def _valor_tras_la_clave(resto):
-    """El valor de una entrada `clave: valor`, ya sea YAML o JSON.
+def _linea_de_continuacion(lineas, numero):
+    """El texto de la primera línea con sangría que sigue a `numero` (1-based), o None.
 
-    En YAML el valor es todo lo que queda en la línea; en JSON (`{"clave": "v", "otra": 1}`)
-    el valor termina en la primera coma o llave, así que se corta ahí. Se corta por el
-    carácter, no por comillas: un valor entrecomillado con una coma dentro es raro en una
-    credencial y, si ocurriera, cortar de más sólo haría el check MÁS estricto, nunca
-    menos.
+    En YAML el valor de una clave puede empezar en la línea SIGUIENTE, sangrado: la línea
+    de la clave se queda sin valor, y el `:` no basta para darla por buena. Una línea en
+    blanco se salta; una línea sin sangría cierra el bloque.
+
+    (El ejemplo no se escribe aquí con el valor en la línea de abajo: este mismo fichero
+    lo mira el candado, y un ejemplo con un valor de verdad lo encendería.)
     """
-    return re.split(r"[,}]", resto, maxsplit=1)[0]
+    for linea in lineas[numero:]:
+        if not linea.strip():
+            continue
+        if not linea[:1].isspace():
+            return None
+        return linea.strip()
+    return None
 
 
 def _contenido_a_vigilar(staged):
@@ -980,14 +993,22 @@ def check_secretos(staged=False):
             fallos.append(f"{ruta}: es el fichero de credenciales del nodo (está "
                           f"gitignored: si ha llegado aquí es que se ha forzado con `git add -f`)")
             continue
-        for numero, linea in enumerate(texto.splitlines(), start=1):
+        lineas = texto.splitlines()
+        for numero, linea in enumerate(lineas, start=1):
             for descripcion, expresion in FORMAS_DE_ACCESO_AL_HOST:
                 if expresion.search(linea):
                     fallos.append(f"{ruta}:{numero}: hay {descripcion}")
-            clave = EXPRESION_CLAVE_DEL_HOST.search(linea)
-            if clave and not _es_relleno(_valor_tras_la_clave(clave.group(2))):
-                fallos.append(f"{ruta}:{numero}: `{clave.group(1)}` lleva un valor (las claves "
-                              f"del HOST sólo viven en `{FICHERO_DE_CREDENCIALES}`, que no se versiona)")
+            for clave in EXPRESION_CLAVE_DEL_HOST.finditer(linea):
+                valor = clave.group(2)
+                if not _es_relleno(valor):
+                    fallos.append(f"{ruta}:{numero}: `{clave.group(1)}` lleva un valor (las claves "
+                                  f"del HOST sólo viven en `{FICHERO_DE_CREDENCIALES}`, que no se versiona)")
+                elif not valor.strip():
+                    continuacion = _linea_de_continuacion(lineas, numero)
+                    if continuacion is not None and not _es_relleno(continuacion):
+                        fallos.append(f"{ruta}:{numero}: `{clave.group(1)}` lleva su valor en la "
+                                      f"línea siguiente (las claves del HOST sólo viven en "
+                                      f"`{FICHERO_DE_CREDENCIALES}`, que no se versiona)")
     if fallos:
         print("FALLA secretos: lo que abre el NODO está en lo versionado:")
         for fallo in fallos:

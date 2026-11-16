@@ -1,0 +1,60 @@
+# ===========================================================================
+# CI — los checks del motor, OFFLINE.
+#
+# Qué es: una confirmación en cada push a `main` y en cada pull request de que
+#   (1) las pruebas del asignador y de las herramientas pasan,
+#   (2) `./lab check` está en verde,
+#   (3) `ansible-lint` y `yamllint` no tienen hallazgos.
+#
+# Qué NO es: no toca NINGÚN Proxmox. El motor sabe leer el mundo por `plan` con
+#   fixtures, así que todo lo de aquí corre sin credenciales y sin red hacia el
+#   nodo -- por eso el CI es barato (informe §6.5). Un cambio que sólo se puede
+#   validar contra el Proxmox real (el ciclo destroy-apply-verify) NO lo cubre
+#   este CI: se corre a mano, y es lo que la regla de subida de AGENTS.md exige
+#   antes de dar algo por bueno.
+#
+# `fetch-depth: 0` es a propósito: `./lab check version` compara el fichero
+#   VERSION, la entrada del CHANGELOG y el tag de `main`, y un clon superficial
+#   no trae los tags.
+# ===========================================================================
+name: checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Traer el repositorio, con sus tags (check version los necesita)
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Instalar ansible-core y los linters
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install ansible-core ansible-lint yamllint
+
+      - name: Las pruebas del motor (sin Proxmox)
+        run: |
+          for prueba in test/test_*.py; do
+            echo "== $prueba"
+            python3 "$prueba"
+          done
+
+      - name: Los checks del motor
+        run: ./lab check
+
+      - name: ansible-lint
+        run: ansible-lint
+
+      - name: yamllint
+        run: yamllint -c .yamllint .

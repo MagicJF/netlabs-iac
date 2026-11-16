@@ -20,6 +20,17 @@ aquí está su entrada; los tres tienen que contar lo mismo, y eso es lo que vig
 
 ### Añadido
 
+- **CI offline** (`.github/workflows/ci.yml`, informe §6.5): en cada push a `main` y en cada pull
+  request corren las pruebas del motor, `./lab check`, `ansible-lint` y `yamllint` **sin
+  credenciales y sin tocar Proxmox**.
+- **Los secretos pueden ir cifrados** (ADR 0025, informe §6.6): `deployment_engine/secrets.sops.yml`
+  vive versionado y cifrado con sops/age, y el wrapper lo descifra al `secrets.yml` de siempre antes
+  de lanzar nada. La clave se pasa con `--age-key-file` (bandera, no variable), así que el motor
+  sigue sin leer el entorno.
+- **El choque de vmid converge** (informe §6.7): si dos `apply` en paralelo eligen el mismo vmid, el
+  motor re-lee el mundo, recalcula el plan y lo reintenta una vez — sin guardar estado en disco.
+- **El diagrama de la topología, autogenerado** (informe §6.8): la región generada de cada lab lleva
+  ahora un **Mermaid** derivado de la declaración (bridges como segmentos, invitados por tipo).
 - **`./lab check secretos`** (ADR 0024): el candado de lo que abre el **nodo**. Caza en lo
   versionado el token de la API con su valor, un ticket de sesión, una clave privada y el propio
   `secrets.yml`, y se cierra en el hook de pre-commit mirando el **índice** —lo que va a entrar en
@@ -28,6 +39,14 @@ aquí está su entrada; los tres tienen que contar lo mismo, y eso es lo que vig
 
 ### Cambiado
 
+- **La raíz en su sitio.** `informe-rendimiento-despliegue.md` se fue a `docs/`,
+  `GOAL-capa-de-configuracion.md` a `docs/encargo-capa-de-configuracion.md`, y `analizar_perfil.py` y
+  `perfilar.sh` a `scripts/` (herramientas de DESARROLLO). El mapa del README y de AGENTS.md ya
+  mencionan `scripts/`, y las referencias internas están actualizadas.
+- **El candado de los secretos, más fino.** Cierra las formas escurridizas que destaparon las
+  revisiones: nombres de fichero no ASCII, claves entrecomilladas o en JSON, valores en la línea
+  siguiente, valores entrecomillados con coma, comentarios entre comillas — y no bloquea un binario
+  ni un fichero limpio con una línea hermana.
 - **Fuera la configuración muerta.** Se fueron las claves `pve_ssh_usuario`/`pve_ssh_password`
   (ningún fichero del motor las leía, y el nodo no acepta contraseña), `engine_clave_tunnel` (la
   clave vive en el vocabulario del interior, no en una variable) y quince alias viejos del registro

@@ -898,25 +898,37 @@ def _es_relleno(valor):
     Se mira el VALOR y no el carácter que sigue a los dos puntos porque un hueco puede ir
     entre comillas (`pve_ssh_usuario: "<usuario>"`) y una expresión regular que mirase la
     forma de la línea se equivocaría con eso.
+
+    El comentario se comprueba ANTES de quitar las comillas: `"#esto-no-es-un-comentario"`
+    es una contraseña entrecomillada, no un comentario, y si se quitaran las comillas
+    primero pasaría por vacía.
     """
-    limpio = valor.strip().strip("\"'").strip()
-    return not limpio or limpio.startswith("<") or limpio.startswith("{{") or limpio.startswith("#")
+    texto = valor.strip()
+    if not texto or texto.startswith("#"):
+        return True
+    limpio = texto.strip("\"'").strip()
+    return not limpio or limpio.startswith("<") or limpio.startswith("{{")
 
 
 def _linea_de_continuacion(lineas, numero):
-    """El texto de la primera línea con sangría que sigue a `numero` (1-based), o None.
+    """El texto de la primera línea que SANGRA MÁS que la clave, o None.
 
     En YAML el valor de una clave puede empezar en la línea SIGUIENTE, sangrado: la línea
     de la clave se queda sin valor, y el `:` no basta para darla por buena. Una línea en
-    blanco se salta; una línea sin sangría cierra el bloque.
+    blanco se salta; una línea sin sangría, o con la MISMA sangría (una línea hermana
+    como `pve_puerto: 8006`), cierra el bloque -- no es el valor de esta clave.
 
     (El ejemplo no se escribe aquí con el valor en la línea de abajo: este mismo fichero
     lo mira el candado, y un ejemplo con un valor de verdad lo encendería.)
     """
+    actual = lineas[numero - 1]
+    sangria = len(actual) - len(actual.lstrip())
     for linea in lineas[numero:]:
         if not linea.strip():
             continue
         if not linea[:1].isspace():
+            return None
+        if len(linea) - len(linea.lstrip()) <= sangria:
             return None
         return linea.strip()
     return None

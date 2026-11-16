@@ -119,6 +119,8 @@ casos = [
      {"cfg.yml": "pve_token" + '_secreto:\n  9f8e7d6c-1a2b-3c4d-5e6f-001122334455\n'}),
     ("2.13 · dos claves en la MISMA línea (JSON), la segunda con valor",
      {"cfg.json": '{"pve_ssh' + '_usuario":"<usuario>","pve_token' + '_secreto":"9f8e7d6c-1a2b"}\n'}),
+    ("2.14 · una contraseña ENTRECOMILLADA que empieza por almohadilla",
+     {"cfg.yml": 'pve_ssh' + '_password: "#no-es-un-comentario"\n'}),
 ]
 for texto, ficheros in casos:
     carpeta = repo_desechable()
@@ -135,6 +137,10 @@ permisos = [
     ("3.3 · la contraseña de un LAB (se cita a propósito)", {"lab.md": 'routeros_clave: "admin/clave-de-sandbox-del-lab"\n'}),
     ("3.4 · una clave del HOST como hueco", {"doc.md": 'pve_ssh' + '_usuario: "<usuario>"\n'}),
     ("3.5 · la palabra «ticket» en prosa", {"doc.md": "El ticket de sesión caduca; por eso el motor lo pide en cada orden.\n"}),
+    ("3.6 · una clave del HOST sin valor, seguida de una línea HERMANA",
+     {"cfg.yml": "config:\n  pve_token" + "_secreto:\n  pve_puerto: 8006\n"}),
+    ("3.7 · una clave del HOST que sólo lleva un comentario",
+     {"cfg.yml": "pve_ssh" + '_usuario: # se pone en secrets.yml\n'}),
 ]
 for texto, ficheros in permisos:
     carpeta = repo_desechable()

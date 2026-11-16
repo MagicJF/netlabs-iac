@@ -123,11 +123,15 @@
     # sea el orden de verdad: si fueran dos bucles (uno para la API y otro para el
     # interior), el interior se haría al final, y el etapa 2 arrancaría antes de que
     # el etapa 1 esté convergido.
+    #
+    # El bucle vive en `tasks/converger.yml`, que además reintenta UNA vez si un
+    # `crear_guest` choca con un vmid que se ocupó entre la lectura del mundo y la
+    # creación (dos `apply` en paralelo): re-deriva el mundo y recalcula el plan, sin
+    # guardar nada en disco (informe §6.7).
     - name: "APPLY · ejecutar el plan, paso a paso"
-      ansible.builtin.include_tasks: ../tasks/paso.yml
-      loop: "{{ plan_pasos }}"
-      loop_control:
-        label: "{{ item.orden }}/{{ plan_pasos | length }}  {{ item.accion }}"
+      ansible.builtin.include_tasks: ../tasks/converger.yml
+      vars:
+        intentos_restantes: "{{ engine_intentos_converger }}"
       when: (plan_pasos | length) > 0
 
 # La verificación va como segundo play, en la misma ejecución: `apply` converge Y

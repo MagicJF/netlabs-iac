@@ -63,7 +63,7 @@ guion hasta que exista un despliegue real.
 
 | rol | tipo | usuario | credencial | forma de acceso |
 | --- | --- | --- | --- | --- |
-| chr-agente | VM (qemu) | admin | `admin` / `BORgAt4kRPsodoOsbm78ehg3` — de `secrets.yml` → `routeros_clave` (HTTP Basic) | REST por el túnel del bastión (`21000`+vmid); su consola, por la serial del nodo |
+| chr-agente | VM (qemu) | admin | `admin` / la de `secrets.yml` → `routeros_clave` (HTTP Basic) | REST por el túnel del bastión (`21000`+vmid); su consola, por la serial del nodo |
 | control | LXC | root | clave del lab (`~/.ssh/netlabs_tunnel_05_research_ed25519`), sin contraseña | SSH a `127.0.0.1`:(`20000`+vmid): él ES el bastión, se entra directo por su túnel |
 
 El **usuario**, la **credencial** (de dónde sale Y cuánto vale) y la **forma de acceso** se

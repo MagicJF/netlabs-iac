@@ -751,10 +751,14 @@ hace falta antes de dar un cambio por bueno (AGENTS.md §Commits y subida a GitH
 ## Decisiones conscientes
 
 - **Las credenciales van en claro** en `deployment_engine/secrets.yml`
-  (gitignored, 0600, escrito a mano: no se versiona ningún `.example`). En este
-  MVP, funcionalidad y simplicidad por encima de seguridad; no hay cifrado de
-  secretos ni lectura de variables de entorno. El aviso está en la cabecera de
-  `AGENTS.md` §Reglas duras.
+  (gitignored, 0600, escrito a mano: no se versiona ningún `.example`) — o **cifradas**
+  en `deployment_engine/secrets.sops.yml` si prefieres versionarlas (ADR 0025). En este
+  MVP, funcionalidad y simplicidad por encima de seguridad; **nunca** se leen variables
+  de entorno. El aviso está en la cabecera de `AGENTS.md` §Reglas duras.
+- **La región generada de un lab no lleva credenciales, ni depende de ellas.** La tabla
+  de acceso cita la credencial por su **origen** (`secrets.yml` → `routeros_clave`), no
+  por su valor: si dependiera del valor, la región dejaría de ser función de la
+  declaración y `./lab check docs` no podría pasar en un clon sin `secrets.yml` (el CI).
 - **No hay variables de entorno, by design.** Ningún valor de configuración se lee
   de `os.environ`: sale de `secrets.yml`, `vars/engine.yml` y la declaración del
   lab. El wrapper `./lab` no exporta nada.

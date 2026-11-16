@@ -27,7 +27,6 @@ import yaml
 RAIZ = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 PLANTILLA = os.path.join(RAIZ, "deployment_engine", "templates", "lab-region.md.j2")
 VARS_MOTOR = os.path.join(RAIZ, "deployment_engine", "vars", "engine.yml")
-SECRETOS = os.path.join(RAIZ, "deployment_engine", "secrets.yml")
 
 MARCA_INICIO = "<!-- generado:inicio -->"
 MARCA_FIN = "<!-- generado:fin -->"
@@ -44,18 +43,6 @@ def _leer_yaml(ruta):
 
 def _vars_del_motor():
     return _leer_yaml(VARS_MOTOR)
-
-
-def _secretos():
-    """El valor de las credenciales, para poder ENSEÑARLO en la tabla de acceso.
-
-    Decisión explícita del dueño del repo: estos labs son de un solo uso y las contraseñas
-    se escriben en el documento (`labs/<lab>/<lab>.md`) a la vista. Si `secrets.yml` no
-    está (un clon nuevo), la columna lo dice en vez de inventarse un valor.
-    """
-    if not os.path.exists(SECRETOS):
-        return {}
-    return _leer_yaml(SECRETOS) or {}
 
 
 def _filas(filas, columnas):
@@ -146,7 +133,6 @@ def renderizar_region(directorio_lab):
     archivo_declaracion = f"{nombre_lab}.yml"
     declaracion = _leer_yaml(os.path.join(directorio_lab, archivo_declaracion))
     motor = _vars_del_motor()
-    secretos = _secretos()
 
     guests = _guests_normalizados(declaracion)
     bridges = declaracion["lab"]["bridges"]
@@ -209,9 +195,15 @@ def renderizar_region(directorio_lab):
 
     # Acceso: cómo se ENTRA a cada equipo. El usuario y la FORMA de acceso se derivan
     # de la declaración y del motor; la CREDENCIAL se cita por su ORIGEN, nunca por su
-    # valor (el valor vive en `secrets.yml`, que no se versiona); y el puerto sale del
-    # vmid, que no se conoce hasta `apply`, así que se enseña la FÓRMULA. Un invitado sin
-    # `config:` no se toca, y su fila lo dice en vez de fingir un acceso que no existe.
+    # valor; y el puerto sale del vmid, que no se conoce hasta `apply`, así que se enseña
+    # la FÓRMULA. Un invitado sin `config:` no se toca, y su fila lo dice en vez de fingir
+    # un acceso que no existe.
+    #
+    # El valor NO se imprime aunque `secrets.yml` esté a mano: si dependiera de él, la
+    # región generada NO sería función de la declaración -- en un clon sin credenciales
+    # (el CI) rendiría otra cosa, `./lab check docs` no podría pasar nunca y el `.md`
+    # publicado llevaría la contraseña dentro. Lo destapó el CI del §6.5.
+    #
     # `routeros` / `linux` son el VOCABULARIO del interior, no un valor de ningún lab:
     # la declaración cuelga las áreas de `config.<interior>` (ver `interior.py`).
     hay_bastion = any(
@@ -225,13 +217,10 @@ def renderizar_region(directorio_lab):
                     "no se entra: no declara `config:`"]
         if "routeros" in config:
             usuario = motor["engine_routeros_usuario"]
-            valor = secretos.get("routeros_clave")
-            clave_dicha = f"`{valor}`" if valor else "`(falta `secrets.yml`)`"
             return [
                 i["rol"], ETIQUETA_TIPO[i["tipo"]],
                 usuario,
-                f"`{usuario}` / {clave_dicha} — de `secrets.yml` → `routeros_clave` "
-                f"(HTTP Basic)",
+                f"`{usuario}` / la de `secrets.yml` → `routeros_clave` (HTTP Basic)",
                 f"REST por el túnel del bastión "
                 f"(`{motor['engine_tunnel_rest_puerto_base']}`+vmid); su consola, por la "
                 f"serial del nodo",

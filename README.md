@@ -65,8 +65,15 @@ netlabs-iac/
 │   ├── tools/                capa Python stdlib: plan.py, documentos.py,
 │   │                         console.py, framework_check.py
 │   └── templates/            SÓLO la región generada del doc de un lab
-├── docs/decisiones/          ADRs: pocos, y sólo los que no quieres re-litigar
-├── docs/tunnel-del-bastion.md   cómo funciona el túnel (prosa)
+├── docs/                     documentación que NO es código ni un lab:
+│   ├── decisiones/           ADRs: pocos, y sólo los que no quieres re-litigar
+│   ├── crear-un-lab.md       la guía de declaración, decisión por decisión
+│   ├── tunnel-del-bastion.md cómo funciona el túnel (prosa)
+│   ├── informe-*.md          informes de trabajo (estado del arte, rendimiento)
+│   └── encargo-*.md          encargos ejecutados (registro de una fase)
+├── scripts/                  herramientas de DESARROLLO (no las usa el motor):
+│   ├── perfilar.sh           perfila UN verbo sellando cada línea de su salida
+│   └── analizar_perfil.py    lee ese perfil y dice dónde se va el tiempo
 ├── labs/.plantilla/          lo que copia `./lab new`
 └── labs/<nombre>/            UNA CARPETA POR TOPOLOGÍA
 ```

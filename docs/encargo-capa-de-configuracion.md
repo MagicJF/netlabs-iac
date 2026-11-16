@@ -213,9 +213,9 @@ orden correcto**. Aquí el orden lo lleva el plan (§7).
 - La regla de subida ya escrita en `AGENTS.md` sigue vigente y es tu criterio de «hecho»: un cambio
   del motor no se da por bueno hasta que el ciclo **`destroy → apply → verify`** pasa de verdad
   contra el Proxmox real (§15) y `./lab check` está verde.
-- Este mismo fichero (`GOAL-capa-de-configuracion.md`) es un **encargo**, no documentación del
-  motor: cita ficheros del motor, así que va **sellado** (`./lab check docs --sellar
-  GOAL-capa-de-configuracion.md`) y `check refs` avisará de que ha caducado cada vez que cambies uno
+- Este mismo fichero (`docs/encargo-capa-de-configuracion.md`) es un **encargo**, no documentación
+  del motor: cita ficheros del motor, así que va **sellado** (`./lab check docs --sellar
+  docs/encargo-capa-de-configuracion.md`) y `check refs` avisará de que ha caducado cada vez que cambies uno
   de ellos. Eso es la guarda funcionando, no un problema. **Al terminar el encargo, decide y dilo en
   el reporte**: o se borra (un encargo ejecutado es historia; lo que importa vive ya en los ADR, el
   README y la prosa de los labs) o se conserva como registro de la fase 2 y se vuelve a sellar. Los

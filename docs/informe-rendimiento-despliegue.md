@@ -11,8 +11,8 @@ motor sólo usa `ansible.builtin`), se perfila **por fuera**: un envoltorio que 
 cada línea de salida con un `date +%s.%3N`, y luego se calcula el hueco entre
 cabeceras `TASK [...]`. El sello de tiempo no toca el motor.
 
-- Perfilador: `perfilar.sh` (en el directorio de trabajo del agente, no en el repo).
-- Analizador: `analizar_perfil.py`.
+- Perfilador: `scripts/perfilar.sh` (herramienta de desarrollo, versionada en el repo).
+- Analizador: `scripts/analizar_perfil.py`.
 - Cruce con la verdad de la API: `labs/<lab>/logs/api.jsonl` (`duration_ms` por llamada).
 
 Lo que Ansible NO imprime (las vueltas de bucle que se saltan) se midió aparte, con
@@ -200,8 +200,8 @@ Por orden de tamaño:
 
 ```sh
 # perfil de un verbo (no toca el motor)
-perfilar.sh /tmp/perfil.tsv --lab 04_lab-red-routeros apply
-python3 analizar_perfil.py /tmp/perfil.tsv
+scripts/perfilar.sh /tmp/perfil.tsv --lab 04_lab-red-routeros apply
+python3 scripts/analizar_perfil.py /tmp/perfil.tsv
 
 # la verdad de la API, en paralelo
 python3 - <<'EOF'

@@ -16,7 +16,7 @@ aquí está su entrada; los tres tienen que contar lo mismo, y eso es lo que vig
 `./lab check version`. Lo que entra en `main` sin publicarse se apunta bajo
 `[No publicado]`, y se convierte en una versión el día que se publica.
 
-## [No publicado]
+## [0.2.0] - 2026-11-16
 
 ### Añadido
 

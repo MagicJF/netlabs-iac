@@ -142,6 +142,35 @@
       "deployment_engine/tasks/ros_api.yml": "be9c1b6bd9fdee58d446fe0cb5b7eb4857f15819891a0a8d2804f8fa8405ac67"
     }
   },
+  "docs/decisiones/0020-las-direcciones-se-derivan.md": {
+    "citados": {
+      "deployment_engine/filter_plugins/declaracion.py": "75ddd57c1361b83c5881a10c06190110448adcb5ff6a2047da7ea06246a844be",
+      "deployment_engine/filter_plugins/identidad.py": "6e44540001598625a897883dc00dd3e3d0fa19ed97caa06b4dc4292613f73ae6"
+    }
+  },
+  "docs/decisiones/0021-la-barrera-se-declara.md": {
+    "citados": {
+      "deployment_engine/filter_plugins/declaracion.py": "75ddd57c1361b83c5881a10c06190110448adcb5ff6a2047da7ea06246a844be",
+      "deployment_engine/filter_plugins/interior.py": "8cc10085e198d98ca0fbafea7034808b7e880dadd793bf665e998c6a9b0a1e8a",
+      "deployment_engine/tasks/paso.yml": "d764398d8227eef43ccc9083ac886df354ec1446021b690ed0ab1aa9b3d9120a",
+      "deployment_engine/tasks/sonda.yml": "d72c5755c4efa884d70a8e052bd94525b4b9d748770f21ad6cf87ade4e2b80fd"
+    }
+  },
+  "docs/decisiones/0022-las-pruebas-funcionales.md": {
+    "citados": {
+      "deployment_engine/filter_plugins/interior.py": "8cc10085e198d98ca0fbafea7034808b7e880dadd793bf665e998c6a9b0a1e8a",
+      "deployment_engine/playbooks/test.yml": "4a6acf9498f98d8a1fdb8cbff29ff0aa23a8ee55ddbc513d7c1954f7f3ca69c1",
+      "deployment_engine/tasks/prueba.yml": "cc995a28d7b6487787b93d1b3d0c209eeedab91d2cddb6e6a66002eab914ae4c",
+      "deployment_engine/vars/engine.yml": "620ec81ce464e03ff5db37cdc6c4076ff0899d8ed7c3c10790433dcdc99542ea"
+    }
+  },
+  "docs/decisiones/0023-los-experimentos-se-apagan-solos.md": {
+    "citados": {
+      "deployment_engine/filter_plugins/interior.py": "8cc10085e198d98ca0fbafea7034808b7e880dadd793bf665e998c6a9b0a1e8a",
+      "deployment_engine/playbooks/capture.yml": "fbbce3d73c434554609775957aa2bd852e2455f596bf38dddee18d261ee80f18",
+      "deployment_engine/playbooks/impair.yml": "4e6721216e645a4abe433fb601e3ca7182510be4d17952cca9b3a99676fe8027"
+    }
+  },
   "docs/tunnel-del-bastion.md": {
     "citados": {
       "deployment_engine/tasks/console.yml": "4799d6ff5fe1b9327f21aafc85a059bc5e51c96faced5eb8ccaba4fc5537e49a",

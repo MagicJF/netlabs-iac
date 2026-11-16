@@ -235,6 +235,12 @@ engine_diario_max_cuerpo: 2000
 engine_sonda_intentos: 24     # número de intentos
 engine_sonda_espera: 2        # segundos que se le dan a CADA intento de conexión
 engine_sonda_pausa: 5         # segundos entre intento e intento
+# --- Las pruebas funcionales (verbo `test`, ADR 0022) ----------------------
+# Cuántos intentos se le dan a una prueba que no pasa a la primera, cuando el lab no
+# dice `espera:` en la prueba. Una prueba NO es una barrera -- es una comprobación --
+# así que la ventana es más corta que la de la sonda: si el lab hace lo que dice, la
+# prueba pasa en el primer intento y no se espera nada.
+engine_prueba_intentos: 6     # número de intentos por prueba
 # --- Tareas asíncronas ----------------------------------------------------
 # Proxmox crea, borra y recarga la red EN SEGUNDO PLANO: la llamada devuelve un
 # UPID y el trabajo continúa después de responder. Para que un paso no corra

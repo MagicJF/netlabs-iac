@@ -5,6 +5,11 @@
 #              declarado como SALIDA a internet (`uplink`), para poder demostrar que
 #              los contenedores que cuelgan de las redes de los CHR tienen salida de
 #              verdad: dirección, pasarela, resolución de nombres y NAT.
+#
+#              ESTA ES LA VERSIÓN POST de la comparación A/B del informe §6: la misma
+#              topología que la versión que está en `main`, pero declarando las cuatro
+#              P0 (IPAM `derived`, barreras `ready:`, pruebas `tests:` y los experimentos
+#              `capture:`/`impairment:`). El A/B mide si eso aporta o no.
 # INVARIANTES: esta es la FUENTE DE VERDAD del lab. Aquí NO hay ningún vmid, ninguna
 #              MAC, ninguna credencial y NINGUNA dirección de la red de casa: la
 #              identidad la deriva el motor (regla 11), la MAC de cada reserva DHCP se
@@ -22,6 +27,7 @@
 #              aplicaciones dentro de los invitados.
 # VER:         labs/06_conectividad-exterior/06_conectividad-exterior.md;
 #              docs/decisiones/0012-la-salida-del-lab.md (por qué así);
+#              docs/informe-estado-del-arte-2026-11.md (§6, y lo que se midió aquí);
 #              docs/crear-un-lab.md (las decisiones, en orden); interior.py (`uplink`)
 #
 # EL NOMBRE de cada invitado dice QUÉ ES, no de qué lab es (ADR 0015): aquí se leen
@@ -46,13 +52,18 @@ lab:
   # marca. Llevan prefijo propio (`vmb_ext_`) porque los del lab de aceptación
   # (`vmb_gestion`, `vmb_lan1`, `vmb_lan2`) siguen existiendo en el nodo: un bridge
   # ajeno no se adopta, y con razón.
+  #
+  # 6.1 · `derived`: la dirección de cada bridge la reparte el IPAM del motor del
+  # espacio del lab, en orden. MEDIDO: para este lab el reparto derivado es EXACTAMENTE
+  # el que estaba escrito a mano (10.42.0.1, 10.42.1.1, 10.42.2.1), así que aquí `derived`
+  # es un no-op -- que es justo lo que hace la recomendación barata.
   bridges:
     - nombre: vmb_ext_gestion
-      address: 10.42.0.1/24
+      address: derived
     - nombre: vmb_ext_lan1
-      address: 10.42.1.1/24
+      address: derived
     - nombre: vmb_ext_lan2
-      address: 10.42.2.1/24
+      address: derived
 
   # El túnel lo construye el motor: un invitado con `config.linux.túnel` sale hacia
   # casa por su cuenta y hace de bastión del lab. Por dónde sale (host y puerto) es
@@ -80,14 +91,27 @@ vms:
     disk: 1
     image: chr-7.25.1.raw
     bridges: [vmb_ext_gestion, vmb_ext_lan1]
+    # 6.1 · Su dirección se deja ESCRITA a propósito, aunque el IPAM también sabría
+    # derivarla: MEDIDO, la derivación numera los ROUTERS primero (.10) y los
+    # contenedores después (.11), al revés que este lab. Poner `derived` aquí renumeraría
+    # el lab (un cambio real, no cosmético) y las pruebas de abajo dejarían de apuntar a
+    # donde creen. La lección: `derived` no es un no-op en todas partes.
     address: 10.42.0.11/24
+    # 6.3 · La barrera DECLARADA. Un CHR tarda en bootear y esto dice cuánto se le espera
+    # (en segundos, no en intentos): la barrera deja de ser un número del motor.
+    ready: {tipo: routeros_rest, espera: 180}
     config:
       routeros:
         identity: rt-borde-salida
         ip_services: {deshabilitar: [telnet, ftp, api, api-ssl]}
         dhcp_client: {deshabilitar: true}
+        # 6.1 · La pata de dentro y todo el bloque del DHCP salen del bridge que les
+        # toca: MEDIDO, el IPAM deriva exactamente 10.42.1.1/24, la red 10.42.1.0/24, la
+        # pasarela 10.42.1.1 y el rango .100-.200 -- los cuatro valores que había
+        # escritos. Aquí `derived` sí es un no-op, y quita de en medio el sitio donde
+        # más se copian y pegan los errores de un lab.
         addresses:
-          - {interface: ether2, address: 10.42.1.1/24}
+          - {interface: ether2, address: derived}
         # La vuelta a la SEGUNDA red del lab. El router de salida traduce (masquerade)
         # lo que sale, pero la respuesta tiene que poder volver: con esta ruta, el
         # destino 10.42.2.0/24 se busca al otro router, en vez de quedarse sin túnel.
@@ -96,11 +120,16 @@ vms:
           - {dst_address: 10.42.2.0/24, gateway: 10.42.1.11}
         dhcp_server:
           - interface: ether2
-            pool: {rango: 10.42.1.100-10.42.1.200}
+            pool: {rango: derived}
             # La pasarela es este router, y el DNS también: con `uplink` declarado su
             # resolutor queda encendido, así que los invitados de esta red le preguntan
             # a él los nombres y él reenvía a los DNS que aprendió de fuera.
-            network: {address: 10.42.1.0/24, gateway: 10.42.1.1, dns: [10.42.1.1]}
+            #
+            # 6.1 · La `address` y la `gateway` se derivan (coinciden); los `dns` NO:
+            # por defecto el IPAM anuncia la pasarela del bridge como resolutor, y aquí
+            # el resolutor del lab es el router de SALIDA. Eso el motor no lo puede
+            # adivinar: se deja escrito, que es la regla -- un valor explícito gana.
+            network: {address: derived, gateway: derived, dns: [10.42.1.1]}
             static_leases: derived
         # LA SALIDA: una marca, sin opciones. La interfaz de fuera y su dirección las deriva
         # el motor (`plan` tiende la interfaz, el router pide la dirección desde dentro).
@@ -121,22 +150,23 @@ vms:
     image: chr-7.25.1.raw
     bridges: [vmb_ext_lan1, vmb_ext_lan2]
     address: 10.42.1.11/24
+    ready: {tipo: routeros_rest, espera: 180}
     config:
       routeros:
         identity: rt-nucleo
         ip_services: {deshabilitar: [telnet, ftp, api, api-ssl]}
         dhcp_client: {deshabilitar: true}
         addresses:
-          - {interface: ether2, address: 10.42.2.1/24}
+          - {interface: ether2, address: derived}
         routes:
           - {dst_address: 0.0.0.0/0, gateway: 10.42.1.1}
         dhcp_server:
           - interface: ether2
-            pool: {rango: 10.42.2.100-10.42.2.200}
+            pool: {rango: derived}
             # El DNS que se anuncia es el del router de SALIDA (10.42.1.1), no este:
             # este router no resuelve (no tiene resolutor ni servidores propios), y el
             # de salida sí. Un solo resolutor en el lab, en la vía de acceso.
-            network: {address: 10.42.2.0/24, gateway: 10.42.2.1, dns: [10.42.1.1]}
+            network: {address: derived, gateway: derived, dns: [10.42.1.1]}
             static_leases: derived
 containers:
   # El bastión: la única interfaz que el motor necesita para ENTRAR en el lab.
@@ -153,6 +183,19 @@ containers:
     disk: 4
     bridge: vmb_ext_gestion
     address: 10.42.0.10/24
+    # 6.3 · El bastión es un Linux con sshd: su barrera es el ssh, con su margen en
+    # segundos.
+    #
+    # MEDIDO: el primer POST falló AQUÍ, en esta barrera (`'control' NO contesta en
+    # 10.42.0.10:22`), y el culpable no era la espera declarada sino un bug del motor: el
+    # tope de intentos le llegaba VACÍO a la sonda y el comando quedaba en
+    # `while [ $i -lt  ]` -- un error de shell, así que la barrera no podía pasar nunca,
+    # tardara lo que tardara el invitado (ver `paso.yml`/`sonda.yml`, `default(..., true)`;
+    # y el cierre del informe §6). El fail-fast hizo su trabajo: paró en el sitio exacto.
+    #
+    # 240 s = 34 intentos: margen de sobra para un bastión que en frío arranca a la vez que
+    # el primer CHR.
+    ready: {tipo: ssh, espera: 240}
     config:
       linux:
         tunnel: {}
@@ -176,6 +219,12 @@ containers:
   # dice nada y sólo hace que el motor intente entrar a configurar lo que ya le da la red;
   # lo que se configura por la red no se configura por dentro. Su dirección vive en la
   # interfaz (`address`), que es donde vive en una máquina de verdad.
+  #
+  # 6.3 · `ready: {tipo: ninguno}` -- y ESTE es el valor de la recomendación: antes, un
+  # invitado sin `config:` no podía decir nada sobre su barrera, y el motor tampoco
+  # insinuaba ninguna (no había interior que sondear). Ahora el lab dice EXPLÍCITAMENTE
+  # que a este no se le espera: no ofrece nada por lo que preguntarle. Decirlo es
+  # distinto de olvidarlo -- y si mañana ofrece algo, se cambia aquí y se ve.
   - rol: servidor
     tipo: srv         # un servidor -> 'srv-'
     nombre: 1         # -> 'srv-1'
@@ -186,6 +235,7 @@ containers:
     bridge: vmb_ext_lan1
     address: 10.42.1.10/24
     gateway: 10.42.1.1
+    ready: {tipo: ninguno}
 
   - rol: puesto-1
     tipo: ws          # un puesto de trabajo -> 'ws-1'
@@ -196,6 +246,7 @@ containers:
     disk: 4
     bridge: vmb_ext_lan1
     address: dhcp
+    ready: {tipo: ninguno}
 
   # Éste cuelga del SEGUNDO router: su salida demuestra la cadena entera -- su DHCP es
   # el segundo CHR, su ruta por defecto pasa por el primero, y la traducción la hace el
@@ -209,4 +260,70 @@ containers:
     disk: 4
     bridge: vmb_ext_lan2
     address: dhcp
+    ready: {tipo: ninguno}
 #     ↑ sin `vmid` ni `mac`: los deriva el motor leyendo el estado del clúster.
+
+# ---------------------------------------------------------------------------
+# 6.2 · LAS PRUEBAS FUNCIONALES del lab: `./lab --lab 06_conectividad-exterior test`.
+#
+# La pregunta que contestan es la que no contesta `verify`: `verify` dice si el mundo es
+# lo que la declaración dice que es; esto dice si el lab HACE lo que promete. Todas se
+# lanzan DESDE EL BASTIÓN (es el único invitado al que el motor puede entrar: tiene
+# túnel), así que las direcciones de abajo son las de los otros.
+#
+# Segunda prueba de cada tipo: la cadena entera. `10.42.2.1` es la pata de dentro del
+# SEGUNDO router: para llegar ahí desde el bastión hay que cruzar los dos CHR.
+# ---------------------------------------------------------------------------
+tests:
+  - nombre: el borde contesta en su pata de gestión
+    desde: control
+    tipo: ping
+    hacia: 10.42.0.11
+  - nombre: el borde contesta en la LAN que sirve
+    desde: control
+    tipo: ping
+    hacia: 10.42.1.1
+  - nombre: la cadena entera (dos CHR) llega al segundo router
+    desde: control
+    tipo: ping
+    hacia: 10.42.2.1
+  - nombre: el REST del borde está en pie
+    desde: control
+    tipo: servicio
+    hacia: 10.42.0.11
+    puerto: 80
+  # MEDIDO, y es un aviso para quien escriba pruebas: una prueba `dns` necesita un nombre que
+  # EXISTA. El ejemplo que traía el informe (`hacia: ejemplo.test`) falla, y no por el lab:
+  # medido en el mismo instante y por el mismo camino, `nacsira.com` resuelve
+  # (104.21.65.222) y `ejemplo.test` no existe. El motor no puede inventar nombres: si un lab
+  # quiere probar un nombre SUYO, tiene que declararlo (dnsmasq/hosts), y ese vocabulario
+  # todavía no está. Sin un control así, la prueba se lee como «el lab no resuelve» cuando lo
+  # que pasa es que el nombre no está.
+  - nombre: el bastión resuelve por el resolutor del router
+    desde: control
+    tipo: dns
+    hacia: nacsira.com
+
+# ---------------------------------------------------------------------------
+# 6.4 · LOS EXPERIMENTOS: no son estado del mundo, se encienden con su verbo.
+#
+# `capture`: mirar el tráfico de la LAN de la izquierda durante 20 s desde el bastión
+#            (que tiene una pata ahí).
+# `impairment`: estropear la pata del bastión (200 ms de retardo y 5 % de pérdida)
+#            durante 20 s, y APAGARLO SOLO. El verbo existe para no dejar un lab
+#            estropeado sin dueño.
+# ---------------------------------------------------------------------------
+capture:
+  # OJO, MEDIDO: el bastión de ESTE lab sólo tiene una pata, la de gestión (`bridge:`),
+  # porque no declara `bridges:`. Una captura pedida en `vmb_ext_lan1` la rechaza el motor
+  # en el momento de montarla («el bastión no tiene una interfaz en el bridge ...»), que es
+  # justo lo que pasó en el primer POST. Y ahora también lo caza la declaración, al leerla.
+  bridge: vmb_ext_gestion
+  filtro: icmp or tcp port 80
+  segundos: 20
+
+impairment:
+  bridge: vmb_ext_gestion
+  retardo: 200ms
+  perdida: 5%
+  segundos: 20

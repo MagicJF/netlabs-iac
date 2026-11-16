@@ -392,5 +392,130 @@ def main():
     return 0
 
 
+# ---------------------------------------------------------------------------
+# 6.1 · El IPAM: las direcciones que el lab deja sin escribir (ADR 0020)
+# ---------------------------------------------------------------------------
+
+_DECL_DERIVADA = {
+    "lab": {
+        "nombre": "p0_ipam",
+        "address_space": "198.51.0.0/16",
+        "bridges": [
+            {"nombre": "vmb_gestion", "address": "derived"},
+            {"nombre": "vmb_lan", "address": "derived"},
+        ],
+    },
+    "vms": [
+        {
+            "rol": "rt-1",
+            "tipo": "rt",
+            "nombre": 1,
+            "address": "derived",
+            "bridges": ["vmb_gestion", "vmb_lan"],
+            "config": {
+                "routeros": {
+                    "addresses": [{"interface": "ether2", "address": "derived"}],
+                    "dhcp_server": [
+                        {
+                            "interface": "ether2",
+                            "pool": {"rango": "derived"},
+                            "network": {
+                                "address": "derived",
+                                "gateway": "derived",
+                                "dns": "derived",
+                            },
+                        }
+                    ],
+                }
+            },
+        }
+    ],
+    "containers": [
+        {
+            "rol": "control",
+            "tipo": "ctl",
+            "nombre": 1,
+            "address": "derived",
+            "bridge": "vmb_gestion",
+        }
+    ],
+}
+_resuelto = modulo_identidad.direcciones_resolver(_DECL_DERIVADA)
+
+comprobar(
+    _DECL_DERIVADA["lab"]["bridges"][0]["address"] == "derived"
+    and _resuelto["lab"]["bridges"][0]["address"] != "derived",
+    "el IPAM devuelve una COPIA: la declaración que le llega se queda como estaba",
+)
+comprobar(
+    _resuelto["lab"]["bridges"][0]["address"] == "198.51.0.1/24"
+    and _resuelto["lab"]["bridges"][1]["address"] == "198.51.1.1/24",
+    "cada bridge deriva la subred /24 siguiente del espacio, y la .1 de esa subred",
+)
+comprobar(
+    _resuelto["vms"][0]["config"]["routeros"]["addresses"][0]["address"] == "198.51.1.1/24",
+    "la LAN que sirve el router sale del bridge que le toca por el ORDEN de sus patas (ether2 -> la 2a)",
+)
+comprobar(
+    _resuelto["vms"][0]["config"]["routeros"]["dhcp_server"][0]["pool"]["rango"]
+    == "198.51.1.100-198.51.1.200",
+    "el rango del DHCP derivado es la .100-.200 de su subred (fuera del reparto de huéspedes fijos)",
+)
+comprobar(
+    _resuelto["vms"][0]["config"]["routeros"]["dhcp_server"][0]["network"]
+    == {"address": "198.51.1.0/24", "gateway": "198.51.1.1", "dns": ["198.51.1.1"]},
+    "la red del DHCP derivada: su subred, su puerta (la .1 del bridge) y esa puerta como resolutor",
+)
+comprobar(
+    _resuelto["vms"][0]["address"] != _resuelto["containers"][0]["address"],
+    "dos invitados derivados en la MISMA subred no se pisan (el reparto es estable)",
+)
+comprobar(
+    modulo_identidad.direcciones_resolver(_resuelto) == _resuelto,
+    "el IPAM es IDEMPOTENTE: sin marcas que resolver no cambia nada (la 2a pasada deriva lo mismo)",
+)
+comprobar(
+    modulo_identidad.direcciones_resolver(
+        {
+            "lab": {
+                "nombre": "p0_escape",
+                "address_space": "198.51.0.0/16",
+                "bridges": [{"nombre": "vmb_uno", "address": "198.51.99.1/24"}],
+            },
+            "containers": [],
+        }
+    )["lab"]["bridges"][0]["address"]
+    == "198.51.99.1/24",
+    "una dirección EXPLÍCITA gana: el IPAM no toca lo que el lab escribe (el escape de la recomendación)",
+)
+comprobar(
+    modulo_identidad.direcciones_resolver(
+        {
+            "lab": {"nombre": "p0_sin_espacio", "bridges": [{"nombre": "vmb_uno", "address": "derived"}]},
+            "containers": [],
+        }
+    )["lab"]["bridges"][0]["address"]
+    == "derived",
+    "sin `address_space` NO se deriva nada: se queda en `derived` y lo dice el validador (no se inventa)",
+)
+comprobar(
+    modulo_identidad.direcciones_resolver(
+        {
+            "lab": {
+                "nombre": "p0_estrecho",
+                "address_space": "198.51.100.0/24",
+                "bridges": [
+                    {"nombre": "vmb_uno", "address": "derived"},
+                    {"nombre": "vmb_dos", "address": "derived"},
+                ],
+            },
+            "containers": [],
+        }
+    )["lab"]["bridges"][1]["address"]
+    == "derived",
+    "un /24 no da para dos bridges: el segundo se queda sin derivar en vez de salirse del espacio",
+)
+
+
 if __name__ == "__main__":
     sys.exit(main())

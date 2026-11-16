@@ -1417,6 +1417,271 @@ def pasos_de_convergencia(guest, identidad, declaracion, leido, parametros):
     return pasos
 
 
+# 6.3 · Lo que cuesta UN intento de la sonda: el `timeout` de cada intento más la pausa
+# entre intentos (`engine_sonda_espera` (2) + `engine_sonda_pausa` (5), en `vars/engine.yml`).
+# Vive aquí para poder traducir una espera en SEGUNDOS -- que es lo que un lab sabe estimar --
+# a intentos, que es lo que la sonda cuenta. Si cambian las de engine.yml, cambia ésta.
+SONDA_SEGUNDOS_POR_INTENTO = 7
+# 6.2 · Y lo que cuesta un intento de una PRUEBA: el `timeout` del propio comando más su
+# `sleep` (ver `_comando_de_prueba`). También en segundos, y también para traducir.
+PRUEBA_SEGUNDOS_POR_INTENTO = 6
+
+
+# ---------------------------------------------------------------------------
+# 6.2 · Las PRUEBAS FUNCIONALES de un lab (ADR 0022).
+#
+# `verify` contesta a «¿existe y coincide con lo declarado?». Esto contesta a la
+# pregunta de al lado, que hasta ahora no contestaba nadie: «¿hace lo que dice que
+# hace?». El lab declara sus pruebas, el motor las lanza DESDE DENTRO del invitado
+# que el lab nombra -- por la misma vía de acceso que ya usa el interior, que es el
+# único sitio del motor que entra en un invitado -- y cada una deja su veredicto.
+#
+# El vocabulario es CERRADO: un tipo de prueba que el motor no sabe lanzar no se
+# acepta, en vez de aceptarse y no comprobar nada.
+# ---------------------------------------------------------------------------
+
+PRUEBA_TIPOS = ("ping", "servicio", "dns")
+
+# El `porque` de una prueba, en una línea, para el diario y para el veredicto.
+PRUEBA_QUE_HACE = {
+    "ping": "contesta al ping",
+    "servicio": "acepta conexiones",
+    "dns": "resuelve el nombre",
+}
+
+
+def _ventana_de_intentos(espera, por_defecto, coste):
+    """Una espera en SEGUNDOS -- lo que un lab sabe estimar -- dicha en INTENTOS.
+
+    El coste de un intento lo pone quien llama (`SONDA_SEGUNDOS_POR_INTENTO`,
+    `PRUEBA_SEGUNDOS_POR_INTENTO`), y así un lab tiene una sola forma de decir «dale
+    tiempo» en todo el motor: segundos.
+    """
+    if isinstance(espera, int) and not isinstance(espera, bool) and espera > 0:
+        return max(1, espera // coste)
+    return por_defecto
+
+
+def _comando_de_prueba(prueba):
+    """El comando shell que lanza UNA prueba y sale con su veredicto en el código.
+
+    0 = pasó, 1 = falló, 3 = no se pudo comprobar. Ese TERCER código es la mitad del
+    diseño: un KO tiene que significar que el lab falla, no que al invitado le falte
+    `ping` o no pueda usarlo. Sin él, media docena de pruebas saldrían en rojo por el
+    entorno y el veredicto no valdría nada.
+
+    Todo el comando va dentro de UN `bash -c '...'`, así que DENTRO no puede haber ni
+    una sola comilla simple: partiría el entrecomillado y `bash` se comería el resto
+    (pasó, y lo cazó el banco: `cut -d' '` rompía el comando de `dns`).
+    """
+    hacia = prueba["hacia"]
+    intentos = prueba["intentos"]
+    tipo = prueba["tipo"]
+    if tipo == "ping":
+        return (
+            # La sonda de capacidades: el binario puede estar y NO poder usarse (sin
+            # `CAP_NET_RAW`, `ping` contesta «Operation not permitted»). Sin esta línea,
+            # un invitado sin permiso de red saldría en ROJO y el veredicto culparía al
+            # lab de algo que no es del lab.
+            f"bash -c 'command -v ping >/dev/null 2>&1 || "
+            f'{{ echo "OMITIDA: no hay ping en el invitado"; exit 3; }}; '
+            f"ping -c 1 -W 1 127.0.0.1 >/dev/null 2>&1 || "
+            f'{{ echo "OMITIDA: hay ping pero no puede usarlo (sin permiso de red)"; exit 3; }}; '
+            f"i=0; while [ $i -lt {intentos} ]; do i=$((i+1)); "
+            f"if ping -c 2 -W 2 {hacia} >/dev/null 2>&1; then "
+            f'echo "OK: {hacia} contesta al ping (intento $i)"; exit 0; fi; '
+            f"sleep 3; done; "
+            f'echo "KO: {hacia} no contestó al ping en $i intentos"; exit 1'
+            f"'"
+        )
+    if tipo == "servicio":
+        puerto = prueba["puerto"]
+        return (
+            f"bash -c 'i=0; while [ $i -lt {intentos} ]; do i=$((i+1)); "
+            f'if timeout 2 bash -c "</dev/tcp/{hacia}/{puerto}" 2>/dev/null; then '
+            f'echo "OK: {hacia}:{puerto} acepta conexiones (intento $i)"; exit 0; fi; '
+            f"sleep 3; done; "
+            f'echo "KO: {hacia}:{puerto} no acepta conexiones en $i intentos"; exit 1'
+            f"'"
+        )
+    return (
+        f"bash -c 'command -v getent >/dev/null 2>&1 || "
+        f'{{ echo "OMITIDA: no hay getent en el invitado"; exit 3; }}; '
+        f"i=0; while [ $i -lt {intentos} ]; do i=$((i+1)); "
+        f"if getent ahostsv4 {hacia} >/dev/null 2>&1; then "
+        # La dirección que salió, para poder citarla -- sin `cut` ni comillas simples,
+        # que partirían el `bash -c '...'` de fuera.
+        f'echo "OK: {hacia} resuelve a: $(getent ahostsv4 {hacia} | head -1)"; exit 0; fi; '
+        f"sleep 3; done; "
+        f'echo "KO: {hacia} no resolvió en $i intentos"; exit 1'
+        f"'"
+    )
+
+
+def pruebas_de(declaracion, intentos_por_defecto=6):
+    """Las pruebas funcionales del lab, con su comando ya escrito. PURA.
+
+    (declaración, intentos del motor) -> la lista de pruebas resueltas, en el orden en
+    que el lab las declaró. El plan y el driver leen LO MISMO: si divergieran, la
+    prueba que se lanza no sería la que se declaró.
+    """
+    salida = []
+    for indice, cruda in enumerate(declaracion.get("tests") or []):
+        if not isinstance(cruda, dict):
+            continue
+        desde = str(cruda.get("desde") or "").strip()
+        tipo = str(cruda.get("tipo") or "").strip()
+        hacia = str(cruda.get("hacia") or "").strip()
+        prueba = {
+            "indice": indice,
+            "nombre": str(cruda.get("nombre") or f"prueba-{indice + 1}").strip(),
+            "desde": desde,
+            "tipo": tipo,
+            "hacia": hacia,
+            "puerto": cruda.get("puerto"),
+            "intentos": _ventana_de_intentos(cruda.get("espera"), intentos_por_defecto, PRUEBA_SEGUNDOS_POR_INTENTO),
+        }
+        prueba["comando"] = _comando_de_prueba(prueba)
+        prueba["porque"] = (
+            f"el lab declara que '{desde}' {PRUEBA_QUE_HACE.get(tipo, tipo)} a '{hacia}'"
+            + (f" en el puerto {prueba['puerto']}" if tipo == "servicio" else "")
+        )
+        salida.append(prueba)
+    return salida
+
+
+# ---------------------------------------------------------------------------
+# 6.4 · CAPTURA e IMPAIRMENT desde el bastión (ADR 0023).
+#
+# El bastión tiene una pata en cada bridge del lab, así que es el sitio natural para
+# mirar el tráfico y (se suponía) para estropearlo. Las dos se declaran en el lab y se
+# encienden con su verbo -- `capture` y `impair` --, NO con `apply`: no son estado
+# deseado, son experimentos, y un experimento que sobrevive a la pasada es una mina.
+#
+# Por eso el impairment es ACOTADO: se aplica, se espera lo que el lab diga y se QUITA,
+# siempre. Nunca queda un lab con `netem` puesto y sin dueño.
+# ---------------------------------------------------------------------------
+
+def _patas_de(guest):
+    """Las interfaces declaradas de un invitado, EN ORDEN."""
+    if guest.get("bridges"):
+        return list(guest["bridges"])
+    if guest.get("bridge"):
+        return [guest["bridge"]]
+    return []
+
+
+def _invitados_de(declaracion):
+    """Los invitados, en CUALQUIERA de las dos formas que circulan por el motor.
+
+    La declaración cruda trae `vms` y `containers`; la normalizada, una lista plana
+    `guests`. Quien lee de las dos (el validador, que ve la cruda, y el driver, que ve
+    la normalizada) tiene que leer de las dos o hay dos verdades -- y eso ya rompió
+    esto una vez.
+    """
+    if declaracion.get("guests"):
+        return list(declaracion["guests"])
+    return list(declaracion.get("vms") or []) + list(declaracion.get("containers") or [])
+
+
+def interfaz_del_bastion(declaracion, puente):
+    """La interfaz del bastión que está en ese bridge (`ethN`), o None.
+
+    El índice es el ORDEN de las interfaces declaradas del bastión, igual que `etherN`
+    en un RouterOS: las interfaces no tienen nombre propio en el motor (no se inventa
+    un dato que el invitado pone solo), así que la forma de nombrarlas es su posición.
+    """
+    for guest in _invitados_de(declaracion):
+        if isinstance(guest, dict) and tiene_tunnel(guest):
+            patas = _patas_de(guest)
+            if puente in patas:
+                return f"eth{patas.index(puente)}"
+    return None
+
+
+def captura_de(declaracion):
+    """El comando de captura que se lanzaría en el bastión, ya escrito. PURA.
+
+    Una captura que no se puede lanzar no devuelve un comando a medias: devuelve su
+    `error`, y quien llama lo dice en vez de capturar el vacío.
+    """
+    decl = declaracion.get("capture")
+    if not isinstance(decl, dict):
+        return None
+    puente = str(decl.get("bridge") or "").strip()
+    iface = interfaz_del_bastion(declaracion, puente)
+    if iface is None:
+        return {"error": f"el bastión no tiene una interfaz en el bridge '{puente}'"}
+    segundos = decl.get("segundos")
+    filtro = str(decl.get("filtro") or "").strip()
+    comando = (
+        f"bash -c 'command -v tcpdump >/dev/null 2>&1 || "
+        f"(apt-get update -qq && apt-get install -y -qq tcpdump) >/dev/null 2>&1; "
+        f"command -v tcpdump >/dev/null 2>&1 || "
+        f'{{ echo "OMITIDA: no hay tcpdump en el bastión ni se pudo instalar"; exit 3; }}; '
+        f"echo \"CAPTURANDO en {iface} ({puente}) durante {segundos} s: {filtro or 'todo el tráfico'}\"; "
+        f"timeout {segundos} tcpdump -i {iface} -n -l {filtro} 2>/dev/null; "
+        f"echo \"FIN DE LA CAPTURA\"; exit 0'"
+    )
+    return {
+        "bridge": puente,
+        "interfaz": iface,
+        "filtro": filtro,
+        "segundos": segundos,
+        "comando": comando,
+        "porque": (
+            f"el lab pide mirar el tráfico de '{puente}' durante {segundos} s, y el bastión "
+            f"tiene una pata ahí ({iface})"
+        ),
+    }
+
+
+def impairment_de(declaracion):
+    """El comando de impairment que se lanzaría en el bastión, ya escrito. PURA.
+
+    Es ACOTADO por diseño: `tc ... add`, espera, `tc ... del`. Un `netem` que se queda
+    puesto convierte el lab en un lab roto que nadie recuerda haber roto.
+    """
+    decl = declaracion.get("impairment")
+    if not isinstance(decl, dict):
+        return None
+    puente = str(decl.get("bridge") or "").strip()
+    iface = interfaz_del_bastion(declaracion, puente)
+    if iface is None:
+        return {"error": f"el bastión no tiene una interfaz en el bridge '{puente}'"}
+    segundos = decl.get("segundos")
+    retardo = str(decl.get("retardo") or "").strip()
+    jitter = str(decl.get("jitter") or "").strip()
+    perdida = str(decl.get("perdida") or "").strip()
+    partes = []
+    if retardo or jitter:
+        partes.append(f"delay {retardo or '0ms'}" + (f" {jitter}" if jitter else ""))
+    if perdida:
+        partes.append(f"loss {perdida}")
+    netem = " ".join(partes)
+    comando = (
+        f"bash -c 'command -v tc >/dev/null 2>&1 || "
+        f'{{ echo "OMITIDA: no hay tc en el bastión (hace falta iproute2)"; exit 3; }}; '
+        f"tc qdisc del dev {iface} root >/dev/null 2>&1; "
+        f"tc qdisc add dev {iface} root netem {netem} || "
+        f'{{ echo "KO: el bastión no aceptó el impairment ({netem})"; exit 1; }}; '
+        f"echo \"IMPAIRMENT ENCENDIDO en {iface} ({puente}): {netem} durante {segundos} s\"; "
+        f"sleep {segundos}; tc qdisc del dev {iface} root >/dev/null 2>&1; "
+        f"echo \"IMPAIRMENT APAGADO en {iface}: el lab vuelve a estar como estaba\"; exit 0'"
+    )
+    return {
+        "bridge": puente,
+        "interfaz": iface,
+        "segundos": segundos,
+        "netem": netem,
+        "comando": comando,
+        "porque": (
+            f"el lab pide estropear el tráfico de '{puente}' ({netem}) durante {segundos} s, "
+            f"y el bastión tiene una pata ahí ({iface})"
+        ),
+    }
+
+
 def espera_de_servicio(guest):
     """El paso que comprueba que un invitado CONTESTA --la barrera que va DELANTE de
     converger su interior-- y, con eso, que su etapa sirve antes de pasar al
@@ -1433,15 +1698,39 @@ def espera_de_servicio(guest):
     dirección declarada, que es lo que la declaración promete.
     """
     tipo = tipo_de(guest)
-    if tipo is None:
+    # 6.3 · La barrera que el lab DECLARA (ADR 0021) manda sobre la que el motor insinúa
+    # por el tipo del equipo. `ninguno` la quita: un invitado que no tiene por qué
+    # contestar a nadie se arranca sin barrera, y decirlo es distinto de olvidarlo.
+    ready = guest.get("ready") if isinstance(guest.get("ready"), dict) else {}
+    clase = str(ready.get("tipo") or "").strip()
+    if clase == "ninguno":
         return None
+    tipo = tipo_de(guest)
+    # Sin interior declarado el motor no insinúa nada (¿qué va a insinuar, si no hay
+    # `config`?). Pero si el LAB declara la barrera, la hay: eso era justo lo que no se
+    # podía pedir -- un invitado sin `config` no tenía forma de decir «espérame».
+    if tipo is None and clase not in ("ssh", "routeros_rest"):
+        return None
+    tipo = tipo or "linux"
     # Sólo se sondea lo que la declaración PROMETE con una dirección fija: un equipo que
     # toma su dirección por DHCP (`address: dhcp`) no tiene dirección que preguntar hasta
     # que su router se la da, así que no hay sonda que valga -- y no se inventa una. El
     # etapa se arranca sin barrera y el lab lo dice en su prosa.
     if _a_entero(_sin_prefijo(guest.get("address"))) is None:
         return None
-    puerto = 80 if tipo == "routeros" else 22
+    # El puerto: el que el lab declare, o el que el tipo del equipo promete.
+    if clase == "ssh":
+        puerto = 22
+    elif clase == "routeros_rest":
+        puerto = 80
+    else:
+        puerto = 80 if tipo == "routeros" else 22
+    # Y la ventana: una espera en SEGUNDOS -- que es lo que un lab sabe estimar -- dicha
+    # en intentos, que es lo que la sonda cuenta. `None` = la del motor.
+    espera = ready.get("espera")
+    intentos = None
+    if isinstance(espera, int) and not isinstance(espera, bool) and espera > 0:
+        intentos = max(1, espera // SONDA_SEGUNDOS_POR_INTENTO)
     return {
         "accion": "esperar_servicio",
         "via": "sonda",
@@ -1453,6 +1742,7 @@ def espera_de_servicio(guest):
             "tipo": tipo,
             "address": str(guest.get("address") or "").split("/")[0],
             "puerto": puerto,
+            "intentos": intentos,
         },
         "porque": (
             f"el interior de '{guest['rol']}' no se toca hasta que contesta: un "
@@ -3110,6 +3400,9 @@ class FilterModule:
             "interior_residuo": residuo_dinamico,
             "interior_pasos": pasos_de_convergencia,
             "interior_espera": espera_de_servicio,
+            "interior_pruebas": pruebas_de,
+            "interior_captura": captura_de,
+            "interior_impairment": impairment_de,
             "interior_a_verificar": guests_a_verificar,
             "interior_informe_ok": informe_ok,
             "interior_sin_comprobar": sin_comprobar,

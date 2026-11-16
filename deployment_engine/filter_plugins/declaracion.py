@@ -47,11 +47,19 @@ _DIRECTORIO_FILTROS = os.path.dirname(os.path.abspath(__file__))
 if _DIRECTORIO_FILTROS not in sys.path:
     sys.path.insert(0, _DIRECTORIO_FILTROS)
 
+import identidad as modulo_identidad  # noqa: E402  (la ruta se ajusta justo arriba)
 import interior as modulo_interior  # noqa: E402  (la ruta se ajusta justo arriba)
 
 # Los dos tipos de invitado que el motor sabe desplegar, tal como los nombra la
 # API de Proxmox en sus rutas.
 TIPOS = ("qemu", "lxc")
+
+# 6.3 · Qué se admite en el `ready:` de un invitado (ADR 0021). Es un vocabulario
+# CERRADO porque el motor sólo sabe preguntar de estas tres maneras: las dos primeras
+# son sondas de PUERTO (la que el tipo del equipo ya insinuaba, ahora declarada) y la
+# tercera es la forma de decir que ese invitado no lleva barrera -- que no es lo mismo
+# que callarse, porque callarse significa «decide el motor por el tipo que soy».
+READY_TIPOS = ("ssh", "routeros_rest", "ninguno")
 
 # Claves que el motor DERIVA y por tanto están PROHIBIDAS en la declaración. Si
 # aparecen, alguien ha intentado fijar a mano lo que es del motor, y eso es el
@@ -126,9 +134,15 @@ def interfaces_declaradas(guest):
 
 
 def _direccion_valida(direccion):
-    """¿Es una de las tres formas que admite `address:`?"""
+    """¿Es una de las formas que admite `address:`?
+
+    `derived` es una de ellas (ADR 0020): no es una dirección, es la MARCA de que
+    la ponga el IPAM. Aquí se acepta para que un `derived` sin `address_space` del
+    que derivar salga con SU error («no hay de dónde»), y no con uno genérico que
+    mandaría a buscar el problema en el sitio equivocado.
+    """
     texto = str(direccion)
-    if texto == "dhcp":
+    if texto == "dhcp" or texto == modulo_identidad.DERIVADO:
         return True
     if not IP_PATRON.match(texto):
         return False
@@ -137,6 +151,76 @@ def _direccion_valida(direccion):
     octetos = [int(o) for o in texto.split("/")[0].split(".")]
     prefijo = int(texto.split("/")[1])
     return all(0 <= o <= 255 for o in octetos) and 0 <= prefijo <= 32
+
+
+def _plano(valor):
+    """Lo que Ansible da, convertido en Python de verdad (dict/list/str).
+
+    Ansible no pasa el YAML: pasa un `_AnsibleLazyTemplateDict`, un mapa PEREZOSO que
+    vuelve a plantillar desde el original cada vez que se lee. Copiarlo y escribir en la
+    copia no sirve de nada -- la lectura sigue devolviendo el original --, así que el IPAM
+    resolvía sobre un objeto y el validador leía otro. Medido con P0_DEBUG dentro de un
+    `verify` real: llegaba `_AnsibleLazyTemplateDict` y los `derived` seguían ahí.
+
+    De ahí que TODO lo que se derive o se valide pase antes por aquí: el motor no
+    razona sobre prótesis de Ansible, razona sobre datos.
+    """
+    if hasattr(valor, "items") and hasattr(valor, "keys"):
+        return {str(clave): _plano(sub) for clave, sub in valor.items()}
+    if isinstance(valor, (list, tuple)):
+        return [_plano(sub) for sub in valor]
+    if isinstance(valor, str):
+        return str(valor)
+    return valor
+
+
+def declaracion_direcciones(declaracion):
+    """La declaración con los `derived` ya resueltos por el IPAM (ADR 0020).
+
+    Es lo PRIMERO que se hace al validar, normalizar o aconsejar: a partir de ahí,
+    nadie más tiene que saber que `derived` existe. Es idempotente -- sobre una
+    declaración sin marcas no cambia nada -- y puro, así que dos pasadas derivan
+    exactamente las mismas direcciones.
+    """
+    if not hasattr(declaracion, "items"):
+        return declaracion
+    return modulo_identidad.direcciones_resolver(_plano(declaracion))
+
+
+def _es_marca_derivado(valor):
+    """¿El lab dejó esta dirección a que la derive el motor?"""
+    return isinstance(valor, str) and valor.strip() == modulo_identidad.DERIVADO
+
+
+def _derivados_sin_resolver(declaracion):
+    """Las direcciones que siguen en `derived` después de pasar por el IPAM.
+
+    Sólo puede quedar alguna por una razón: no hay `address_space` del que
+    derivar. Se devuelven con su RUTA para que el error diga dónde mirar.
+    """
+    salida = []
+    for indice, puente in enumerate((declaracion.get("lab") or {}).get("bridges") or []):
+        if _es_marca_derivado(puente.get("address")):
+            salida.append(f"lab.bridges[{indice}].address")
+    for seccion in ("vms", "containers"):
+        for indice, guest in enumerate(declaracion.get(seccion) or []):
+            etiqueta = f"{seccion}[{indice}]"
+            if _es_marca_derivado(guest.get("address")):
+                salida.append(f"{etiqueta}.address")
+            interior = ((guest.get("config") or {}).get("routeros") or {})
+            for posicion, entrada in enumerate(interior.get("addresses") or []):
+                if _es_marca_derivado(entrada.get("address")):
+                    salida.append(f"{etiqueta}.config.routeros.addresses[{posicion}].address")
+            for posicion, servidor in enumerate(interior.get("dhcp_server") or []):
+                if _es_marca_derivado((servidor.get("pool") or {}).get("rango")):
+                    salida.append(f"{etiqueta}.config.routeros.dhcp_server[{posicion}].pool.rango")
+                red = servidor.get("network") or {}
+                for campo in ("address", "gateway", "dns"):
+                    if _es_marca_derivado(red.get(campo)):
+                        salida.append(
+                            f"{etiqueta}.config.routeros.dhcp_server[{posicion}].network.{campo}"
+                        )
+    return salida
 
 
 def _ip_en_address_space(ip, address_space):
@@ -164,6 +248,215 @@ def _ip_en_address_space(ip, address_space):
     return ".".join(str(ip).split("/")[0].split(".")[:octetos]) == ".".join(
         base.split(".")[:octetos]
     )
+
+
+def _validar_ready(guest, etiqueta, rol, errores):
+    """El bloque `ready:` de un invitado, si lo declara (ADR 0021)."""
+    ready = guest.get("ready")
+    if ready is None:
+        return
+    if not isinstance(ready, dict):
+        errores.append(
+            f"`{etiqueta}` ({rol}): `ready` es un mapa con `tipo` (y `espera`), y esto es "
+            f"un {type(ready).__name__}: p. ej. `ready: {{tipo: ssh}}`"
+        )
+        return
+    tipo_ready = ready.get("tipo")
+    if tipo_ready not in READY_TIPOS:
+        errores.append(
+            f"`{etiqueta}` ({rol}): `ready.tipo` es {tipo_ready!r} y admite "
+            f"{', '.join(READY_TIPOS)}. `ninguno` es la forma de decir «este invitado no "
+            "lleva barrera», que NO es lo mismo que callarse (callarse es «decide el motor»)"
+        )
+    espera = ready.get("espera")
+    if espera is not None and (
+        not isinstance(espera, int) or isinstance(espera, bool) or espera <= 0
+    ):
+        errores.append(
+            f"`{etiqueta}` ({rol}): `ready.espera` son SEGUNDOS y tiene que ser un entero "
+            f"positivo, y esto es {espera!r}"
+        )
+    desconocidas = sorted(set(ready) - {"tipo", "espera"})
+    if desconocidas:
+        errores.append(
+            f"`{etiqueta}` ({rol}): `ready` no admite "
+            f"{', '.join('`' + c + '`' for c in desconocidas)}: admite `tipo` y `espera`"
+        )
+    # Un invitado que toma su dirección por DHCP no tiene dirección que preguntar hasta
+    # que su router se la dé: una barrera sobre él no se puede cumplir. Decirlo aquí es
+    # mejor que descubrirlo con el lab a medio desplegar y media etapa ya convergida.
+    #
+    # Salvo `ninguno`, que es justo lo que el lab quiere decir: «a este no le esperes».
+    # Prohibir eso obligaría a callarse, y callarse significa otra cosa (que decida el
+    # motor) -- y en un invitado con DHCP el motor ya no sondea, así que el lab no tenía
+    # forma de DECIRLO. Medido en el lab 06: es el único sitio donde `ready` no tenía
+    # nada que aportar.
+    if str(guest.get("address")) == "dhcp" and tipo_ready != "ninguno":
+        errores.append(
+            f"`{etiqueta}` ({rol}) declara `ready` y toma su dirección por DHCP: no hay "
+            "dirección que preguntar. Hoy el motor no sondea a un equipo con `address: dhcp`"
+        )
+
+
+def _validar_pruebas(declaracion, errores):
+    """Las PRUEBAS FUNCIONALES que declara el lab (6.2, ADR 0022).
+
+    Se valida con el mismo rigor que una regla de cortafuegos: una prueba que el motor
+    no sabe lanzar es un fallo de la declaración, no una prueba que se salta en
+    silencio -- porque entonces el veredicto diría «todo bien» sin haber mirado.
+    """
+    pruebas = declaracion.get("tests")
+    if pruebas is None:
+        return
+    if not isinstance(pruebas, list):
+        errores.append(
+            f"`tests` es una LISTA de pruebas, y esto es un {type(pruebas).__name__}"
+        )
+        return
+    # El rol de cada invitado y si es un Linux (por él se entra por SSH; un RouterOS se
+    # gobierna por su REST, que es otro camino y hoy no lanza pruebas).
+    linux = {}
+    for seccion in ("vms", "containers"):
+        for guest in declaracion.get(seccion) or []:
+            if isinstance(guest, dict) and guest.get("rol"):
+                interior = ((guest.get("config") or {}).get("routeros") or {})
+                linux[guest["rol"]] = (not interior) and seccion == "containers"
+    for indice, prueba in enumerate(pruebas):
+        etiqueta = f"tests[{indice}]"
+        if not isinstance(prueba, dict):
+            errores.append(f"`{etiqueta}` no es un mapa con `nombre`, `desde`, `tipo` y `hacia`")
+            continue
+        desconocidas = sorted(set(prueba) - {"nombre", "desde", "tipo", "hacia", "puerto", "espera"})
+        if desconocidas:
+            errores.append(
+                f"`{etiqueta}`: `tests` no admite "
+                f"{', '.join('`' + c + '`' for c in desconocidas)} -- admite `nombre`, "
+                "`desde`, `tipo`, `hacia`, `puerto` (sólo `servicio`) y `espera` (segundos)"
+            )
+        if not str(prueba.get("nombre") or "").strip():
+            errores.append(f"`{etiqueta}`: sin `nombre`, una prueba no se puede citar en el veredicto")
+        tipo = str(prueba.get("tipo") or "").strip()
+        if tipo not in modulo_interior.PRUEBA_TIPOS:
+            errores.append(
+                f"`{etiqueta}` ({prueba.get('nombre')!r}): `tipo` es {prueba.get('tipo')!r} y "
+                f"admite {', '.join(modulo_interior.PRUEBA_TIPOS)}"
+            )
+        if not str(prueba.get("hacia") or "").strip():
+            errores.append(f"`{etiqueta}` ({prueba.get('nombre')!r}): `hacia` es obligatorio")
+        desde = str(prueba.get("desde") or "").strip()
+        if not desde:
+            errores.append(
+                f"`{etiqueta}` ({prueba.get('nombre')!r}): `desde` es obligatorio -- una prueba "
+                "se lanza DESDE un invitado, no desde donde corre el motor"
+            )
+        elif desde not in linux:
+            errores.append(
+                f"`{etiqueta}` ({prueba.get('nombre')!r}): `desde: {desde}` no es el rol de "
+                "ningún invitado del lab"
+            )
+        elif not linux[desde]:
+            errores.append(
+                f"`{etiqueta}` ({prueba.get('nombre')!r}): `desde: {desde}` no es un invitado "
+                "Linux. Hoy una prueba se lanza por SSH, que es la vía de acceso del interior "
+                "de un Linux; un RouterOS se gobierna por su REST y ahí no hay pruebas todavía"
+            )
+        if tipo == "servicio":
+            puerto = prueba.get("puerto")
+            if not isinstance(puerto, int) or isinstance(puerto, bool) or not 1 <= puerto <= 65535:
+                errores.append(
+                    f"`{etiqueta}` ({prueba.get('nombre')!r}): una prueba de `servicio` necesita "
+                    f"`puerto` (1-65535), y esto es {puerto!r}"
+                )
+        elif prueba.get("puerto") is not None:
+            errores.append(
+                f"`{etiqueta}` ({prueba.get('nombre')!r}): `puerto` sólo tiene sentido en una "
+                f"prueba de `servicio`, y ésta es de `{tipo}`"
+            )
+        espera = prueba.get("espera")
+        if espera is not None and (
+            not isinstance(espera, int) or isinstance(espera, bool) or espera <= 0
+        ):
+            errores.append(
+                f"`{etiqueta}` ({prueba.get('nombre')!r}): `espera` son SEGUNDOS y tiene que ser "
+                f"un entero positivo, y esto es {espera!r}"
+            )
+
+
+def _validar_intromision(declaracion, errores):
+    """Los bloques `capture:` e `impairment:` del lab (6.4, ADR 0023).
+
+    Se validan aquí y no al ejecutar el verbo: un experimento que no se puede montar
+    (un bridge que el bastión no pisa, unos segundos que faltan) tiene que salir al
+    leer la declaración, no con el lab medio desplegado y el `netem` a medias.
+    """
+    puentes = [
+        p.get("nombre") for p in ((declaracion.get("lab") or {}).get("bridges") or [])
+        if isinstance(p, dict)
+    ]
+    for clave, admite in (
+        ("capture", {"bridge", "filtro", "segundos"}),
+        ("impairment", {"bridge", "segundos", "retardo", "jitter", "perdida"}),
+    ):
+        decl = declaracion.get(clave)
+        if decl is None:
+            continue
+        if not isinstance(decl, dict):
+            errores.append(f"`{clave}` es un mapa (no {type(decl).__name__})")
+            continue
+        desconocidas = sorted(set(decl) - admite)
+        if desconocidas:
+            errores.append(
+                f"`{clave}` no admite "
+                f"{', '.join('`' + c + '`' for c in desconocidas)}: admite "
+                f"{', '.join(sorted(admite))}"
+            )
+        puente = str(decl.get("bridge") or "").strip()
+        if not puente:
+            errores.append(f"`{clave}.bridge` es obligatorio: hay que decir POR DÓNDE mirar")
+        elif puente not in puentes:
+            errores.append(f"`{clave}.bridge` es '{puente}', que no es un bridge de este lab")
+        elif modulo_interior.interfaz_del_bastion(declaracion, puente) is None:
+            # Y no basta con que sea un bridge del lab: el bastión tiene que PISARLO. No
+            # los pisa todos por decreto -- su dotación es el bridge de gestión más los que
+            # declara en `bridges:` --, y decirlo aquí evita descubrirlo al ejecutar el
+            # verbo con el lab ya desplegado (que es como se descubrió: ver informe §6.4).
+            errores.append(
+                f"`{clave}.bridge` es '{puente}', pero el bastión de este lab no tiene una "
+                "interfaz ahí: no habría desde dónde mirar. El bastión pisa su bridge de "
+                "gestión y los que declara en `bridges:`; si quieres medir en otro, "
+                "añádeselo primero al bastión"
+            )
+        segundos = decl.get("segundos")
+        if not isinstance(segundos, int) or isinstance(segundos, bool) or segundos <= 0:
+            errores.append(
+                f"`{clave}.segundos` es obligatorio y son SEGUNDOS (un entero positivo): un "
+                "experimento sin final es una mina en el lab"
+            )
+        if clave == "impairment" and not (
+            decl.get("retardo") or decl.get("jitter") or decl.get("perdida")
+        ):
+            errores.append(
+                "`impairment` no dice qué estropear: hace falta al menos uno de "
+                "`retardo`, `jitter` o `perdida`"
+            )
+    # La captura y el impairment se montan EN EL BASTIÓN, y el bastión es quien tiene
+    # una pata en el bridge. Sin bastión no hay dónde montarlas.
+    if isinstance(declaracion.get("capture"), dict) or isinstance(declaracion.get("impairment"), dict):
+        # OJO: aquí la declaración es la CRUDA (el validador ve `vms`/`containers`), y
+        # `bastion()` lee la NORMALIZADA (`guests`): se pregunta por la señal, que es lo
+        # que hace a un invitado ser el bastión -- que declare su túnel.
+        hay_bastion = any(
+            modulo_interior.tiene_tunnel(g)
+            for g in (
+                list(declaracion.get("vms") or []) + list(declaracion.get("containers") or [])
+            )
+            if isinstance(g, dict)
+        )
+        if not hay_bastion:
+            errores.append(
+                "`capture`/`impairment` necesitan un bastión (un invitado con su túnel): es "
+                "quien tiene una interfaz en el bridge por el que se mira"
+            )
 
 
 def _validar_interior(guest, etiqueta, rol, errores):
@@ -560,7 +853,13 @@ def _direcciones_declaradas(declaracion):
 
 
 def declaracion_address_space(declaracion):
-    """La espacio de direcciones declarada, o None. Lo usa `./lab check address-space`."""
+    """La espacio de direcciones declarada, o None. Lo usa `./lab check address-space`.
+
+    Resuelve el IPAM primero (ADR 0020): lo que se vigila es que las direcciones de
+    verdad caigan dentro del espacio, no que la marca `derived` lo haga.
+    """
+    if isinstance(declaracion, dict):
+        declaracion = declaracion_direcciones(declaracion)
     return _address_space_de(declaracion)
 
 
@@ -579,6 +878,11 @@ def declaracion_validar(declaracion, carpeta=None):
     lab = declaracion.get("lab")
     if not isinstance(lab, dict):
         return ["falta la sección `lab` (nombre, bridges, stages)"]
+
+    # 6.1 · El IPAM lo PRIMERO (ADR 0020): lo que el lab dejó en `derived` se resuelve
+    # antes de validar nada, para que todo lo de abajo vea direcciones de verdad y
+    # ninguna regla tenga que saber que la marca existe.
+    declaracion = declaracion_direcciones(declaracion)
 
     nombre = lab.get("nombre")
     if not isinstance(nombre, str) or not nombre.strip():
@@ -769,6 +1073,8 @@ def declaracion_validar(declaracion, carpeta=None):
 
         # --- lo que no se declara nunca: MACs y credenciales -------------------
         _buscar_prohibidos(guest, f"{etiqueta}", errores)
+        # --- la barrera que el lab declara (6.3, ADR 0021) ---------------------
+        _validar_ready(guest, etiqueta, rol, errores)
         # --- el vocabulario del interior (cerrado) ----------------------------
         _validar_interior(guest, etiqueta, rol, errores)
         if modulo_interior.tiene_tunnel(guest):
@@ -835,6 +1141,22 @@ def declaracion_validar(declaracion, carpeta=None):
                     f"({address_space}): todo lo del lab vive dentro, y hay un check que lo "
                     "vigila porque es lo que hace imposible que dos labs se pisen"
                 )
+
+    # --- 6.2 · Las pruebas funcionales que declara el lab (ADR 0022) ----------------
+    _validar_pruebas(declaracion, errores)
+
+    # --- 6.4 · La captura y el impairment que declara el lab (ADR 0023) --------------
+    _validar_intromision(declaracion, errores)
+
+    # --- 6.1 · Un `derived` que no se pudo derivar ---------------------------------
+    # El IPAM (al principio) ya lo intentó. Si algo sigue en `derived` es que no hay
+    # `address_space` del que derivar: se DICE, no se resuelve a medias en silencio.
+    for ruta_derivada in _derivados_sin_resolver(declaracion):
+        errores.append(
+            f"`{ruta_derivada}` pide `derived` y el lab no declara `address_space`: no "
+            "hay espacio de direcciones del que derivar (ADR 0020). O se declara el "
+            "espacio, o esa dirección se escribe entera."
+        )
 
     return errores
 
@@ -1107,6 +1429,9 @@ def declaracion_consejos(declaracion, carpeta=None):
     consejos = []
     if not isinstance(declaracion, dict) or not isinstance(declaracion.get("lab"), dict):
         return consejos
+    # 6.1 · El IPAM primero, como en la validación: los consejos hablan de las
+    # direcciones de verdad, no de la marca que las pide (ADR 0020).
+    declaracion = declaracion_direcciones(declaracion)
 
     def aconsejar(codigo, donde, mensaje, remedio):
         consejos.append(
@@ -1315,6 +1640,11 @@ def declaracion_normalizar(declaracion, carpeta=None):
             "la declaración del lab es incoherente:\n  - " + "\n  - ".join(errores)
         )
 
+    # 6.1 · El IPAM, igual que en la validación (ADR 0020): lo que se normaliza son
+    # direcciones de verdad, y todo lo que venga detrás -- el plan, los drivers, los
+    # checks -- no tiene por qué saber que la marca `derived` existe.
+    declaracion = declaracion_direcciones(declaracion)
+
     lab = declaracion["lab"]
     guests = []
     for seccion, tipo in (("vms", "qemu"), ("containers", "lxc")):
@@ -1376,6 +1706,12 @@ def declaracion_normalizar(declaracion, carpeta=None):
         # también: sin ellos, el plan sale exactamente como salía antes de la fase 2.
         "address_space": lab.get("address_space") or None,
         "tunnel": lab.get("tunnel") or None,
+        # 6.2 / 6.4 · Las PRUEBAS y los EXPERIMENTOS del lab (ADR 0022 y 0023). No son
+        # estado del mundo, pero el verbo que los ejecuta recibe la declaración
+        # NORMALIZADA: si no viajan hasta aquí, el verbo no encuentra nada que lanzar.
+        "tests": declaracion.get("tests") or [],
+        "capture": declaracion.get("capture") or None,
+        "impairment": declaracion.get("impairment") or None,
     }
 
 
@@ -1388,4 +1724,5 @@ class FilterModule:
             "declaracion_normalizar": declaracion_normalizar,
             "declaracion_address_space": declaracion_address_space,
             "declaracion_consejos": declaracion_consejos,
+            "declaracion_direcciones": declaracion_direcciones,
         }

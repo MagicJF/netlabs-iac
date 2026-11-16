@@ -91,6 +91,9 @@ inventario y sin filtros, **en silencio**.
 ./lab --lab <nombre> preflight   # sólo lectura: qué hay, qué falta, qué difiere
 ./lab --lab <nombre> apply       # converge lo declarado + verifica
 ./lab --lab <nombre> verify      # TEST FINAL: ¿existe de verdad lo declarado?
+./lab --lab <nombre> test        # ¿el lab HACE lo que promete? (ping/servicio/dns; 0/1/3)
+./lab --lab <nombre> capture     # mira el tráfico de un bridge, un rato
+./lab --lab <nombre> impair      # estropea el tráfico un rato, y lo deja como estaba
 ./lab --lab <nombre> destroy     # único verbo que destruye; pide confirmación
 ./lab check [nombre]             # checks del motor, sin credenciales ni Proxmox
 ```

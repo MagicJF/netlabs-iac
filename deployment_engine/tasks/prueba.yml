@@ -1,0 +1,47 @@
+---
+# PROPÓSITO:   LANZAR UNA PRUEBA FUNCIONAL y anotar su veredicto (verbo `test`, ADR 0022).
+#              Recibe una prueba ya resuelta por la capa pura (`interior_pruebas`) y la
+#              ejecuta DESDE DENTRO del invitado que el lab nombra en `desde`, por la misma
+#              vía de acceso que usa el interior -- porque el motor tiene UNA vía de acceso
+#              por cosa, y entrar en un Linux ya tiene la suya (`interior_ssh.yml`).
+#
+# INVARIANTES: una prueba MIRA, no cambia el mundo: se lanza con `accion: leer`, y por eso
+#              la segunda pasada de `test` sale `changed=0`. Deja su línea en
+#              `logs/interior.jsonl` (área `prueba`) pase o falle, y su veredicto se ACUMULA
+#              -- no se pierde al lanzar la siguiente.
+# LÍMITES:     el veredicto sale del CÓDIGO con el que termina el comando, que es lo que
+#              distingue «pasó» (0) de «falló» (1) y de «no se pudo comprobar» (3: al
+#              invitado le falta el binario). Sin ese tercero, media docena de pruebas
+#              saldrían en rojo por el entorno y el veredicto no valdría nada.
+# VER:         deployment_engine/playbooks/test.yml; filter_plugins/interior.py (pruebas_de)
+
+- name: "PRUEBA · '{{ prueba.nombre }}' desde '{{ prueba.desde }}'"
+  ansible.builtin.include_tasks: interior_ssh.yml
+  vars:
+    interior_rol: "{{ prueba.desde }}"
+    interior_tipo: "linux"
+    interior_comandos:
+      - accion: "leer"
+        area: "prueba"
+        declarado: "{{ prueba.porque }}"
+        porque: "{{ prueba.porque }}"
+        comando: "{{ prueba.comando }}"
+
+# El veredicto se ACUMULA: `set_fact` sobre una lista que crece. Si esto fuera un
+# `register` a secas, la segunda prueba borraría el veredicto de la primera.
+- name: "PRUEBA · veredicto de '{{ prueba.nombre }}'"
+  ansible.builtin.set_fact:
+    pruebas_resultados: "{{ (pruebas_resultados | default([])) + [resultado] }}"
+  vars:
+    codigo: "{{ interior_resultados[0].rc | default(-1) | int }}"
+    resultado:
+      indice: "{{ prueba.indice }}"
+      nombre: "{{ prueba.nombre }}"
+      desde: "{{ prueba.desde }}"
+      tipo: "{{ prueba.tipo }}"
+      hacia: "{{ prueba.hacia }}"
+      puerto: "{{ prueba.puerto | default('') }}"
+      intentos: "{{ prueba.intentos }}"
+      rc: "{{ codigo }}"
+      veredicto: "{{ 'pasa' if codigo | int == 0 else ('omitida' if codigo | int == 3 else 'falla') }}"
+      salida: "{{ interior_resultados[0].stdout | default('') | trim }}"

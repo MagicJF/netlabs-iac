@@ -101,6 +101,13 @@ Uno por rol, en `vms:` (QEMU) o `containers:` (LXC). Cada uno:
 - **`stage`**: el orden en que el motor enciende y converge. **Nadie arranca antes de que
   quien le da la dirección esté sirviendo** (regla 18: así la carrera del DHCP muere por
   construcción). Si te equivocas, el consejo `stages` te lo dice con el número que toca.
+- **`ready`**: cuánto se le espera antes de configurar lo que va DETRÁS. `ready: {tipo: ssh,
+  espera: 90}` para «espérale a que su ssh conteste»; `routeros_rest` para un CHR; `ninguno` para
+  decir «a éste no le esperes», que es una afirmación, no un silencio. Va en **segundos** (los
+  intentos son del motor) y **sin declararlo todo se comporta como siempre**. Dos avisos: es un
+  tope **DURO** (una espera más corta que la del motor, 168 s, puede hacer que un lab que hoy
+  despliega mañana no → decláralo con margen), y antes de esto un invitado **sin `config:` no
+  podía declarar barrera ninguna** (ADR 0021).
 - **`bridges`/`bridge`**: sus interfaces. Una VM declara todas y el orden importa (`ether1` es la
   primera); un contenedor normalmente una.
 - **`address`**: en la primera interfaz, `"dhcp"` o una dirección con máscara. **Es la
@@ -200,6 +207,14 @@ Dos sitios, y ninguno se improvisa:
 **Un servidor DHCP por bridge.** Dos en la misma L2 es una carrera (consejo `dos-dhcp`). Y quien
 pide por DHCP tiene que ir **después** de quien le contesta.
 
+Y una tercera forma de tener dirección, que no reparte nadie: **`derived`**. Donde pongas
+`derived` en vez de una dirección, el motor la calcula **repartiendo en orden** desde
+`lab.address_space` (la pasarela de cada bridge primero, y los routers antes que los puestos). Un
+valor explícito manda siempre. Aporta en el trozo mecánico (los bridges y el bloque DHCP de los
+CHR) y **renumera** lo demás, así que en un lab ya desplegado no es cosmético — y en un lab con un
+**plan** de direccionamiento (un troncal, una DMZ, rutas que apuntan a direcciones concretas)
+**no se adopta**: derivarlo dejaría las rutas colgando (ADR 0020).
+
 ## 9. Y entonces, en este orden
 
 | cuándo | qué |
@@ -211,6 +226,9 @@ pide por DHCP tiene que ir **después** de quien le contesta.
 | cuando el plan te convenza | `./lab --lab <lab> apply` — debe converger en UNA pasada |
 | la segunda pasada | `./lab --lab <lab> apply` — debe dar `changed=0` y **sólo lecturas** |
 | para saber si está | `./lab --lab <lab> verify` |
+| para saber si **FUNCIONA** | `./lab --lab <lab> test` — las pruebas que declara `tests:` (0/1/_3_) |
+| para mirar el tráfico | `./lab --lab <lab> capture` — lo que declara `capture:`; se apaga solo |
+| para estropear el tráfico | `./lab --lab <lab> impair` — lo que declara `impairment:`; se apaga solo |
 | antes de subirlo | `./lab check` (todo) y `ansible-lint` |
 | para deshacerlo | `./lab --lab <lab> destroy --yes` |
 
@@ -238,6 +256,9 @@ falta, se añade a la tabla (el esqueleto es rígido; el cuerpo es libre).
 
 - Declarar un vmid, una MAC o un valor de casa (la vía de acceso de internet, el DNS de fuera, una ruta
   por defecto de verdad): **eso es del entorno, no del lab**.
+- Declarar una prueba funcional que espere algo que no está: un `dns` hacia un nombre que **no
+  existe**, o un `ping` a un invitado al que el motor no llega. Una prueba sólo sabe decir «pasa»
+  o «no pasa», así que un nombre inventado se lee como si el lab estuviera roto (ADR 0022).
 - Copiar un fichero del motor para un lab, o un verbo para un lab.
 - Escribir en `labs/<lab>/logs/`.
 - Decir que funciona sin la salida del comando que lo prueba.

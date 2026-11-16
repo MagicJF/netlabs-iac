@@ -1,0 +1,180 @@
+---
+# PROPÓSITO:   el verbo `test`: lanza las PRUEBAS FUNCIONALES que declara el lab y contesta
+#              a la pregunta que ningún otro verbo contestaba. `verify` dice «¿existe y
+#              coincide con lo declarado?» -- y un lab puede existir, coincidir y no hacer
+#              nada de lo que promete. Esto dice «¿hace lo que dice que hace?».
+# INVARIANTES: el conjunto se DERIVA de la declaración (`tests:`), nunca de una lista que
+#              traiga el propio test. Una prueba no CAMBIA el mundo: sólo mira. El informe
+#              se escribe ANTES de fallar, para que un rojo deje la misma evidencia que un
+#              verde. Y el código de salida es != 0 si alguna prueba FALLA, para que sirva
+#              de puerta en CI.
+# LÍMITES:     una prueba que no se puede lanzar (le falta el binario al invitado) sale
+#              OMITIDA, no en rojo: un KO tiene que significar que el lab falla, no que al
+#              invitado le falta `ping`. Un lab que no declara pruebas NO falla: no hay nada
+#              que comprobar, y el veredicto lo dice en voz alta en vez de callarse.
+# VER:         tasks/prueba.yml; filter_plugins/interior.py (pruebas_de); README.md §Pruebas
+
+- name: "TEST · ¿el lab hace lo que dice que hace?"
+  hosts: proxmox_api
+  gather_facts: false
+  vars_files:
+    - ../vars/engine.yml
+  tasks:
+    - name: "TEST · cargar la declaración del lab"
+      ansible.builtin.include_vars:
+        file: "{{ pve_archivo_lab }}"
+        name: declaracion_cruda
+
+    - name: "TEST · validar la coherencia de la declaración"
+      ansible.builtin.include_tasks: ../tasks/validar.yml
+
+    - name: "TEST · leer el mundo y re-derivar la identidad"
+      ansible.builtin.include_tasks: ../tasks/identity.yml
+
+    # Los MISMOS parámetros que usa `apply`: la vía de acceso al interior se construye
+    # con ellos, y si divergieran, `test` entraría por otro sitio que el que `apply` dejó.
+    - name: "TEST · parámetros del entorno (los mismos que usa `apply`)"
+      ansible.builtin.set_fact:
+        parametros_motor:
+          nodo: "{{ pve_nombre_nodo | default(pve_nodo) }}"
+          ostemplate_lxc: "{{ engine_ostemplate_lxc }}"
+          comentario_pool: "topología gestionada por netlabs_v4_b (motor por API)"
+          comentario_bridge: "{{ engine_plantilla_comentario_bridge }}"
+          bridge_gestion: "{{ pve_bridge_gestion | default('') }}"
+          tunnel_host: "{{ pve_tunnel_salida_host | default('') }}"
+          tunnel_puerto: "{{ pve_tunnel_salida_puerto | default(443) }}"
+          tunnel_usuario: "{{ pve_tunnel_usuario | default('') }}"
+          tunnel_puerto_base: "{{ engine_tunnel_puerto_base }}"
+          tunnel_rest_puerto_base: "{{ engine_tunnel_rest_puerto_base }}"
+          mac_prefijo: "{{ engine_prefijo_mac }}"
+          tunnel_clave: "{{ engine_tunnel_clave_base }}_{{ pve_lab }}_ed25519"
+          rol_control: "{{ engine_rol_control }}"
+          almacenamiento_imagen: "{{ engine_almacenamiento_imagen }}"
+          tunnel_clave_publica: "{{ tunnel_clave_publica | default('') }}"
+
+    - name: "TEST · leer si el túnel del lab está en pie (sin él no se entra a probar)"
+      ansible.builtin.include_tasks: ../tasks/tunnel_probe.yml
+
+    - name: "TEST · parar si no hay estado del mundo"
+      ansible.builtin.fail:
+        msg: |-
+          No se pueden lanzar las pruebas del lab '{{ pve_lab }}': no hay estado del mundo.
+            {{ pve_mundo_error | default('motivo desconocido') }}
+      when: (pve_mundo_error | default('') | length) > 0
+
+    # Sin túnel no hay vía de acceso al interior, y una prueba se lanza DESDE DENTRO de un
+    # invitado. Se dice y se para: aprobar sin poder mirar sería el peor veredicto posible.
+    - name: "TEST · parar si el túnel no responde (es la vía de acceso a los invitados)"
+      ansible.builtin.fail:
+        msg: |-
+          No se pueden lanzar las pruebas del lab '{{ pve_lab }}': su túnel no responde.
+          Las pruebas se lanzan DESDE DENTRO de los invitados, y se entra por ahí.
+            ./lab --lab {{ pve_lab }} apply   reconstruye el túnel
+      when: not (estado.tunnel.responde | default(false))
+
+    - name: "TEST · las pruebas que declara el lab"
+      ansible.builtin.set_fact:
+        pruebas_declaradas: "{{ declaracion | interior_pruebas(engine_prueba_intentos) }}"
+
+    - name: "TEST · lanzar cada prueba desde donde el lab dice"
+      ansible.builtin.include_tasks: ../tasks/prueba.yml
+      loop: "{{ pruebas_declaradas }}"
+      loop_control:
+        loop_var: prueba
+        label: "{{ prueba.nombre }}"
+      when: (pruebas_declaradas | length) > 0
+
+    - name: "TEST · el veredicto, en una frase"
+      ansible.builtin.set_fact:
+        pruebas_fallan: "{{ pruebas_resultados | default([]) | selectattr('veredicto', 'equalto', 'falla') | list }}"
+        pruebas_omiten: "{{ pruebas_resultados | default([]) | selectattr('veredicto', 'equalto', 'omitida') | list }}"
+        pruebas_pasan: "{{ pruebas_resultados | default([]) | selectattr('veredicto', 'equalto', 'pasa') | list }}"
+
+    - name: "TEST · escribir la evidencia (logs/test-<sello>.json)"
+      ansible.builtin.copy:
+        content: >-
+          {{ {'lab': pve_lab, 'verbo': 'test', 'ts': (now().strftime('%Y%m%dT%H%M%SZ')),
+              'ok': (pruebas_fallan | length) == 0,
+              'declaradas': (pruebas_declaradas | length),
+              'pasan': (pruebas_pasan | length),
+              'fallan': (pruebas_fallan | length),
+              'omitidas': (pruebas_omiten | length),
+              'pruebas': (pruebas_resultados | default([]))} | to_nice_json }}
+        dest: "{{ pve_carpeta_logs }}/test-{{ now().strftime('%Y%m%dT%H%M%SZ') }}.json"
+        mode: '0640'
+      # La evidencia es un log: escribirla no cambia el mundo (regla 6).
+      changed_when: false
+
+    - name: "TEST · escribir el resumen humano (para la consola)"
+      ansible.builtin.copy:
+        content: |-
+          ============================================================
+          PRUEBAS FUNCIONALES del lab '{{ pve_lab }}'
+          ============================================================
+          {% if (pruebas_declaradas | length) == 0 %}
+          Este lab NO declara ninguna prueba en `tests:`, así que no se ha podido
+          comprobar que haga lo que dice que hace. No es un fallo -- no hay nada
+          declarado que pueda fallar -- pero tampoco es un aprobado: es un «no se
+          ha mirado», y se dice.
+
+          Para que este verbo sirva de algo, declara en el lab lo que promete, p. ej.:
+
+            tests:
+              - nombre: el-puesto-1-llega-a-su-pasarela
+                desde: puesto-1
+                tipo: ping
+                hacia: 10.42.1.1
+          {% else %}
+          declaradas={{ pruebas_declaradas | length }}  pasan={{ pruebas_pasan | length }}  fallan={{ pruebas_fallan | length }}  omitidas={{ pruebas_omiten | length }}
+          {% for r in pruebas_resultados | default([]) %}
+          [{{ r.veredicto | upper }}] {{ r.nombre }}
+                    desde {{ r.desde }} → {{ r.hacia }} ({{ r.tipo }})
+                    {{ r.salida | default('(sin salida)') }}
+          {% endfor %}
+          {% if (pruebas_omiten | length) > 0 %}
+          OMITIDAS = no se pudo comprobar (le falta el binario al invitado). No cuentan
+          como fallo, pero tampoco como aprobado: mira la salida de cada una.
+          {% endif %}
+          {% endif %}
+          Evidencia: {{ pve_carpeta_logs }}/test-*.json
+        dest: "{{ pve_carpeta_logs }}/ultimo-test.txt"
+        mode: '0640'
+      changed_when: false
+
+    # Retención: los informes rotan, como los de `verify`.
+    - name: "TEST · listar las evidencias que ya hay"
+      ansible.builtin.find:
+        paths: "{{ pve_carpeta_logs }}"
+        patterns: "test-*.json"
+      register: evidencias_previas
+
+    - name: "TEST · borrar las evidencias más viejas (retención)"
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ (evidencias_previas.files | sort(attribute='path'))[: -engine_retencion_informes | int] }}"
+      when: (evidencias_previas.files | length) > (engine_retencion_informes | int)
+      changed_when: false
+
+    - name: "TEST · resultado"
+      ansible.builtin.fail:
+        msg: |-
+          PRUEBAS FALLIDAS en el lab '{{ pve_lab }}': {{ pruebas_fallan | length }} de {{ pruebas_declaradas | length }}
+          {% for r in pruebas_fallan %}
+            - {{ r.nombre }} (desde {{ r.desde }} → {{ r.hacia }}): {{ r.salida | default('') }}
+          {% endfor %}
+          Resumen:   {{ pve_carpeta_logs }}/ultimo-test.txt
+      when: (pruebas_fallan | length) > 0
+
+    - name: "TEST · resultado"
+      ansible.builtin.debug:
+        msg: >-
+          {% if (pruebas_declaradas | length) == 0 %}
+          el lab '{{ pve_lab }}' NO declara pruebas funcionales: no se ha comprobado que
+          haga lo que dice que hace (no es un fallo, pero tampoco un aprobado).
+          {% else %}
+          PRUEBAS SUPERADAS del lab '{{ pve_lab }}': {{ pruebas_pasan | length }}/{{ pruebas_declaradas | length }}
+          correcta(s){{ (', ' ~ (pruebas_omiten | length) ~ ' omitida(s): no se pudieron comprobar') if (pruebas_omiten | length) > 0 else '' }}.
+          {% endif %}
+          Resumen: {{ pve_carpeta_logs }}/ultimo-test.txt
+      when: (pruebas_fallan | length) == 0

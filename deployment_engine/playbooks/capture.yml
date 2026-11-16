@@ -1,0 +1,118 @@
+---
+# PROPÓSITO:   el verbo `capture`: mira el tráfico que cruza un bridge del lab, DESDE EL
+#              BASTIÓN -- que es el único invitado con una pata en cada bridge -- y deja lo
+#              capturado en `logs/captura-<sello>.txt`.
+# INVARIANTES: capturar NO cambia el mundo: `tcpdump` sólo mira. La captura se ACOTA con
+#              `segundos` (el lab no puede declarar una captura sin final). Se pide desde
+#              el mismo sitio que el resto del interior: la vía de acceso del bastión.
+# LÍMITES:     lo que se ve es lo que el bridge REPARTE a la pata del bastión: la captura
+#              funciona porque `tcpdump` pone la interfaz en modo promiscuo. Y `tcpdump`
+#              no viene de fábrica en el LXC: si no está, se intenta instalar, y si tampoco
+#              se puede, la captura sale OMITIDA en vez de vacía.
+# VER:         filter_plugins/interior.py (captura_de); docs/decisiones/0023-*.md
+
+- name: "CAPTURE · mirar el tráfico del lab desde el bastión"
+  hosts: proxmox_api
+  gather_facts: false
+  vars_files:
+    - ../vars/engine.yml
+  tasks:
+    - name: "CAPTURE · cargar la declaración del lab"
+      ansible.builtin.include_vars:
+        file: "{{ pve_archivo_lab }}"
+        name: declaracion_cruda
+
+    - name: "CAPTURE · validar la coherencia de la declaración"
+      ansible.builtin.include_tasks: ../tasks/validar.yml
+
+    - name: "CAPTURE · leer el mundo y re-derivar la identidad"
+      ansible.builtin.include_tasks: ../tasks/identity.yml
+
+    - name: "CAPTURE · parámetros del entorno (los mismos que usa `apply`)"
+      ansible.builtin.set_fact:
+        parametros_motor:
+          nodo: "{{ pve_nombre_nodo | default(pve_nodo) }}"
+          ostemplate_lxc: "{{ engine_ostemplate_lxc }}"
+          comentario_pool: "topología gestionada por netlabs_v4_b (motor por API)"
+          comentario_bridge: "{{ engine_plantilla_comentario_bridge }}"
+          bridge_gestion: "{{ pve_bridge_gestion | default('') }}"
+          tunnel_host: "{{ pve_tunnel_salida_host | default('') }}"
+          tunnel_puerto: "{{ pve_tunnel_salida_puerto | default(443) }}"
+          tunnel_usuario: "{{ pve_tunnel_usuario | default('') }}"
+          tunnel_puerto_base: "{{ engine_tunnel_puerto_base }}"
+          tunnel_rest_puerto_base: "{{ engine_tunnel_rest_puerto_base }}"
+          mac_prefijo: "{{ engine_prefijo_mac }}"
+          tunnel_clave: "{{ engine_tunnel_clave_base }}_{{ pve_lab }}_ed25519"
+          rol_control: "{{ engine_rol_control }}"
+          almacenamiento_imagen: "{{ engine_almacenamiento_imagen }}"
+          tunnel_clave_publica: "{{ tunnel_clave_publica | default('') }}"
+
+    - name: "CAPTURE · leer si el túnel del lab está en pie (es la vía de acceso al bastión)"
+      ansible.builtin.include_tasks: ../tasks/tunnel_probe.yml
+
+    - name: "CAPTURE · parar si no hay estado del mundo"
+      ansible.builtin.fail:
+        msg: "No se puede capturar en el lab '{{ pve_lab }}': no hay estado del mundo. {{ pve_mundo_error | default('') }}"
+      when: (pve_mundo_error | default('') | length) > 0
+
+    - name: "CAPTURE · parar si el túnel no responde"
+      ansible.builtin.fail:
+        msg: |-
+          No se puede capturar en el lab '{{ pve_lab }}': su túnel no responde.
+            ./lab --lab {{ pve_lab }} apply   reconstruye el túnel
+      when: not (estado.tunnel.responde | default(false))
+
+    - name: "CAPTURE · lo que el lab declara capturar"
+      ansible.builtin.set_fact:
+        captura: "{{ declaracion | interior_captura }}"
+
+    - name: "CAPTURE · parar si el lab no declara captura"
+      ansible.builtin.fail:
+        msg: |-
+          El lab '{{ pve_lab }}' no declara `capture:`. Este verbo ejecuta lo declarado, no
+          adivina sobre qué mirar. Para pedir una captura, declárala:
+
+            capture:
+              bridge: {{ (declaracion.lab.bridges | default([{'nombre': 'vmb_...'}]))[0].nombre }}
+              filtro: "tcp port 80"
+              segundos: 20
+      when: captura is none
+
+    - name: "CAPTURE · parar si la captura no se puede montar"
+      ansible.builtin.fail:
+        msg: "No se puede montar la captura del lab '{{ pve_lab }}': {{ captura.error }}"
+      when: captura.error is defined
+
+    - name: "CAPTURE · capturar en '{{ captura.interfaz }}' ({{ captura.bridge }}) durante {{ captura.segundos }} s"
+      ansible.builtin.include_tasks: ../tasks/interior_ssh.yml
+      vars:
+        interior_rol: "{{ declaracion | interior_bastion }}"
+        interior_tipo: "linux"
+        interior_comandos:
+          - accion: "leer"
+            area: "captura"
+            declarado: "{{ captura.porque }}"
+            porque: "{{ captura.porque }}"
+            comando: "{{ captura.comando }}"
+
+    - name: "CAPTURE · guardar lo capturado (logs/captura-<sello>.txt)"
+      ansible.builtin.copy:
+        content: |-
+          # CAPTURA del lab '{{ pve_lab }}' — {{ now().strftime('%Y-%m-%dT%H:%M:%S') }}Z
+          # bridge={{ captura.bridge }} interfaz={{ captura.interfaz }} filtro='{{ captura.filtro }}' segundos={{ captura.segundos }}
+          # rc={{ interior_resultados[0].rc | default(-1) }}  (0 = la captura corrió entera)
+          {{ interior_resultados[0].stdout | default('') }}
+        dest: "{{ pve_carpeta_logs }}/captura-{{ now().strftime('%Y%m%dT%H%M%SZ') }}.txt"
+        mode: '0640'
+      changed_when: false
+
+    - name: "CAPTURE · cuánto se ha capturado"
+      ansible.builtin.debug:
+        msg: >-
+          {% set lineas = (interior_resultados[0].stdout | default('')).splitlines() | length %}
+          captura en '{{ captura.bridge }}': {{ lineas }} línea(s) de tcpdump.
+          Evidencia: {{ pve_carpeta_logs }}/captura-*.txt
+          {% if (interior_resultados[0].rc | default(-1) | int) == 3 %}
+          OMITIDA: el bastión no tiene `tcpdump` y no se pudo instalar.
+          {% endif %}
+      changed_when: false

@@ -76,7 +76,7 @@ se queda mudo. Medido en la fase del túnel (§5 del encargo).
 
 Y no se entra en el invitado con el usuario del túnel: el usuario del túnel es el de la
 máquina donde corre el motor (`túnel_usuario`), mientras que dentro del invitado se entra
-como `root` (`engine_usuario_invitado`). Confundirlos da
+como `root` (`engine_usuario_guest`). Confundirlos da
 `root@127.0.0.1: Permission denied (publickey,password)` — que es exactamente lo que pasó.
 
 ## Decisión 4 — El aparato lo pone el motor, el vocabulario no crece

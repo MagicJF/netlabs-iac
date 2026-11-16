@@ -16,8 +16,6 @@
 #
 # Uso:  python3 test/test_bridges.py     (código de salida != 0 si algo falla)
 
-import copy
-import json
 import os
 import sys
 

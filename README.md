@@ -233,8 +233,6 @@ pve_puerto: "8006"
 pve_token_id: "<usuario>@pve!<nombre-del-token>"
 pve_token_secreto: "<secreto del token>"
 pve_verificar_tls: false                      # true con certificado de verdad
-pve_ssh_usuario: "<usuario>"                  # SÓLO diagnóstico manual
-pve_ssh_password: "<clave>"                   # el motor no usa SSH nunca
 ```
 
 Los avisos que ya estaban escritos siguen valiendo: el token de Proxmox
@@ -248,12 +246,11 @@ necesita la API, y lo dice en claro si falta. `plan` sin `--api` no lo necesita:
 usa un fixture.
 
 Cuidado con la vía de SSH, que es **sólo para quien diagnostica** (el motor no entra
-por SSH jamás, ni para converger ni para leer): el nodo de referencia **no acepta
-contraseña** —su `sshd` ofrece `publickey` a secas—, así que `pve_ssh_password` no
-basta para entrar aunque esté bien. Lo que entra es la clave
-`~/.ssh/netlabs_v4b_debug`, ya autorizada en el nodo. Y sigue siendo **el último
-recurso**: primero se agota la API, y si algo no se puede saber por API se dice, no se
-rodea.
+por SSH jamás, ni para converger ni para leer): no hay contraseña en `secrets.yml` que
+valga —el nodo **no acepta contraseña**: su `sshd` ofrece `publickey` a secas—. Lo que
+entra es la clave `~/.ssh/netlabs_v4b_debug`, ya autorizada en el nodo. Y sigue siendo
+**el último recurso**: primero se agota la API, y si algo no se puede saber por API se
+dice, no se rodea.
 
 ### El agente de invitado: lo que el motor puede LEER de una VM
 

@@ -181,12 +181,17 @@ def _rutas_versionadas_bajo(prefijo):
     Se usa `--cached --others --exclude-standard`: lo ya añadido MÁS lo que no está
     ignorado. Así el check funciona igual antes del primer commit, y se cae
     `secrets.yml` (gitignored) sin tener que nombrarlo.
+
+    `-z` y bytes: sin eso, git entrecomilla y escapa un nombre con caracteres no ASCII
+    (`"configuraci\\303\\263n.yml"`), y esa representación NO es una ruta de verdad -- se
+    pide el nombre crudo, separado por NUL, o el fichero se saltaría en silencio.
     """
     salida = subprocess.run(
-        ["git", "ls-files", "--cached", "--others", "--exclude-standard", "--", prefijo],
-        cwd=RAIZ, capture_output=True, text=True, check=False,
+        [b"git", b"ls-files", b"--cached", b"--others", b"--exclude-standard", b"-z",
+         b"--", prefijo.encode("utf-8")],
+        cwd=RAIZ, capture_output=True, check=False,
     ).stdout
-    return {linea.strip() for linea in salida.splitlines() if linea.strip()}
+    return {ruta.decode("utf-8", "surrogateescape") for ruta in salida.split(b"\0") if ruta}
 
 
 def _ficheros_versionados():
@@ -839,10 +844,201 @@ def check_address_space():
 
 
 # ---------------------------------------------------------------------------
+# check secretos — lo que abre el HOST no entra en el repositorio
+# ---------------------------------------------------------------------------
+#
+# La política es explícita y asimétrica (ADR 0024): las credenciales de los labs
+# --las de los CHR y los LXC-- se citan en claro y no pasa nada, porque son de un
+# banco de pruebas; lo que abre el NODO no se versiona jamás. Este check vigila la
+# segunda mitad y SÓLO esa: no busca contraseñas en general (bloquearía la prosa de
+# los labs, que es legítima) sino las formas que dan acceso al host -- el token de la
+# API con su valor, un ticket de sesión, una clave privada y el propio fichero de
+# credenciales maestras.
+#
+# Las formas se arman por piezas para que este fichero no las contenga: un check que
+# se cae a sí mismo no es un check.
+
+_MARCA_TICKET = "PVE" + ":"
+_MARCA_CSRF = "CSRFPrevention" + "Token"
+_MARCA_TOKEN = "PVEAPI" + "Token="
+_MARCA_CLAVE = "PRIVATE" + " KEY-----"
+
+FORMAS_DE_ACCESO_AL_HOST = (
+    ("un ticket de sesión de la API",
+     re.compile(_MARCA_TICKET + r"[A-Za-z0-9_.@-]+:[0-9A-Fa-f]{8}")),
+    ("un CSRFPreventionToken",
+     re.compile(_MARCA_CSRF + r"\s*:\s*[0-9A-Fa-f]{8,}")),
+    ("el token de la API con su valor",
+     re.compile(_MARCA_TOKEN + r"(?!\{\{)(?!<)[A-Za-z0-9_.-]+@[A-Za-z0-9.-]+!"
+                r"[A-Za-z0-9_.-]+=[0-9A-Fa-f-]{8,}")),
+    ("una clave privada",
+     re.compile(r"-{5}BEGIN [A-Z ]*" + _MARCA_CLAVE)),
+)
+
+FICHERO_DE_CREDENCIALES = "secrets" + ".yml"
+# Las tres claves del HOST que no pueden llevar valor en un fichero versionado. En
+# `secrets.yml` sí lo llevan, y por eso ese fichero no se versiona.
+CLAVES_DEL_HOST = ("pve_token" + "_secreto", "pve_ssh" + "_usuario", "pve_ssh" + "_password")
+# La clave puede ir DESNUDA, entre comillas (YAML lo admite) o dentro de una entrada JSON,
+# y en cualquier posición de la línea, así que se busca con comillas opcionales. La versión
+# anterior anclaba al principio de la línea y exigía la clave desnuda: una clave
+# entrecomillada, que es YAML válido, se colaba con su valor. Los nombres de las claves no
+# se escriben aquí seguidos de dos puntos a propósito: si no, este mismo comentario
+# encendería el candado que describe.
+EXPRESION_CLAVE_DEL_HOST = re.compile(
+    r"[\"']?(" + "|".join(re.escape(clave) for clave in CLAVES_DEL_HOST) + r")[\"']?\s*:\s*"
+    r"(\"[^\"]*\"|'[^']*'|[^,}\n]*)"
+)
+
+
+def _es_relleno(valor):
+    """¿Este valor es un hueco y no un secreto?
+
+    Un hueco se escribe `<...>` o `{{ ... }}`, se deja vacío, o es un comentario (`# ...`).
+    Se mira el VALOR y no el carácter que sigue a los dos puntos porque un hueco puede ir
+    entre comillas (`pve_ssh_usuario: "<usuario>"`) y una expresión regular que mirase la
+    forma de la línea se equivocaría con eso.
+
+    El comentario se comprueba ANTES de quitar las comillas: `"#esto-no-es-un-comentario"`
+    es una contraseña entrecomillada, no un comentario, y si se quitaran las comillas
+    primero pasaría por vacía.
+    """
+    texto = valor.strip()
+    if not texto or texto.startswith("#"):
+        return True
+    limpio = texto.strip("\"'").strip()
+    return not limpio or limpio.startswith("<") or limpio.startswith("{{")
+
+
+def _linea_de_continuacion(lineas, numero):
+    """El texto de la primera línea que SANGRA MÁS que la clave, o None.
+
+    En YAML el valor de una clave puede empezar en la línea SIGUIENTE, sangrado: la línea
+    de la clave se queda sin valor, y el `:` no basta para darla por buena. Una línea en
+    blanco se salta; una línea sin sangría, o con la MISMA sangría (una línea hermana
+    como `pve_puerto: 8006`), cierra el bloque -- no es el valor de esta clave.
+
+    (El ejemplo no se escribe aquí con el valor en la línea de abajo: este mismo fichero
+    lo mira el candado, y un ejemplo con un valor de verdad lo encendería.)
+    """
+    actual = lineas[numero - 1]
+    sangria = len(actual) - len(actual.lstrip())
+    for linea in lineas[numero:]:
+        if not linea.strip():
+            continue
+        if not linea[:1].isspace():
+            return None
+        if len(linea) - len(linea.lstrip()) <= sangria:
+            return None
+        return linea.strip()
+    return None
+
+
+def _contenido_a_vigilar(staged):
+    """({ruta en el repo: texto}, [rutas que no se han podido leer]) de lo que hay que mirar.
+
+    Sin `staged`, todo lo que git versiona (o versionaría: se usa
+    `--cached --others --exclude-standard`, así el check vale antes del primer commit
+    y no se cae por ficheros ignorados). Con `staged`, EXACTAMENTE lo que está en el
+    índice -- que es lo que va a entrar en el commit, aunque el árbol de trabajo ya se
+    haya corregido --, y por eso se lee del índice (`git show :ruta`) y no del disco.
+
+    Dos detalles que parecen menores y no lo son:
+
+    - **Los nombres salen con `-z`.** `git diff --name-only` entrecomilla y escapa un
+      nombre con caracteres no ASCII (un acento, un espacio): ese nombre entrecomillado
+      NO es una ruta y `git show` fallaría. Con `-z` cada nombre llega crudo, separado
+      por NUL. Y si aun así una lectura del índice falla, se DEVUELVE como fallo en vez
+      de saltársela en silencio: un fichero que no se ha podido mirar no es un fichero
+      limpio.
+    - **El contenido se lee en BYTES y se decodifica con `replace`.** Un PNG staged no
+      es UTF-8: con `text=True` la lectura lanzaba `UnicodeDecodeError` y el hook
+      bloqueaba un commit perfectamente válido. Un binario se mira igual que el resto
+      (no va a casar con las formas del host), pero no puede tumbar el check.
+    """
+    contenido = {}
+    ilegibles = []
+    if staged:
+        salida = subprocess.run(
+            ["git", "diff", "--cached", "--name-only", "-z", "--diff-filter=ACMR"],
+            cwd=RAIZ, capture_output=True, check=False,
+        ).stdout
+        for ruta_bytes in salida.split(b"\0"):
+            if not ruta_bytes:
+                continue
+            ruta = ruta_bytes.decode("utf-8", "surrogateescape")
+            volcado = subprocess.run(
+                [b"git", b"show", b":" + ruta_bytes],
+                cwd=RAIZ, capture_output=True, check=False,
+            )
+            if volcado.returncode != 0:
+                ilegibles.append(ruta)
+                continue
+            contenido[ruta] = volcado.stdout.decode("utf-8", "replace")
+        return contenido, ilegibles
+    for ruta in sorted(_ficheros_versionados()):
+        absoluta = os.path.join(RAIZ, ruta)
+        if not os.path.isfile(absoluta):
+            continue
+        try:
+            with open(absoluta, "rb") as fichero:
+                contenido[ruta] = fichero.read().decode("utf-8", "replace")
+        except OSError:
+            continue
+    return contenido, ilegibles
+
+
+def check_secretos(staged=False):
+    """¿Está en lo versionado alguna de las formas que dan acceso al NODO?
+
+    Bloquea, no avisa: que un ticket o una clave estén en un fichero es un hecho
+    mecánico, como que la región generada de un documento no cuadre. Y no imprime el
+    valor: un check de secretos que los escupe en el diario de un hook los deja en el
+    diario.
+    """
+    contenido, ilegibles = _contenido_a_vigilar(staged)
+    fallos = []
+    for ruta in ilegibles:
+        fallos.append(f"{ruta}: no se ha podido leer del índice; no se da por bueno sin mirarlo")
+    for ruta, texto in contenido.items():
+        if os.path.basename(ruta) == FICHERO_DE_CREDENCIALES:
+            fallos.append(f"{ruta}: es el fichero de credenciales del nodo (está "
+                          f"gitignored: si ha llegado aquí es que se ha forzado con `git add -f`)")
+            continue
+        lineas = texto.splitlines()
+        for numero, linea in enumerate(lineas, start=1):
+            for descripcion, expresion in FORMAS_DE_ACCESO_AL_HOST:
+                if expresion.search(linea):
+                    fallos.append(f"{ruta}:{numero}: hay {descripcion}")
+            for clave in EXPRESION_CLAVE_DEL_HOST.finditer(linea):
+                valor = clave.group(2)
+                if not _es_relleno(valor):
+                    fallos.append(f"{ruta}:{numero}: `{clave.group(1)}` lleva un valor (las claves "
+                                  f"del HOST sólo viven en `{FICHERO_DE_CREDENCIALES}`, que no se versiona)")
+                elif not valor.strip():
+                    continuacion = _linea_de_continuacion(lineas, numero)
+                    if continuacion is not None and not _es_relleno(continuacion):
+                        fallos.append(f"{ruta}:{numero}: `{clave.group(1)}` lleva su valor en la "
+                                      f"línea siguiente (las claves del HOST sólo viven en "
+                                      f"`{FICHERO_DE_CREDENCIALES}`, que no se versiona)")
+    if fallos:
+        print("FALLA secretos: lo que abre el NODO está en lo versionado:")
+        for fallo in fallos:
+            print(f"  - {fallo}")
+        print("  Quita el valor (o el fichero) y vuelve a intentarlo. El valor no se imprime a propósito.")
+        return 1
+    donde = "lo que va a entrar en el commit" if staged else f"{len(contenido)} fichero(s) versionados"
+    print(f"OK    secretos: ni el token del nodo, ni una clave privada, ni un ticket de la API "
+          f"están en {donde}")
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # Orquestación
 # ---------------------------------------------------------------------------
 
 CHECKS = {
+    "secretos": check_secretos,
     "links": check_links,
     "docs": check_docs,
     "refs": check_refs,
@@ -881,6 +1077,10 @@ def main(argumentos):
 
     if orden == "all":
         return ejecutar_todos()
+    if orden == "secretos":
+        # `--staged` mira el ÍNDICE, no el árbol: es lo que usa el hook de pre-commit
+        # para bloquear antes de que el secreto exista en un commit.
+        return check_secretos(staged="--staged" in resto)
     if orden == "refs" and resto:
         return check_refs(resto[0])
     if orden == "docs" and resto:

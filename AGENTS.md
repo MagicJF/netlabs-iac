@@ -114,9 +114,10 @@ falla una tarea— existe una vía de depuración por SSH **para quien diagnosti
 - **Sólo para DIAGNOSTICAR**, no para cambiar el mundo. El motor no entra por SSH
   jamás: ningún play, tarea, filtro ni herramienta usa SSH, y `./lab check access`
   lo vigila.
-- **Credenciales en `secrets.yml`** (`pve_ssh_usuario`, `pve_ssh_password`), en claro
-  y gitignored como el resto. Si el nodo sólo admite clave pública, se autoriza la
-  `.pub` que haga falta; **no** se toca la configuración de `sshd` del nodo.
+- **Credenciales en `secrets.yml`**, en claro y gitignored como el resto, y **sólo las
+  del nodo**: el token de la API. No hay claves de contraseña (las `pve_ssh_*` se dieron
+  de baja: ningún fichero del motor las leía). Si el nodo sólo admite clave pública, se
+  autoriza la `.pub` que haga falta; **no** se toca la configuración de `sshd` del nodo.
 - **Cuando la API no llega, se dice**: qué se intentó por API, por qué no bastó y qué
   se hizo por SSH. Sin maquillar.
 

@@ -10,6 +10,29 @@ que nadie más toque el hipervisor ni la red del lab.
 _Datos derivados de `04_lab-red-routeros.yml`. Los reescribe `./lab check docs --actualizar`;
 si los editas a mano, `./lab check docs` falla._
 
+## Topología
+
+```mermaid
+graph TD
+    n_vmb_gestion(["vmb_gestion<br/>10.40.0.1/24"])
+    n_vmb_lan1(["vmb_lan1<br/>10.40.1.1/24"])
+    n_vmb_lan2(["vmb_lan2<br/>10.40.2.1/24"])
+    n_borde["borde<br/>VM (qemu) · etapa 1"]
+    n_borde --- n_vmb_gestion
+    n_borde --- n_vmb_lan1
+    n_control["control<br/>LXC · etapa 1"]
+    n_control --- n_vmb_gestion
+    n_nucleo["nucleo<br/>VM (qemu) · etapa 2"]
+    n_nucleo --- n_vmb_lan1
+    n_nucleo --- n_vmb_lan2
+    n_servidor["servidor<br/>LXC · etapa 2"]
+    n_servidor --- n_vmb_lan1
+    n_puesto_1["puesto-1<br/>LXC · etapa 3"]
+    n_puesto_1 --- n_vmb_lan1
+    n_puesto_2["puesto-2<br/>LXC · etapa 3"]
+    n_puesto_2 --- n_vmb_lan2
+```
+
 ## Invitados declarados
 
 | rol | tipo | stage | cores | memory (MB) | disk (GB) | bridge | address |

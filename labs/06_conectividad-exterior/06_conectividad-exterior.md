@@ -17,6 +17,29 @@ redes **sale a internet**, con el router de arriba declarado como la salida (`up
 _Datos derivados de `06_conectividad-exterior.yml`. Los reescribe `./lab check docs --actualizar`;
 si los editas a mano, `./lab check docs` falla._
 
+## Topología
+
+```mermaid
+graph TD
+    n_vmb_ext_gestion(["vmb_ext_gestion<br/>derived"])
+    n_vmb_ext_lan1(["vmb_ext_lan1<br/>derived"])
+    n_vmb_ext_lan2(["vmb_ext_lan2<br/>derived"])
+    n_borde["borde<br/>VM (qemu) · etapa 1"]
+    n_borde --- n_vmb_ext_gestion
+    n_borde --- n_vmb_ext_lan1
+    n_control["control<br/>LXC · etapa 1"]
+    n_control --- n_vmb_ext_gestion
+    n_nucleo["nucleo<br/>VM (qemu) · etapa 2"]
+    n_nucleo --- n_vmb_ext_lan1
+    n_nucleo --- n_vmb_ext_lan2
+    n_servidor["servidor<br/>LXC · etapa 2"]
+    n_servidor --- n_vmb_ext_lan1
+    n_puesto_1["puesto-1<br/>LXC · etapa 3"]
+    n_puesto_1 --- n_vmb_ext_lan1
+    n_puesto_2["puesto-2<br/>LXC · etapa 3"]
+    n_puesto_2 --- n_vmb_ext_lan2
+```
+
 ## Invitados declarados
 
 | rol | tipo | stage | cores | memory (MB) | disk (GB) | bridge | address |

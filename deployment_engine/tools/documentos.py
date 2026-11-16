@@ -83,6 +83,45 @@ def _guests_normalizados(declaracion):
     return guests
 
 
+def _id_mermaid(texto):
+    """Un identificador de nodo Mermaid a partir de un nombre del lab.
+
+    Mermaid no admite guiones, puntos ni acentos en un identificador, así que todo lo que
+    no sea alfanumérico o `_` pasa a `_`, y se antepone `n_` para que no empiece por dígito.
+    Dos nombres distintos pueden colisionar (`puente-a` y `puente_a`): en un identificador
+    eso da un nodo compartido, y por eso el nombre de verdad viaja SIEMPRE en la etiqueta,
+    que es la que se lee.
+    """
+    limpio = "".join(c if c.isalnum() or c == "_" else "_" for c in texto)
+    return "n_" + limpio
+
+
+def _diagrama_mermaid(guests, bridges):
+    """La topología como diagrama Mermaid, derivada de la declaración.
+
+    Un nodo por bridge (hexágono, con su dirección) y un nodo por invitado, unido a cada
+    bridge por el que tiene pata. Determinista: los invitados salen en el orden de la
+    declaración (etapa, rol) y los bridges en el suyo, sin depender del orden de un
+    diccionario.
+    """
+    lineas = ["```mermaid", "graph TD"]
+    for puente in bridges:
+        etiqueta = puente["nombre"]
+        if puente.get("address"):
+            etiqueta += "<br/>" + puente["address"]
+        lineas.append("    " + _id_mermaid(puente["nombre"]) + '(["' + etiqueta + '"])')
+    for invitado in guests:
+        etiqueta = f"{invitado['rol']}<br/>{ETIQUETA_TIPO[invitado['tipo']]} · etapa {invitado['stage']}"
+        lineas.append("    " + _id_mermaid(invitado["rol"]) + '["' + etiqueta + '"]')
+        patas = invitado.get("bridges") or ([invitado["bridge"]] if invitado.get("bridge") else [])
+        for nombre_puente in patas:
+            lineas.append(
+                "    " + _id_mermaid(invitado["rol"]) + " --- " + _id_mermaid(nombre_puente)
+            )
+    lineas.append("```")
+    return "\n".join(lineas)
+
+
 def _localizar_region(texto, ruta_documento):
     """Devuelve (inicio, fin) de los marcadores, o falla explicando el porqué."""
     posiciones_inicio = [
@@ -221,6 +260,7 @@ def renderizar_region(directorio_lab):
     sustituciones = {
         "archivo_declaracion": archivo_declaracion,
         "prefijo_mac": motor["engine_prefijo_mac"],
+        "diagrama_mermaid": _diagrama_mermaid(guests, bridges),
         "tabla_guests": tabla_guests,
         "tabla_bridges": tabla_bridges,
         "tabla_stages": tabla_stages,

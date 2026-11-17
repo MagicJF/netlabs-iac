@@ -183,6 +183,11 @@
       "deployment_engine/tasks/interior_ssh.yml": "82bee4b7201604d0accf34c38ca9aaf297319b858a125811d0bd3ea0063a96ca"
     }
   },
+  "docs/decisiones/0028-el-area-servicio-aprende-netxms.md": {
+    "citados": {
+      "deployment_engine/filter_plugins/interior.py": "0bb2579869b8489aad6dfb354554d3039e45c1cc66730aefa100dfbfd451892d"
+    }
+  },
   "docs/encargo-capa-de-configuracion.md": {
     "citados": {
       "deployment_engine/tasks/pve_api.yml": "42b30c7d2a79a68b54ea68ef0aadf90b9d3eaa6800aeb89378c7c50d551e2817",

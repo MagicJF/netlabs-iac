@@ -176,8 +176,8 @@ configurar dentro** de cada equipo, y el motor lo converge como una fase más de
   responde): `identity`, `ip_services`, `addresses`, `routes`, `dhcp_server`, `uplink`,
   `firewall` (la tabla de filtrado entera, en orden: ADR 0019), `ip_forward`, `tunnel`…
   En un Linux, además, **`servicio:`** — el NOMBRE de un servicio de un **vocabulario
-  cerrado** (hoy sólo `caddy`) que el motor instala, configura y **comprueba sirviéndolo**
-  (ADR 0027): el lab declara el nombre, nunca el paquete ni su configuración.
+  cerrado** (hoy `caddy` y `netxms`) que el motor instala, configura y **comprueba sirviéndolo**
+  (ADR 0027 y 0028): el lab declara el nombre, nunca el paquete, su base ni su configuración.
 - **`image:`** en una VM QEMU: el disco de fábrica que se importa al crearla (un CHR).
 - **`address:`** admite cuatro formas: `<ip>/<prefijo>` (estática), **`dhcp`** (dinámica: el
   invitado no la declara; se lee del host y, si hay túnel, de la concesión del router),
@@ -826,8 +826,8 @@ Una línea cada una, y nada más:
 - **Aplicaciones ARBITRARIAS dentro de los invitados** (ficheros que el lab elija, paquetes,
   servicios, su configuración): el vocabulario llega a la **configuración de red del equipo**
   (RouterOS, Linux) y, desde ADR 0027, a **UN servicio de un vocabulario cerrado** por área
-  `servicio` (`caddy` hoy) — nunca a lo que un lab quiera inventarse. El punto de extensión
-  sigue siendo una primitiva nueva del motor, con su ADR.
+  `servicio` (`caddy` y `netxms` hoy) — nunca a lo que un lab quiera inventarse. El punto de
+  extensión sigue siendo una primitiva nueva del motor, con su ADR.
 - **Cloud-init y plantillas de disco** más allá del mínimo para que un invitado
   arranque.
 - **Inventario dinámico** de los invitados desplegados.

@@ -1406,10 +1406,10 @@ comprobar(
 
 
 # ---------------------------------------------------------------------------
-# El área `servicio` (ADR 0027): un servicio instalado, configurado y SIRVIENDO.
+# El área `servicio` (ADR 0027 y 0028): un servicio instalado, configurado y SIRVIENDO.
 #
-# El valor declarado es el NOMBRE del servicio, de un vocabulario CERRADO (hoy sólo
-# `caddy`). El contrato es el MISMO que el del resto del interior: (declarado, leído)
+# El valor declarado es el NOMBRE del servicio, de un vocabulario CERRADO (`caddy` y
+# `netxms`). El contrato es el MISMO que el del resto del interior: (declarado, leído)
 # -> operaciones, y un invitado ya convergido no produce NINGUNA (regla 6).
 # ---------------------------------------------------------------------------
 
@@ -1422,6 +1422,11 @@ EQUIPO_SERVICIO = {
     "config": {"linux": {"tunnel": {}, "servicio": "caddy"}},
 }
 
+# El MISMO equipo, pero con el otro miembro del vocabulario: la declaración sólo cambia de
+# nombre, y es el motor el que sabe que NetXMS necesita una base y una web.
+EQUIPO_NETXMS = dict(EQUIPO_SERVICIO, rol="monitor",
+                     config={"linux": {"tunnel": {}, "servicio": "netxms"}})
+
 comprobar(
     "servicio" in motor.areas_de(EQUIPO_SERVICIO)
     and "servicio" in motor.areas_que_piden_visita(EQUIPO_SERVICIO),
@@ -1432,43 +1437,43 @@ igual(
     "el valor del área es el NOMBRE del servicio, tal cual (no se envuelve en un mapa)",
 )
 igual(
-    motor.SERVICIOS_LINUX, ("caddy",),
-    "el vocabulario de servicios es CERRADO y hoy tiene un solo miembro",
+    motor.SERVICIOS_LINUX, ("caddy", "netxms"),
+    "el vocabulario de servicios es CERRADO y hoy tiene dos miembros (ADR 0028)",
+)
+igual(
+    motor.areas_de(EQUIPO_NETXMS)["servicio"], "netxms",
+    "y el segundo miembro se declara igual: el nombre, sin más",
 )
 
 
-def _encontrado_servicio(caddy, curl, activa, habilitada, config, pagina, servido):
-    """El `encontrado` del área, tal y como lo deja la vía de acceso (SEIS bloques separados)."""
-    return "\n".join([
-        f"caddy={caddy}",
-        f"curl={curl}",
-        motor.SEPARADOR,
-        activa,
-        motor.SEPARADOR,
-        habilitada,
-        motor.SEPARADOR,
-        config,
-        motor.SEPARADOR,
-        pagina,
-        motor.SEPARADOR,
-        servido,
-    ])
+def _encontrado_servicio(herramientas, activa, habilitada, ficheros, servido, extra="na"):
+    """El `encontrado` del área, tal y como lo deja la vía de acceso (SIETE bloques).
+
+    `herramientas` es {ejecutable: valor de `command -v`}; `ficheros` es la lista de
+    contenidos EN ORDEN (uno por fichero gobernado); los dos últimos bloques van siempre.
+    """
+    bloques = ["\n".join(f"{h}={v}" for h, v in herramientas.items()), activa, habilitada]
+    bloques += [str(f) for f in ficheros]
+    bloques += [servido, extra]
+    return ("\n" + motor.SEPARADOR + "\n").join(bloques)
 
 
-def _leer_servicio(caddy, curl, activa, habilitada, config, pagina, servido):
+def _leer_servicio(herramientas, activa, habilitada, ficheros, servido, extra="na"):
     return motor.leido_linux([
         {"area": "servicio", "rc": 0,
-         "encontrado": _encontrado_servicio(caddy, curl, activa, habilitada, config, pagina, servido)}
+         "encontrado": _encontrado_servicio(herramientas, activa, habilitada, ficheros,
+                                            servido, extra)}
     ])["servicio"]
 
 
+_SIN_CADDY = {"caddy": "NO", "curl": "NO"}
+_CON_CADDY = {"caddy": "/usr/bin/caddy", "curl": "/usr/bin/curl"}
+_FICHEROS_CADDY = [motor.configuracion_servicio("caddy"), motor.pagina_servicio()]
+
 # Un invitado FRESCO: sin el paquete, sin habilitar y sin servir.
-_SERVICIO_FRESCO = _leer_servicio("NO", "NO", "inactive", "disabled", "", "", "NO-SIRVE")
+_SERVICIO_FRESCO = _leer_servicio(_SIN_CADDY, "inactive", "disabled", ["", ""], "NO-SIRVE")
 igual(
-    motor.leido_linux([{"area": "servicio", "rc": 0,
-                        "encontrado": _encontrado_servicio("NO", "NO", "inactive", "disabled",
-                                                           "", "", "NO-SIRVE")}])["servicio"]["herramientas"],
-    {"caddy": False, "curl": False},
+    _SERVICIO_FRESCO["herramientas"], {"caddy": False, "curl": False},
     "la relectura de un invitado fresco no encuentra NI el paquete NI `curl`",
 )
 comprobar(
@@ -1477,8 +1482,7 @@ comprobar(
     and _SERVICIO_FRESCO["sirve"] is False
     # Los dos ficheros llegan EN BLANCO (con el salto de línea que deja el propio comando): se
     # comparan por su contenido sin espacios de sobra, que es lo que hace el canónico.
-    and _SERVICIO_FRESCO["config_leida"].strip() == ""
-    and _SERVICIO_FRESCO["pagina_leida"].strip() == "",
+    and [f.strip() for f in _SERVICIO_FRESCO["ficheros_leidos"]] == ["", ""],
     "la relectura de un invitado fresco lo ve todo por poner: unidad, habilitación, los dos "
     "ficheros (en blanco) y el servicio sin servir",
 )
@@ -1491,8 +1495,7 @@ igual(
 # Un invitado CONVERGIDO: los DOS ficheros con el contenido EXACTO del motor, la unidad viva y
 # habilitada, y sirviendo.
 _SERVICIO_AL_DIA = _leer_servicio(
-    "/usr/bin/caddy", "/usr/bin/curl", "active", "enabled",
-    motor.configuracion_servicio("caddy"), motor.pagina_servicio(), motor.pagina_servicio(),
+    _CON_CADDY, "active", "enabled", _FICHEROS_CADDY, motor.pagina_servicio(),
 )
 igual(
     motor._servicio_canonico("caddy", _SERVICIO_AL_DIA), [],
@@ -1504,8 +1507,8 @@ igual(
 # escribe -- que es justo lo que promete. El contenido se compara entero.
 _CONFIG_TOCADA = motor.configuracion_servicio("caddy") + "\n# tocado a mano\n"
 _SERVICIO_TOCADO = _leer_servicio(
-    "/usr/bin/caddy", "/usr/bin/curl", "active", "enabled",
-    _CONFIG_TOCADA, motor.pagina_servicio(), motor.pagina_servicio(),
+    _CON_CADDY, "active", "enabled", [_CONFIG_TOCADA, motor.pagina_servicio()],
+    motor.pagina_servicio(),
 )
 comprobar(
     motor.MARCA_SERVICIO in _CONFIG_TOCADA
@@ -1518,8 +1521,8 @@ comprobar(
 # Y una PÁGINA BORRADA tampoco cuela (el otro fichero que el motor gobierna): antes sólo se
 # recargaba el servicio y la página no volvía nunca.
 _SIN_PAGINA = _leer_servicio(
-    "/usr/bin/caddy", "/usr/bin/curl", "active", "enabled",
-    motor.configuracion_servicio("caddy"), "", motor.pagina_servicio(),
+    _CON_CADDY, "active", "enabled",
+    [motor.configuracion_servicio("caddy"), ""], motor.pagina_servicio(),
 )
 igual(
     [o["op"] for o in motor._servicio_canonico("caddy", _SIN_PAGINA)],
@@ -1530,8 +1533,7 @@ igual(
 # VIVO PERO DESHABILITADO (hallazgo del revisor, reproducido): `is-active` no es `is-enabled`.
 # Un servicio vivo que no arranca al reiniciar el invitado no está gobernado.
 _SERVICIO_DESHABILITADO = _leer_servicio(
-    "/usr/bin/caddy", "/usr/bin/curl", "active", "disabled",
-    motor.configuracion_servicio("caddy"), motor.pagina_servicio(), motor.pagina_servicio(),
+    _CON_CADDY, "active", "disabled", _FICHEROS_CADDY, motor.pagina_servicio(),
 )
 igual(
     [o["op"] for o in motor._servicio_canonico("caddy", _SERVICIO_DESHABILITADO)],
@@ -1547,6 +1549,7 @@ igual(
     "un servicio fuera del vocabulario no se decide aquí: el validador lo rechaza antes",
 )
 igual(motor.configuracion_servicio("nginx"), "", "y no hay configuración de motor para él")
+igual(motor.lectura_servicio("nginx"), "", "ni lectura: no sabe qué preguntar de un desconocido")
 
 # Y el camino ENTERO por `pasos_de_convergencia`: del invitado declarado salen los pasos del
 # área, y `escrituras_linux` los traduce a comandos IDEMPOTENTES que la vía de acceso ejecuta.
@@ -1612,6 +1615,134 @@ igual(
     "releído y al día, el invitado declarado con `servicio` no deja ningún paso (convergió)",
 )
 
+
+# ---------------------------------------------------------------------------
+# El SEGUNDO miembro del vocabulario: NetXMS (ADR 0028). Un servicio con DEPENDENCIAS -- base
+# de datos y contenedor de servlets -- no cabe en la forma de `caddy`, y el motor no finge:
+# si la base no está preparada, se prepara antes de arrancar (y si no, se pediría recargar
+# para siempre con un servidor que no arranca).
+# ---------------------------------------------------------------------------
+
+_NETXMS_DIA = {
+    "netxmsd": "/usr/bin/netxmsd",
+    "nxdbmgr": "/usr/bin/nxdbmgr",
+    "psql": "/usr/bin/psql",
+    "curl": "/usr/bin/curl",
+    "java": "/usr/bin/java",
+}
+_FICHEROS_NETXMS = list(motor._ficheros_servicio("netxms").values())
+igual(
+    list(motor._ficheros_servicio("netxms")),
+    ["/etc/netxmsd.conf", motor.RUTA_DROPIN_NETXMS, motor.RUTA_PREPARADOR_NETXMS],
+    "NetXMS gobierna TRES ficheros: su configuración, el `drop-in` que se la señala a systemd "
+    "y el preparador de la base (en ese orden)",
+)
+comprobar(
+    all(clave in _FICHEROS_NETXMS[0] for clave in ("DBDriver = pgsql", "DBLogin = netxms",
+                                                   "DBHost = 127.0.0.1")),
+    "su configuración dice DÓNDE está su base (driver, usuario y host): sin eso no hay servidor",
+)
+comprobar(
+    all(pieza in _FICHEROS_NETXMS[2]
+        for pieza in ("nxdbmgr -c /etc/netxmsd.conf init pgsql", "createdb", "nxmc.war", "pg_isready")),
+    "el preparador inicializa el ESQUEMA (el paquete no lo trae, y sin `-c` no encuentra la "
+    "configuración), crea la base y despliega la web",
+)
+comprobar(
+    "ExecStart=/usr/bin/netxmsd -S -c /etc/netxmsd.conf" in _FICHEROS_NETXMS[1]
+    and "\nExecStart=\n" in _FICHEROS_NETXMS[1],
+    "el `drop-in` le dice a systemd DÓNDE está la configuración, y vacía `ExecStart` antes de "
+    "redefinirlo (systemd acumula las líneas, y sin vaciar arrancaría dos veces el servidor)",
+)
+
+_SERVICIO_NETXMS_FRESCO = _leer_servicio(
+    {h: "NO" for h in _NETXMS_DIA}, "inactive", "disabled", ["", "", ""], "NO-SIRVE",
+    extra="no")
+igual(
+    [o["op"] for o in motor._servicio_canonico("netxms", _SERVICIO_NETXMS_FRESCO)],
+    ["install_service", "write_service_config", "prepare_service", "enable_service",
+     "reload_service"],
+    "un NetXMS fresco pide, EN ESTE ORDEN, instalar, escribir, preparar la base, arrancar y "
+    "dejarlo sirviendo (preparar va antes de arrancar: `nxdbmgr init` lee la configuración)",
+)
+
+_SERVICIO_NETXMS_AL_DIA = _leer_servicio(
+    _NETXMS_DIA, "active", "enabled", _FICHEROS_NETXMS, "<html>login</html>", extra="si")
+igual(
+    motor._servicio_canonico("netxms", _SERVICIO_NETXMS_AL_DIA), [],
+    "un NetXMS ya convergido NO produce operación: base inicializada, web sirviendo (regla 6)",
+)
+
+# La base se pierde (o nunca se inicializó) con el servidor VIVO y la web sirviendo: el motor
+# no puede mirar sólo `is-active`, tiene que preguntar por el esquema.
+igual(
+    [o["op"] for o in motor._servicio_canonico(
+        "netxms", dict(_SERVICIO_NETXMS_AL_DIA, extra="no"))],
+    ["prepare_service"],
+    "con la base sin esquema se pide PREPARAR aunque la unidad esté viva y la web conteste",
+)
+
+# Y la web que no contesta: se recarga el servicio (es lo que la levanta), sin tocar la base.
+igual(
+    [o["op"] for o in motor._servicio_canonico(
+        "netxms", dict(_SERVICIO_NETXMS_AL_DIA, sirve=False))],
+    ["reload_service"],
+    "si la web no contesta, se recarga; la base preparada no se vuelve a preparar",
+)
+
+# Los comandos del segundo miembro: repositorio APT ajeno, preparador y web en el 8080.
+_LEIDO_NETXMS = dict(_LEIDO_SERVICIO, areas=dict(_LEIDO_SERVICIO["areas"],
+                                                 servicio=_SERVICIO_NETXMS_FRESCO))
+_PASOS_NETXMS = motor.pasos_de_convergencia(
+    EQUIPO_NETXMS, IDENTIDAD, DECLARACION, _LEIDO_NETXMS, PARAMETROS
+)
+_ESCRITURAS_NETXMS = motor.escrituras_linux(
+    motor.operaciones_de_pasos(_PASOS_NETXMS), EQUIPO_NETXMS, DECLARACION, IDENTIDAD, PARAMETROS,
+)
+comprobar(
+    all(motor.pendiente_de_driver(o) is None
+        for o in motor.operaciones_de_pasos(_PASOS_NETXMS)),
+    "el driver SABE traducir también las cinco operaciones de NetXMS (preparar incluida)",
+)
+comprobar(
+    any("netxms-release" in c["comando"] and "apt-get update -qq" in c["comando"]
+        for c in _ESCRITURAS_NETXMS),
+    "instalar NetXMS añade su repositorio APT (no está en Debian) y refresca las listas después",
+)
+comprobar(
+    any("netlabs-servicio-netxms preparar" in c["comando"] for c in _ESCRITURAS_NETXMS),
+    "y la operación de preparar ejecuta el preparador que el motor dejó escrito",
+)
+comprobar(
+    "/nxmc/" in motor.SERVICIOS_LINUX_OPCIONES["netxms"]["sirve"]
+    and "8080" in motor.SERVICIOS_LINUX_OPCIONES["netxms"]["sirve"]
+    and "-fsSL" in motor.SERVICIOS_LINUX_OPCIONES["netxms"]["sirve"],
+    "NetXMS se comprueba SIRVIENDO la web (Tomcat en el 8080), no el puerto del servidor",
+)
+
+# La lectura de NetXMS, ya construida, pide lo suyo: sus herramientas, sus dos ficheros, la
+# web y el estado de la base. Y la de `caddy` sigue pidiendo lo suyo (no se generalizó de más).
+_ORDEN_NETXMS = motor.lectura_servicio("netxms")
+comprobar(
+    _ORDEN_NETXMS.count(motor.SEPARADOR) == 7
+    and "systemctl is-active netxms-server" in _ORDEN_NETXMS
+    and "cat /etc/netxmsd.conf" in _ORDEN_NETXMS
+    and "estado" in _ORDEN_NETXMS,
+    "la lectura de NetXMS lleva OCHO bloques: herramientas, vivo, habilitado, TRES "
+    "ficheros, la web y el estado de la base",
+)
+_ORDEN_CADDY = motor.lectura_servicio("caddy")
+comprobar(
+    _ORDEN_CADDY.count(motor.SEPARADOR) == 6
+    and "cat /etc/caddy/Caddyfile" in _ORDEN_CADDY
+    and "http://127.0.0.1/" in _ORDEN_CADDY,
+    "la de caddy sigue con SUS siete bloques: su configuración y su página, sin base ni web",
+)
+igual(
+    motor.leido_linux([{"area": "servicio", "rc": 0, "encontrado": "a=1"}]),
+    {},
+    "una lectura a medias (sin sus bloques) NO se convierte en un estado inventado",
+)
 
 if FALLOS:
     print(f"\nRESULTADO: {len(FALLOS)} fallo(s).")

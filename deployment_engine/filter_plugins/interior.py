@@ -1827,23 +1827,8 @@ LECTURAS_LINUX = {
         "comando": "cat /root/.ssh/authorized_keys 2>/dev/null | wc -l",
         "descripcion": "cuántas claves autorizadas tiene (la del motor se deja al crear)",
     },
-    "servicio": {
-        # SEIS cosas en un viaje, como en `dhcp_server`:
-        #   1) qué herramientas hay -- el paquete del servicio y `curl`, que la relectura
-        #      necesita para comprobar que sirve,
-        #   2) si la unidad de systemd está VIVA (`is-active`),
-        #   3) si además está HABILITADA (`is-enabled`): son DOS hechos distintos, y un
-        #      servicio vivo pero deshabilitado no arranca al reiniciar el invitado,
-        #   4) el CONTENIDO de la configuración que escribe el motor,
-        #   5) el CONTENIDO de la página: los dos ficheros se comparan ENTEROS, porque la
-        #      marca sola no prueba nada -- una configuración editada a mano conserva la
-        #      marca, y una página borrada no se repondría nunca,
-        #   6) si de verdad SIRVE la página (curl a 127.0.0.1). Sin la 6 no se puede afirmar
-        #      que el servicio hace lo que promete, y `reload` se pediría en CADA pasada -- que
-        #      es romper la idempotencia (regla 6).
-        "comando": "for h in caddy curl; do printf '%s=%s\\n' \"$h\" \"$(command -v $h || echo NO)\"; done; echo ---NETLABS---; systemctl is-active caddy 2>/dev/null || echo inactive; echo ---NETLABS---; systemctl is-enabled caddy 2>/dev/null || echo disabled; echo ---NETLABS---; cat /etc/caddy/Caddyfile 2>/dev/null; echo ---NETLABS---; cat /var/www/html/index.html 2>/dev/null; echo ---NETLABS---; curl -fsS -m 5 http://127.0.0.1/ 2>/dev/null || echo NO-SIRVE",
-        "descripcion": "si el servicio declarado está instalado, su unidad viva, su configuración puesta y sirviendo la página",
-    },
+    # El área `servicio` NO vive aquí: su lectura depende de QUÉ servicio declara el lab
+    # (cuántos ficheros, qué comprobación), así que la construye `lectura_servicio(nombre)`.
 }
 
 SEPARADOR = "---NETLABS---"
@@ -1855,16 +1840,54 @@ def lecturas_linux(guest):
     Sólo se pregunta por lo que el lab DECLARA: fuera de las áreas declaradas el motor
     no opina (regla 17), así que tampoco pregunta.
     """
-    return [
-        {
-            "area": area,
-            "accion": "leer",
-            "comando": LECTURAS_LINUX[area]["comando"],
-            "descripcion": LECTURAS_LINUX[area]["descripcion"],
-        }
-        for area in areas_a_leer(guest)
-        if area in LECTURAS_LINUX
+    declaradas = areas_de(guest)
+    lecturas = []
+    for area in areas_a_leer(guest):
+        if area == "servicio":
+            nombre = declaradas.get("servicio")
+            lecturas.append({
+                "area": area,
+                "accion": "leer",
+                "comando": lectura_servicio(nombre),
+                "descripcion": (f"si el servicio '{nombre}' está instalado, su unidad viva, "
+                                "sus ficheros puestos y sirviendo lo que promete"),
+            })
+        elif area in LECTURAS_LINUX:
+            lecturas.append({
+                "area": area,
+                "accion": "leer",
+                "comando": LECTURAS_LINUX[area]["comando"],
+                "descripcion": LECTURAS_LINUX[area]["descripcion"],
+            })
+    return lecturas
+
+
+def lectura_servicio(nombre):
+    """La lectura de un Linux cuyo área `servicio` declara `nombre` (un solo viaje).
+
+    SIETE bloques separados por la marca de siempre:
+      1) qué herramientas hay -- las del servicio y lo que la comprobación necesita,
+      2) si su unidad está VIVA (`is-active`),
+      3) si además está HABILITADA (`is-enabled`),
+      4)..n) el CONTENIDO de cada fichero que el motor gobierna, EN EL ORDEN de la tabla,
+      n+1) si de verdad SIRVE (el comando del servicio),
+      n+2) la comprobación ADICIONAL (o `na` si no la tiene).
+
+    Los dos últimos van SIEMPRE, para que el analizador no necesite saber de qué servicio se
+    trata. Un nombre fuera del vocabulario no tiene lectura: el validador lo rechaza antes.
+    """
+    opciones = SERVICIOS_LINUX_OPCIONES.get(str(nombre or ""))
+    if not opciones:
+        return ""
+    partes = [
+        "for h in " + " ".join(opciones["herramientas"])
+        + '; do echo "$h=$(command -v $h || echo NO)"; done',
+        f"systemctl is-active {opciones['unidad']} 2>/dev/null || echo inactive",
+        f"systemctl is-enabled {opciones['unidad']} 2>/dev/null || echo disabled",
     ]
+    partes += [f"cat {ruta} 2>/dev/null" for ruta in opciones["ficheros"]]
+    partes += [opciones["sirve"], opciones["extra"]]
+    return ("; echo " + SEPARADOR + "; ").join(partes)
 
 
 def _lineas(texto):
@@ -1964,33 +1987,37 @@ def leido_linux(lecturas):
             }
 
         elif area == "servicio":
+            # SIETE bloques en un viaje, y el analizador NO necesita saber de qué servicio se
+            # trata: herramientas, vivo, habilitado, un bloque por fichero gobernado (`sirve`
+            # y `extra` van SIEMPRE los dos últimos, con `na` en `extra` cuando el servicio no
+            # tiene comprobación adicional). Así el mismo analizador sirve para todo el
+            # vocabulario, y el que decide qué significa cada fichero es `_servicio_canonico`,
+            # que sí sabe qué servicio se declaró.
             bloques = str(texto).split(SEPARADOR)
-            herramientas = _lineas(bloques[0] if bloques else "")
-            activa = _lineas(bloques[1] if len(bloques) > 1 else "")
-            habilitada = _lineas(bloques[2] if len(bloques) > 2 else "")
-            configuracion = bloques[3] if len(bloques) > 3 else ""
-            pagina = bloques[4] if len(bloques) > 4 else ""
-            servido = bloques[5] if len(bloques) > 5 else ""
-            # Las herramientas tal y como las lee el motor: el paquete del servicio y `curl`.
-            # Un `command -v` sin resultado (la línea no está) se toma por PRESENTE -- igual
-            # que en `dhcp_server` -- porque la ausencia de la línea es una lectura incompleta,
-            # no una prueba de que falte; sólo un `NO` explícito pide instalarlo.
-            tiene = {herramienta: (_valor(herramientas, herramienta) != "NO")
-                     for herramienta in SERVICIOS_LINUX_OPCIONES["caddy"]["paquetes"]}
+            if len(bloques) < 5:
+                # Una lectura incompleta no es un estado: sin los siete bloques no se puede
+                # decir si el servicio está bien, así que se deja el área SIN LEER y el driver
+                # para con su nombre, en vez de inventar «no sirve» y recargar a ciegas.
+                continue
+            activa = _lineas(bloques[1])
+            habilitada = _lineas(bloques[2])
+            servido = bloques[-2]
             leido["servicio"] = {
-                "herramientas": tiene,
+                "herramientas": _lineas_servicio(bloques[0]),
                 # DOS hechos distintos, no uno: estar VIVO (`is-active`) y estar HABILITADO
                 # (`is-enabled`). Un servicio vivo pero deshabilitado no arranca al reiniciar,
                 # y mirar sólo `is-active` lo daba por bueno para siempre.
                 "activo": bool(activa) and activa[0] == "active",
                 "habilitado": bool(habilitada) and habilitada[0] == "enabled",
-                # Los ficheros se leen ENTEROS, crudos: quien decide si están bien es el
-                # canónico, que es quien sabe qué se escribiría. La marca sola no prueba nada
-                # -- una configuración editada a mano la conserva, y la página puede no estar.
-                "config_leida": (configuracion if isinstance(configuracion, str) else ""),
-                "pagina_leida": (pagina if isinstance(pagina, str) else ""),
+                # Los ficheros se leen ENTEROS, crudos y EN ORDEN: quien decide si están bien
+                # es el canónico, que es quien sabe qué se escribiría. La marca sola no prueba
+                # nada -- una configuración editada a mano la conserva, y un fichero puede no
+                # estar.
+                "ficheros_leidos": [b if isinstance(b, str) else "" for b in bloques[3:-2]],
                 # Sirve si curl sacó algo que NO sea la marca de fallo: un 200 con cuerpo.
                 "sirve": bool(str(servido).strip()) and "NO-SIRVE" not in str(servido),
+                # La comprobación ADICIONAL del servicio (`si`/`no`), que sólo él sabe hacer.
+                "extra": str(bloques[-1]).strip(),
             }
     return leido
 
@@ -2044,25 +2071,104 @@ RUTA_DNSMASQ = "/etc/dnsmasq.d/netlabs.conf"
 # El área `servicio`: un servicio instalado, configurado y SIRVIENDO
 # ---------------------------------------------------------------------------
 # El vocabulario CERRADO de servicios que un Linux puede declarar en el área `servicio`.
-# Hoy su ÚNICO miembro es `caddy` (un servidor web mínimo): el área instala su paquete,
-# escribe la configuración y la página que el motor sirve, deja la unidad de systemd
-# habilitada y en marcha, y lo comprueba SIRVIÉNDOLA. Un nombre que no esté aquí se
-# RECHAZA en el validador (`declaracion.py`) con su motivo: el lab no inventa primitivas
-# (regla 15). Añadir un miembro es una primitiva nueva, con su ADR.
-SERVICIOS_LINUX = ("caddy",)
+# Cada miembro es un SERVICIO que el motor sabe instalar, configurar y dejar SIRVIENDO; un
+# nombre que no esté aquí se RECHAZA en el validador (`declaracion.py`) con su motivo: el lab
+# no inventa primitivas (regla 15). Añadir un miembro es una primitiva nueva, con su ADR.
+SERVICIOS_LINUX = ("caddy", "netxms")
 
-# Lo que el motor sabe hacer con cada servicio, en un solo sitio: los paquetes que instala
-# (incluido `curl`, que la RELECTURA necesita para comprobar que sirve), el nombre de su
-# unidad de systemd, la ruta de su configuración y dónde deja la página. Nada de esto es un
-# valor de ningún lab: es vocabulario del MOTOR (regla 7).
+# El repositorio APT de NetXMS no está en Debian: lo añade su paquete de release, que se
+# descarga de packages.netxms.org. Se pincha VERSIÓN de la web porque el cliente web (el WAR)
+# y el servidor (el paquete) se hablan: el WAR no está en el repositorio APT, sólo en la web
+# del proyecto. Sin versión fija, un `apply` podría dejar el WAR y el servidor de versiones
+# distintas y la web dejaría de entrar (el cliente comprueba la versión del protocolo).
+NETXMS_VERSION = "7.0.3"
+NETXMS_REPO_DEB = "https://packages.netxms.org/netxms-release-latest.deb"
+NETXMS_WAR = f"https://netxms.org/download/releases/7.0/nxmc-{NETXMS_VERSION}.war"
+NETXMS_WEBAPPS = "/var/lib/tomcat10/webapps"
+NETXMS_BD = {"nombre": "netxms", "usuario": "netxms", "clave": "netlabs", "tipo": "pgsql"}
+
+# La ruta del preparador de NetXMS: un guion que el motor ESCRIBE en el invitado (como la
+# configuración) y que hace las piezas que necesitan más de un comando: base, usuario,
+# esquema y WAR. Su contenido es del motor (regla 7), y va en un fichero en vez de en una
+# línea de shell kilométrica porque cada pieza es idempotente por separado y así se lee.
+RUTA_PREPARADOR_NETXMS = "/usr/local/sbin/netlabs-servicio-netxms"
+
+# La unidad del paquete arranca `netxmsd -S` SIN decirle dónde está su configuración, y el
+# servidor NO lee `/etc/netxmsd.conf` por su cuenta (medido: arrancó con una base SQLite
+# local, en vez de la PostgreSQL que declara el fichero). No se adivina la ruta que el
+# binario trae por defecto: se le dice la nuestra con un `drop-in` de systemd, que es del
+# motor como el resto de la configuración.
+RUTA_DROPIN_NETXMS = "/etc/systemd/system/netxms-server.service.d/netlabs.conf"
+
+# Lo que el motor sabe hacer con cada servicio, en un solo sitio. Nada de esto es un valor de
+# ningún lab: es vocabulario del MOTOR (regla 7). Las claves, todas obligatorias (un servicio
+# sin alguna de ellas no se puede gobernar entero, así que no entra en el vocabulario):
+#   paquetes           lo que se instala (incluido `curl`, que la relectura necesita)
+#   herramientas       ejecutables cuya AUSENCIA prueba que falta el paquete
+#   unidad             la unidad de systemd del servicio
+#   ficheros           rutas que el motor gobierna, EN ORDEN (el contenido se compara entero)
+#   sirve              comando que comprueba que el servicio de verdad sirve
+#   extra              lectura ADICIONAL (imprime `si`/`no`); `na` si el servicio no la tiene
+#   extra_esperado     el valor de `extra` que significa «preparado» (None: no se usa)
+#   preparar           comandos idempotentes que dejan el servicio en estado de arrancar
+#   preparar_paquetes  lo que hay que hacer ANTES de instalar (p. ej. añadir el repositorio)
+#   espera             segundos de respiro tras arrancar, antes de que la relectura pregunte
 SERVICIOS_LINUX_OPCIONES = {
     "caddy": {
         "paquetes": ("caddy", "curl"),
+        "herramientas": ("caddy", "curl"),
         "unidad": "caddy",
-        "config": "/etc/caddy/Caddyfile",
-        "config_dir": "/etc/caddy",
-        "web": "/var/www/html",
-        "pagina": "/var/www/html/index.html",
+        "ficheros": ("/etc/caddy/Caddyfile", "/var/www/html/index.html"),
+        "sirve": "curl -fsS -m 5 http://127.0.0.1/ 2>/dev/null || echo NO-SIRVE",
+        "extra": "echo na",
+        "extra_esperado": None,
+        "preparar": (),
+        "preparar_paquetes": (),
+        "espera": 2,
+    },
+    "netxms": {
+        # `netxms-server` es el servidor; `netxms-dbdrv-pgsql` su driver de base (el paquete
+        # NO trae ninguno: sin driver, el servidor no arranca); `postgresql` la base;
+        # `tomcat10` el contenedor de servlets de la web (Jakarta EE 10, que es lo que pide
+        # el WAR de NetXMS); `curl` lo que la relectura y el preparador usan para descargar.
+        "paquetes": ("netxms-server", "netxms-dbdrv-pgsql", "postgresql", "tomcat10", "curl"),
+        "herramientas": ("netxmsd", "nxdbmgr", "psql", "curl", "java"),
+        "unidad": "netxms-server",
+        "ficheros": ("/etc/netxmsd.conf", RUTA_DROPIN_NETXMS, RUTA_PREPARADOR_NETXMS),
+        # SIRVE = se puede ENTRAR por el navegador: pide la página a Tomcat, no el puerto del
+        # servidor (4700), porque lo que el lab promete es la interfaz web. Reintenta acotado:
+        # un WAR de 53 MB no está desplegado dos segundos después de arrancar Tomcat, y sin
+        # reintento la primera pasada pediría recargar para siempre.
+        # CON `-L`: `/nxmc/` contesta 302 (a la aplicación ligera) y sin seguir la redirección
+        # el cuerpo llega VACÍO -- que la relectura leería como «no sirve» para siempre
+        # (medido). Se sigue UNA redirección y se exige que la página traiga cuerpo.
+        "sirve": ("curl -fsSL -m 10 --retry 12 --retry-delay 5 --retry-connrefused "
+                  "http://127.0.0.1:8080/nxmc/ 2>/dev/null || echo NO-SIRVE"),
+        "extra": f"sh {RUTA_PREPARADOR_NETXMS} estado 2>/dev/null || echo no",
+        "extra_esperado": "si",
+        "preparar": (f"sh {RUTA_PREPARADOR_NETXMS} preparar",),
+        # Sin `apt-get update` DESPUÉS de añadir el repositorio, el `install` no ve sus
+        # paquetes; y sin `ca-certificates` el `curl` de la descarga no puede verificar el
+        # certificado de packages.netxms.org en la imagen base.
+        "preparar_paquetes": (
+            ("DEBIAN_FRONTEND=noninteractive apt-get install -y -qq curl ca-certificates "
+             "lsb-release"),
+            # El paquete de release trae la clave Y una lista con `VENDOR`/`DIST` que
+            # rellena su postinst con `lsb_release` -- y si ese postinst no llega a correr
+            # (dependencia sin resolver), la lista queda con la plantilla y `apt-get update`
+            # falla ENTERO: no instala NADA, ni siquiera lo de Debian (medido). Por eso la
+            # lista se escribe aquí, desde el propio invitado (`/etc/os-release` dice
+            # distribuidor y versión), en vez de confiar en que el postinst la arregle.
+            (f"if ! dpkg -s netxms-release 2>/dev/null | grep -qx 'Status: install ok installed'; then "
+             f"curl -fsSL -o /tmp/netxms-release.deb {NETXMS_REPO_DEB} && "
+             "dpkg -i --force-confnew /tmp/netxms-release.deb; fi"),
+            ('. /etc/os-release && printf '
+             '"deb [signed-by=/etc/apt/keyrings/netxms-keyring.gpg] '
+             'https://packages.netxms.org/7.x/%s %s main\\n" "$ID" "$VERSION_CODENAME" '
+             '> /etc/apt/sources.list.d/netxms.list'),
+            "DEBIAN_FRONTEND=noninteractive apt-get update -qq",
+        ),
+        "espera": 5,
     },
 }
 
@@ -2073,29 +2179,17 @@ MARCA_SERVICIO = "# netlabs-servicio"
 
 
 def configuracion_servicio(nombre):
-    """El fichero de configuración del servicio `nombre`, tal cual se escribe en el invitado.
+    """El fichero de configuración de `caddy`, tal cual se escribe en el invitado.
 
-    Es la configuración MÍNIMA que sirve una página: `caddy` escucha en el 80 y sirve como
-    ficheros lo que hay bajo `/var/www/html`. La ruta y el contenido son del MOTOR -- el lab
-    sólo declara el NOMBRE del servicio -- porque un servidor web que no sirve nada no
-    cumple nada. Lleva la MARCA que la relectura busca.
+    Se queda con este nombre por lo que ya significa en el motor y en las pruebas: el
+    `Caddyfile` del servicio `caddy`. La forma general es `_ficheros_servicio`, que es la que
+    usa el área; para un servicio que no es `caddy` esto devuelve "".
     """
-    opciones = SERVICIOS_LINUX_OPCIONES.get(str(nombre))
-    if not opciones or str(nombre) != "caddy":
-        return ""
-    return "\n".join([
-        "# PROPÓSITO: sirve una página de laboratorio; lo escribe el motor (netlabs).",
-        "# No se edita a mano: el motor lo reescribe desde la declaración.",
-        MARCA_SERVICIO,
-        ":80 {",
-        f"\troot * {opciones['web']}",
-        "\tfile_server",
-        "}",
-    ]) + "\n"
+    return _ficheros_servicio(nombre).get("/etc/caddy/Caddyfile", "")
 
 
 def pagina_servicio():
-    """La página de relleno que el servicio sirve.
+    """La página de relleno que sirve `caddy`.
 
     Es del MOTOR, no del lab: el lab sólo pide que HAYA un servicio, y para comprobar que
     de verdad sirve hace falta algo que servir (un `file_server` sin `index.html` contesta
@@ -2107,17 +2201,213 @@ def pagina_servicio():
     )
 
 
+def _configuracion_caddy():
+    """El `Caddyfile` mínimo que sirve una página: escucha en el 80 y sirve `/var/www/html`.
+
+    La ruta y el contenido son del MOTOR -- el lab sólo declara el NOMBRE del servicio --
+    porque un servidor web que no sirve nada no cumple nada. Lleva la MARCA que distingue el
+    fichero del motor del que trae el paquete.
+    """
+    return "\n".join([
+        "# PROPÓSITO: sirve una página de laboratorio; lo escribe el motor (netlabs).",
+        "# No se edita a mano: el motor lo reescribe desde la declaración.",
+        MARCA_SERVICIO,
+        ":80 {",
+        "\troot * /var/www/html",
+        "\tfile_server",
+        "}",
+    ]) + "\n"
+
+
+def _configuracion_netxms():
+    """La configuración del servidor NetXMS (`/etc/netxmsd.conf`).
+
+    Dice SÓLO dónde está su base: driver, nombre, usuario, clave y host. La clave es del
+    laboratorio (sandbox) y vive en el motor, no en la declaración: un lab no escribe
+    credenciales (regla 7). `DBHost` es 127.0.0.1 y no un socket porque PostgreSQL, en
+    Debian, autentica `peer` por socket -- como el motor entra por SSH como `root`, el
+    usuario `postgres` no es el del servicio y el socket no le valdría.
+    """
+    return "\n".join([
+        "# PROPÓSITO: la configuración del servidor NetXMS; la escribe el motor (netlabs).",
+        "# No se edita a mano: el motor la reescribe desde la declaración.",
+        MARCA_SERVICIO,
+        "DBDriver = pgsql",
+        f"DBName = {NETXMS_BD['nombre']}",
+        f"DBLogin = {NETXMS_BD['usuario']}",
+        f"DBPassword = {NETXMS_BD['clave']}",
+        "DBHost = 127.0.0.1",
+    ]) + "\n"
+
+
+# El guion que el motor escribe en el invitado para preparar NetXMS. Es una PLANTILLA con
+# tres huecos (`%(webapps)s`, `%(war)s`, los de la base) y no un f-string porque el shell está
+# lleno de llaves (`${1:-preparar}`, `$((i + 1))`) que un f-string se comería.
+PLANTILLA_PREPARADOR_NETXMS = r'''#!/bin/sh
+# PROPÓSITO: dejar NetXMS en estado de arrancar: su base en PostgreSQL con su usuario, su
+#            esquema y su interfaz web desplegada en Tomcat. Lo escribe el motor (netlabs)
+#            desde el área `servicio`; no se edita a mano.
+# USO:       netlabs-servicio-netxms preparar|estado
+#            `preparar` es idempotente; `estado` imprime `si` cuando la base ya tiene el
+#            esquema de NetXMS Y el WAR de la web está desplegado (es lo que el motor lee
+#            para decidir si hay que preparar).
+set -u
+
+WEBAPPS="%(webapps)s"
+WAR="%(war)s"
+
+# Todo lo que va a PostgreSQL se ejecuta como `postgres` y desde /tmp: `su` sin `-` conserva
+# el directorio, y `root` no es accesible para ese usuario (sólo dejaría un aviso inútil).
+como_postgres() {
+    su postgres -c "cd /tmp && $*" 2>/dev/null
+}
+
+tablas() {
+    como_postgres "psql -tA -d %(bd)s -c \"select count(*) from information_schema.tables where table_schema = 'public'\""
+}
+
+esquema() {
+    n=$(tablas | tr -d ' \r')
+    case "$n" in
+        ''|0|*[!0-9]*) echo no ;;
+        *) echo si ;;
+    esac
+}
+
+# El estado que le importa al motor es TODO lo que tiene que existir antes de arrancar: el
+# esquema de la base Y el WAR de la web. Si se mirara sólo la base, un WAR que no llegó a
+# descargarse no se volvería a pedir nunca (la base ya está) y la web no serviría jamás.
+estado() {
+    [ "$(esquema)" = "si" ] && [ -s "$WEBAPPS/nxmc.war" ] && echo si || echo no
+}
+
+case "${1:-preparar}" in
+estado)
+    estado
+    ;;
+preparar)
+    # El `drop-in` de la unidad acaba de escribirse: sin recargar systemd no lo ve.
+    systemctl daemon-reload
+    # `netxms-server` arrastra `netxms-agent` como dependencia, y el agente se queda con el
+    # puerto 4700 (el suyo). Este lab no monitoriza nada: el agente no pinta nada y sólo
+    # añade un servicio que el lab no ha declarado.
+    systemctl disable --now netxms-agent >/dev/null 2>&1
+    systemctl enable --now postgresql >/dev/null 2>&1
+    i=0
+    while [ "$i" -lt 30 ] && ! pg_isready -q; do i=$((i + 1)); sleep 1; done
+    if [ "$(como_postgres "psql -tA -c \"select 1 from pg_roles where rolname = 'netxms'\"")" != "1" ]; then
+        como_postgres "psql -qc \"create role netxms login password 'netlabs'\""
+    fi
+    if [ "$(como_postgres "psql -tA -c \"select 1 from pg_database where datname = 'netxms'\"")" != "1" ]; then
+        como_postgres "createdb -O netxms netxms"
+    fi
+    if [ "$(esquema)" != "si" ]; then
+        # Con `-c` EXPLÍCITO: sin él `nxdbmgr` no encuentra la configuración y contesta
+        # "Cannot determine database type from driver name" (medido).
+        # Y el TIPO explícito: `nxdbmgr init` a secas deduce el motor del nombre del
+        # driver... y con `-c` apuntando a la configuración contesta "Cannot determine
+        # database type from driver name" (medido: `init pgsql` sí, `init` no).
+        nxdbmgr -c /etc/netxmsd.conf init %(tipo)s || exit 1
+    fi
+    nueva_web=no
+    mkdir -p "$WEBAPPS"
+    if [ ! -s "$WEBAPPS/nxmc.war" ]; then
+        curl -fsSL -o "$WEBAPPS/nxmc.war" "$WAR" || exit 1
+        nueva_web=si
+    fi
+    systemctl enable --now tomcat10 >/dev/null 2>&1
+    if [ "$nueva_web" = "si" ]; then
+        systemctl restart tomcat10
+    fi
+    ;;
+*)
+    echo "uso: $0 preparar|estado" >&2
+    exit 2
+    ;;
+esac
+'''
+
+def _dropin_netxms():
+    """El `drop-in` de systemd que le dice al servidor DÓNDE está su configuración.
+
+    Vaciar `ExecStart` antes de redefinirlo es obligatorio: systemd ACUMULA las líneas de
+    `ExecStart` de la unidad y de sus `drop-in`, y sin el vaciado el servidor arrancaría dos
+    veces (una sin configuración, con SQLite, y otra con la buena).
+    """
+    return "\n".join([
+        "# PROPÓSITO: arrancar netxmsd con la configuración que gobierna el motor (netlabs).",
+        "# No se edita a mano: el motor lo reescribe desde la declaración.",
+        MARCA_SERVICIO,
+        "[Service]",
+        "ExecStart=",
+        "ExecStart=/usr/bin/netxmsd -S -c /etc/netxmsd.conf",
+    ]) + "\n"
+
+
+def _preparador_netxms():
+    """El guion que deja NetXMS en estado de arrancar (base, esquema y web).
+
+    Va como fichero y no como una línea de shell porque son cuatro piezas idempotentes por
+    separado. `estado` es la MISMA pregunta que hace la relectura del área (`extra`): si la
+    base ya tiene tablas. Y `preparar` no lanza `nxdbmgr init` sobre una base ya inicializada
+    (es un error, no una repetición inocua).
+    """
+    return PLANTILLA_PREPARADOR_NETXMS % {
+        "webapps": NETXMS_WEBAPPS,
+        "war": NETXMS_WAR,
+        "bd": NETXMS_BD["nombre"],
+        "usuario": NETXMS_BD["usuario"],
+        "clave": NETXMS_BD["clave"],
+        "tipo": NETXMS_BD["tipo"],
+    }
+
+
+def _ficheros_servicio(nombre):
+    """{ruta: contenido} de TODOS los ficheros que el área gobierna para `nombre`, en orden.
+
+    Es el único sitio que sabe qué se escribe en cada fichero; el que los escribe y el que
+    comprueba que están bien comparan lo mismo, así que no pueden desincronizarse. Devuelve
+    un dict vacío para un nombre fuera del vocabulario: el validador lo rechaza antes, y
+    aquí no se inventa contenido.
+    """
+    opciones = SERVICIOS_LINUX_OPCIONES.get(str(nombre or ""))
+    if not opciones:
+        return {}
+    generadores = {
+        "/etc/caddy/Caddyfile": _configuracion_caddy,
+        "/var/www/html/index.html": pagina_servicio,
+        "/etc/netxmsd.conf": _configuracion_netxms,
+        RUTA_DROPIN_NETXMS: _dropin_netxms,
+        RUTA_PREPARADOR_NETXMS: _preparador_netxms,
+    }
+    return {ruta: generadores[ruta]() for ruta in opciones["ficheros"]}
+
+
+def _lineas_servicio(bloque):
+    """Las líneas `clave=valor` de un bloque de herramientas -> {clave: presente}."""
+    presentes = {}
+    for linea in _lineas(bloque):
+        clave, _, valor = linea.partition("=")
+        if clave:
+            # Un `command -v` sin resultado se toma por PRESENTE, igual que en `dhcp_server`:
+            # la ausencia de la línea es una lectura incompleta, no una prueba de que falte;
+            # sólo un `NO` explícito pide instalarlo.
+            presentes[clave.strip()] = valor.strip() != "NO"
+    return presentes
+
+
 def _servicio_canonico(declarado, leido):
     """Diferencia del área `servicio`: qué hay que hacer para que el servicio sirva.
 
-    El valor DECLARADO es el NOMBRE del servicio (`servicio: caddy`), tal cual: la
-    declaración no envuelve en un mapa lo que ya es un dato. El resto -- paquetes, ruta de
-    la configuración, contenido de la página -- es del motor.
+    El valor DECLARADO es el NOMBRE del servicio (`servicio: netxms`), tal cual: la
+    declaración no envuelve en un mapa lo que ya es un dato. El resto -- paquetes, ficheros,
+    comprobación -- es del motor, y cada miembro del vocabulario lo declara en
+    `SERVICIOS_LINUX_OPCIONES`.
 
     Va en DOS sentidos, como el resto del interior: si falta el paquete se instala, si falta
-    la configuración se escribe, si la unidad no está viva se arranca y si no sirve se
-    recarga. Un invitado ya convergido no produce NINGUNA operación -- que es lo que hace
-    verdadera la promesa de la regla 6.
+    la configuración se escribe, si la base no está preparada se prepara, si la unidad no
+    está viva se arranca y si no sirve se recarga. Un invitado ya convergido no produce
+    NINGUNA operación -- que es lo que hace verdadera la promesa de la regla 6.
     """
     nombre = str(declarado or "")
     opciones = SERVICIOS_LINUX_OPCIONES.get(nombre)
@@ -2129,21 +2419,33 @@ def _servicio_canonico(declarado, leido):
     actual = leido if isinstance(leido, dict) else {}
     operaciones = []
 
+    # Se pregunta por las HERRAMIENTAS, no por los paquetes: es lo que un `command -v` puede
+    # contestar. Si falta cualquiera, se instala la lista entera -- `apt-get install` sobre lo
+    # ya instalado no hace nada, y así no hay que mantener un mapa paquete->ejecutable.
     herramientas = actual.get("herramientas") or {}
-    faltan = [p for p in opciones["paquetes"] if not herramientas.get(p, True)]
-    if faltan:
-        operaciones.append({"op": "install_service", "servicio": nombre, "paquetes": faltan})
+    if any(not herramientas.get(h, True) for h in opciones["herramientas"]):
+        operaciones.append({"op": "install_service", "servicio": nombre,
+                            "paquetes": list(opciones["paquetes"])})
 
-    # Los DOS ficheros que el motor gobierna se comparan por su CONTENIDO ENTERO contra lo
-    # que el motor escribiría -- no por su marca: una configuración editada a mano conserva
+    # Los ficheros que el motor gobierna se comparan por su CONTENIDO ENTERO, en orden, contra
+    # lo que el motor escribiría -- no por su marca: una configuración editada a mano conserva
     # la marca, y una página borrada no tiene ninguna, así que la marca sola daba el área por
-    # buena con los ficheros mal (medido por el revisor).
-    config_ok = (str(actual.get("config_leida") or "").strip()
-                 == configuracion_servicio(nombre).strip())
-    pagina_ok = (str(actual.get("pagina_leida") or "").strip() == pagina_servicio().strip())
-    ficheros_cambiados = not (config_ok and pagina_ok)
+    # buena con los ficheros mal (hallazgo del PR #12). El orden es el de la tabla.
+    esperados = list(_ficheros_servicio(nombre).values())
+    leidos = actual.get("ficheros_leidos") or []
+    ficheros_cambiados = (len(leidos) != len(esperados) or any(
+        str(leido_f or "").strip() != str(esperado or "").strip()
+        for leido_f, esperado in zip(leidos, esperados)))
     if ficheros_cambiados:
         operaciones.append({"op": "write_service_config", "servicio": nombre})
+
+    # Lo que el servicio necesita ANTES de arrancar y no pone ningún paquete: en NetXMS, la
+    # base con su usuario y su esquema. Se pregunta por lo que el servicio mismo sabe mirar
+    # (`extra`), no por «¿hay algo?»: `is-active` del servidor estaría en verde con la base
+    # vacía y el servidor se caería en la primera consulta.
+    if opciones.get("extra_esperado") and \
+            str(actual.get("extra") or "").strip() != opciones["extra_esperado"]:
+        operaciones.append({"op": "prepare_service", "servicio": nombre})
 
     # `is-active` no es `is-enabled`: un servicio VIVO pero DESHABILITADO no arranca al
     # reiniciar el invitado, y mirar sólo si está vivo lo daba por bueno para siempre.
@@ -2231,16 +2533,20 @@ def escrituras_linux(operaciones, guest, declaracion, identidad, parametros):
             nombre = str(operacion.get("servicio") or "")
             opciones = SERVICIOS_LINUX_OPCIONES.get(nombre) or {}
             unidad = opciones.get("unidad") or nombre
+            # La espera es del SERVICIO, no del motor: `caddy` vuelve a escuchar en un suspiro
+            # y Tomcat tarda en desplegar un WAR de 53 MB. La relectura corre en el paso
+            # siguiente, así que sin esta espera se preguntaría demasiado pronto.
+            espera = int(opciones.get("espera") or 2)
             if op == "enable_service":
-                comando = f"systemctl enable --now {unidad} >/dev/null 2>&1; sleep 2"
+                comando = (f"systemctl daemon-reload; "
+                           f"systemctl enable --now {unidad} >/dev/null 2>&1; sleep {espera}")
                 descripcion = f"poner en marcha (y habilitar) el servicio '{nombre}'"
             else:
                 # `restart` y no `reload`: la recarga de un Caddyfile admite formas distintas y
-                # un restart es idempotente y no depende de que el proceso ya esté sano. El
-                # `sleep` da un respiro para que la unidad vuelva a escuchar antes de RELEER
-                # (la relectura corre en el siguiente paso, y curl no reintenta).
-                comando = (f"systemctl enable --now {unidad} >/dev/null 2>&1; "
-                           f"systemctl restart {unidad}; sleep 2")
+                # un restart es idempotente y no depende de que el proceso ya esté sano.
+                comando = (f"systemctl daemon-reload; "
+                           f"systemctl enable --now {unidad} >/dev/null 2>&1; "
+                           f"systemctl restart {unidad}; sleep {espera}")
                 descripcion = f"recargar el servicio '{nombre}' y dejarlo sirviendo"
             comandos.append({
                 "area": "servicio", "accion": "escribir", "declarado": "activo",
@@ -2250,6 +2556,12 @@ def escrituras_linux(operaciones, guest, declaracion, identidad, parametros):
 
         elif op == "install_service":
             paquetes = " ".join(operacion.get("paquetes") or [])
+            opciones = SERVICIOS_LINUX_OPCIONES.get(str(operacion.get("servicio") or "")) or {}
+            # Lo que hay que hacer ANTES de instalar es del SERVICIO: NetXMS añade su
+            # repositorio APT (no está en Debian) y refresca las listas DESPUÉS de añadirlo,
+            # o el `install` no ve sus paquetes.
+            pasos = list(opciones.get("preparar_paquetes") or ())
+            pasos.append(f"DEBIAN_FRONTEND=noninteractive apt-get install -y -qq {paquetes}")
             comandos.append({
                 "area": "servicio", "accion": "escribir", "declarado": paquetes,
                 "descripcion": f"instalar el servicio declarado y lo que la comprobación necesita: {paquetes}",
@@ -2258,25 +2570,38 @@ def escrituras_linux(operaciones, guest, declaracion, identidad, parametros):
                 # así que un `install` a secas sale con rc=100 sin instalar nada. Refrescar
                 # las listas primero es barato y sólo ocurre cuando falta algo.
                 "comando": ("DEBIAN_FRONTEND=noninteractive apt-get update -qq && "
-                            f"DEBIAN_FRONTEND=noninteractive apt-get install -y -qq {paquetes}"),
+                            + " && ".join(pasos)),
             })
 
         elif op == "write_service_config":
             nombre = str(operacion.get("servicio") or "")
-            opciones = SERVICIOS_LINUX_OPCIONES.get(nombre) or {}
-            configuracion = configuracion_servicio(nombre)
-            # La página de relleno y la configuración se escriben en UN solo paso: el servicio
-            # no sirve nada sin las dos, y separarlas sólo daría un estado intermedio que no
-            # cumple. Se crean los DOS directorios con `-p` porque pueden no existir: el de la
-            # página en la imagen base, y el de la configuración si el paquete aún no la trajo.
-            web = opciones.get("web") or ""
-            directorio_config = opciones.get("config_dir") or ""
+            ficheros = _ficheros_servicio(nombre)
+            # TODOS los ficheros que el servicio gobierna se escriben en UN solo paso: el
+            # servicio no cumple con unos sí y otros no, y separarlos sólo daría un estado
+            # intermedio que no cumple. Los directorios se crean con `-p` porque pueden no
+            # existir: el de `caddy` en la imagen base, el de `tomcat10` si el paquete aún no
+            # lo trajo, y `/usr/local/sbin` (que sí existe, pero no se supone).
+            directorios = sorted({ruta.rsplit("/", 1)[0] for ruta in ficheros})
+            escrituras = " && ".join(
+                f"echo {_b64(contenido)} | base64 -d > {ruta}"
+                for ruta, contenido in ficheros.items())
             comandos.append({
                 "area": "servicio", "accion": "escribir", "declarado": nombre,
-                "descripcion": f"escribir la configuración del servicio '{nombre}' y su página",
-                "comando": (f"mkdir -p {web} {directorio_config} && "
-                            f"echo {_b64(pagina_servicio())} | base64 -d > {opciones.get('pagina')} && "
-                            f"echo {_b64(configuracion)} | base64 -d > {opciones.get('config')}"),
+                "descripcion": f"escribir la configuración del servicio '{nombre}' y sus ficheros",
+                "comando": f"mkdir -p {' '.join(directorios)} && {escrituras}",
+            })
+
+        elif op == "prepare_service":
+            nombre = str(operacion.get("servicio") or "")
+            opciones = SERVICIOS_LINUX_OPCIONES.get(nombre) or {}
+            # Lo que el servicio necesita antes de arrancar (base, usuario, esquema). Va
+            # DESPUÉS de escribir sus ficheros y ANTES de arrancar la unidad: `nxdbmgr init`
+            # lee `/etc/netxmsd.conf`, y `netxms-server` no arranca sin esquema.
+            pasos = list(opciones.get("preparar") or ())
+            comandos.append({
+                "area": "servicio", "accion": "escribir", "declarado": nombre,
+                "descripcion": f"preparar lo que el servicio '{nombre}' necesita antes de arrancar",
+                "comando": " && ".join(pasos),
             })
 
     return comandos
@@ -2292,7 +2617,8 @@ def pendiente_de_driver(operacion):
         "add_address", "enable_ip_forward", "install_packages", "install_tools",
         "write_dnsmasq", "add_static_lease", "remove_static_lease",
         "disable_offload", "reload_dnsmasq",
-        "install_service", "write_service_config", "enable_service", "reload_service",
+        "install_service", "write_service_config", "prepare_service",
+        "enable_service", "reload_service",
     }
     op = (operacion or {}).get("op")
     if op in conocidas:

@@ -20,6 +20,18 @@ aquí está su entrada; los tres tienen que contar lo mismo, y eso es lo que vig
 
 ### Añadido
 
+- **El área `servicio` aprende un segundo miembro, y deja de tener la forma de `caddy`
+  (ADR 0028).** Cada miembro del vocabulario cerrado declara sus PIEZAS —paquetes, ejecutables,
+  unidad, ficheros, el comando que prueba que SIRVE, una lectura adicional opcional y los pasos
+  para dejarlo en estado de arrancar— y el motor los gobierna igual para todos. `netxms` es el
+  segundo miembro: añade su repositorio APT (no está en Debian), instala PostgreSQL y Tomcat,
+  crea la base, el usuario y el esquema (`nxdbmgr init`, sólo si la base no tiene tablas) y
+  despliega el WAR del cliente web, y luego prueba que sirve con un `curl` a
+  `127.0.0.1:8080/nxmc/`. Hay una operación nueva, `prepare_service`, que va DESPUÉS de escribir
+  los ficheros y ANTES de arrancar la unidad.
+- **`10_lxc-netxms`**: el lab mínimo otra vez —un contenedor LXC que es bastión y servidor—,
+  pero con NetXMS dentro. La declaración es la misma línea (`servicio: netxms`): la base, la
+  contraseña, la versión y la URL de su web son vocabulario del motor, no del lab.
 - **El tipo de equipo manda sobre las áreas: un equipo, una responsabilidad (ADR 0026).** El
   validador caza un área declarada en el tipo al que no le toca, con el motivo y con el equipo
   que sí puede — «un `rt` que filtra es un router con dos trabajos: eso es un `fw`». Cubre los

@@ -1,0 +1,59 @@
+# PROPÓSITO:   el lab más simple que enseña el YAML declarativo Y el área `servicio`: UN
+#              contenedor LXC que, además de ser el bastión, declara un servicio
+#              (`servicio: caddy`) que el motor instala y deja sirviendo. SIN RouterOS y
+#              sin ningún CHR: no hay topología que enrutar, no hace falta router.
+# INVARIANTES: el lab no declara vmid ni MAC (regla 11: se derivan del clúster).
+#              No hay `vms:` (este lab no tiene ni una máquina virtual) y ninguna
+#              declaración menciona RouterOS: `grep -i routeros` sobre este fichero no
+#              encuentra nada.
+#              El contenedor ES el bastión: es el único invitado, y su túnel es la vía
+#              por la que el motor entra a configurarlo.
+# LÍMITES:     el área `servicio` gobierna el PAQUETE y la UNIDAD del servicio que nombra,
+#              y la configuración que el propio motor escribe dentro (su Caddyfile y su
+#              página). NO borra paquetes ajenos, y fuera de las áreas declaradas no toca
+#              nada (regla 17). El nombre es de un vocabulario CERRADO (hoy sólo `caddy`):
+#              un nombre que no esté se rechaza (regla 15, ADR 0027). Lo que este lab NO
+#              demuestra: no hay router (nada que enrutar) ni segunda red. El paquete se
+#              instala saliendo a internet por el túnel del bastión, que el motor ya
+#              construye para entrar en él.
+# VER:         docs/decisiones/0027-el-area-servicio-de-un-linux.md (el área `servicio`),
+#              docs/decisiones/0002-el-pool-como-frontera-de-propiedad.md (el pool es la
+#              frontera de propiedad), docs/decisiones/0005-*.md (el bastión y su DHCP),
+#              deployment_engine/tools/plan.py (la rama `lxc` de `_parametros_creacion`:
+#              `ssh-public-keys` y `cmode: shell`, que es cómo entra el motor).
+
+lab:
+  nombre: 09_lxc-caddy
+  # Una sola red: la de gestión. El contenedor vive en ella y no hay más.
+  bridges:
+    - nombre: vmb_caddy
+      address: 10.45.0.1/24
+  # Una sola etapa: no hay nada que esperar antes, así que no hay carrera que evitar.
+  stages: [1]
+  # Marca, no valor: el motor lee la clave y sabe que este lab tiene bastión. El
+  # bastión de ESTE lab es el propio contenedor de Caddy.
+  tunnel: {tipo: bastion}
+
+containers:
+  # El contenedor del lab: un Linux con Caddy dentro, y a la vez el bastión (el
+  # `tipo: ctl` es lo que lo nombra `ctl-caddy` y lo que hace que el motor le construya
+  # el túnel). Es el ÚNICO invitado: sin routers, sin nada que enrutar.
+  - rol: caddy
+    tipo: ctl         # el bastión de este lab -> el nombre es 'ctl-caddy'
+    stage: 1
+    cores: 1
+    memory: 512
+    disk: 4
+    bridge: vmb_caddy
+    address: 10.45.0.10/24
+    # Y esto es lo que va DENTRO del contenedor:
+    #   * `tunnel: {}` -- la salida. No lleva valor -- que hay túnel lo dice la CLAVE, no
+    #     su contenido --; por dónde sale, con qué clave y en qué puerto es entorno del
+    #     motor, no una dirección escrita en un lab.
+    #   * `servicio: caddy` -- el servicio que el motor instala y deja SIRVIENDO (área
+    #     `servicio`, vocabulario cerrado; ADR 0027). El `caddy` no es un valor de este
+    #     lab: es el nombre del servicio, del vocabulario del motor.
+    config:
+      linux:
+        tunnel: {}
+        servicio: caddy

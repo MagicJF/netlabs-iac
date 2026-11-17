@@ -14,14 +14,16 @@
 #              deja el diario. No escribe en ningún invitado por su cuenta. Si algo no
 #              se pudo leer, PARA con el nombre del área en vez de escribir a ciegas.
 #              Al final RELEE: un paso que escribe y no comprueba es una promesa.
-# LÍMITES:     no instala aplicaciones que un lab haya declarado -- el vocabulario no
-#              tiene paquetes (regla 15, §16) --. Lo que sí hace es poner en SU APARATO
-#              (el bastión, que es del motor) lo que el área `dhcp_server`
-#              necesita para existir: hoy `dnsmasq` y `ethtool`, porque se ha MEDIDO
-#              que la imagen base no los trae y que `ip link` no sabe apagar los
-#              offloads (ver docs/decisiones/0005 y la prosa del lab).
-# VER:         docs/decisiones/0005-*.md; filter_plugins/interior.py;
-#              tasks/interior_ssh.yml; tasks/guest_inventory.yml
+# LÍMITES:     instala paquetes SÓLO cuando un área declarada los pide -- hoy el área
+#              `servicio`, cuyo nombre es de un vocabulario CERRADO (regla 15, §16;
+#              ADR 0027): el lab declara el NOMBRE del servicio, nunca sus paquetes ni su
+#              configuración --. Además pone en SU APARATO (el bastión, que es del motor)
+#              lo que el área `dhcp_server` necesita para existir: hoy `dnsmasq` y
+#              `ethtool`, porque se ha MEDIDO que la imagen base no los trae y que
+#              `ip link` no sabe apagar los offloads (ver docs/decisiones/0005 y la prosa
+#              del lab). No borra paquetes ajenos: fuera de las áreas declaradas, nada.
+# VER:         docs/decisiones/0005-*.md; docs/decisiones/0027-*.md;
+#              filter_plugins/interior.py; tasks/interior_ssh.yml; tasks/guest_inventory.yml
 
 # --- 0. POR DÓNDE SE ENTRA, y qué declara este invitado ------------------------------
 # Se construye aquí (y la vía de acceso lo vuelve a construir antes de tocar la red: es

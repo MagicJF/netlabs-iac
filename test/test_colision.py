@@ -9,10 +9,14 @@
 #                 dice NO: reintentar no lo arregla y lo escondería;
 #              3. un error cualquiera (401, timeout, un fallo de red) dice NO;
 #              4. la detección no depende del orden de las palabras ni de mayúsculas.
+#              5. `es_guest_del_lab` (la guarda que evita el GEMELO) dice SÍ sólo a nuestra
+#                 marca `lab=<lab> rol=<rol>`, y NO a la de otro lab --incluido el caso
+#                 trampa `lab=01` dentro de `lab=011`, que adoptaría un invitado ajeno.
 # LÍMITES:     no prueba el reintento de verdad (eso es un `apply` en paralelo contra
 #              el VPS): aquí sólo se prueba la DECISIÓN de reintentar, que es lo que
 #              no se puede leer a ojo en un bloque de Jinja.
-# VER:         deployment_engine/filter_plugins/colision.py; tasks/converger.yml
+# VER:         deployment_engine/filter_plugins/colision.py; tasks/converger.yml;
+#              tasks/paso.yml (la guarda antes de crear)
 
 # Uso:  python3 test/test_colision.py     (código de salida != 0 si algo falla)
 
@@ -68,7 +72,31 @@ print("\n2. lo que NO es un choque de vmid (y por eso no se reintenta)")
 for descripcion, texto in NO:
     comprobar(colision.es_colision_de_vmid(texto) is False, descripcion)
 
+# La guarda antes de crear: ¿ese invitado es NUESTRO? Es lo que impide el gemelo que se
+# midió de verdad --el mismo `apply` reintentaba el `crear_guest`, chocaba con el vmid que
+# él mismo acababa de crear, y creaba un segundo con el vmid siguiente.
+NUESTRO = "lab=09_lxc-caddy rol=caddy gestionado por netlabs_v4_b"
+
+print("\n3. de quién es un invitado (la guarda que impide el gemelo)")
+comprobar(colision.es_guest_del_lab(NUESTRO, "09_lxc-caddy", "caddy") is True,
+          "la marca exacta del plan dice SÍ")
+comprobar(colision.es_guest_del_lab(NUESTRO, "09_lxc-caddy", "otro") is False,
+          "el mismo lab con OTRO rol dice NO (no se adopta al vecino)")
+comprobar(colision.es_guest_del_lab(NUESTRO, "08_dunder-mifflin-con-fw", "caddy") is False,
+          "otro lab con el mismo rol dice NO")
+comprobar(colision.es_guest_del_lab("lab=011 rol=ws gestionado por netlabs_v4_b", "01", "ws") is False,
+          "TRAMPA: 'lab=01' dentro de 'lab=011' dice NO (no se confunde el prefijo)")
+comprobar(colision.es_guest_del_lab("lab=01 rol=ws gestionado por netlabs_v4_b", "01", "ws") is True,
+          "y el 'lab=01' de verdad, con su espacio, dice SÍ")
+comprobar(colision.es_guest_del_lab("x lab=09_lxc-caddy rol=caddy y", "09_lxc-caddy", "caddy") is True,
+          "la marca vale aunque no esté al principio")
+comprobar(colision.es_guest_del_lab("", "09_lxc-caddy", "caddy") is False, "sin descripción, NO")
+comprobar(colision.es_guest_del_lab(None, "09_lxc-caddy", "caddy") is False, "sin invitado, NO")
+comprobar(colision.es_guest_del_lab("lab=09_lxc-caddy gestionado", "09_lxc-caddy", "caddy") is False,
+          "con lab pero sin rol, NO")
+comprobar(colision.es_guest_del_lab(NUESTRO, "09_lxc-caddy", "") is False, "sin rol que buscar, NO")
+
 if FALLOS:
     print(f"\nRESULTADO: {len(FALLOS)} fallo(s).")
     sys.exit(1)
-print("\nRESULTADO: el detector sólo dice SÍ a un vmid ocupado.")
+print("\nRESULTADO: el detector sólo dice SÍ a un vmid ocupado, y la marca sólo a la nuestra.")

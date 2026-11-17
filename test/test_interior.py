@@ -1405,6 +1405,170 @@ comprobar(
 )
 
 
+# ---------------------------------------------------------------------------
+# El área `servicio` (ADR 0027): un servicio instalado, configurado y SIRVIENDO.
+#
+# El valor declarado es el NOMBRE del servicio, de un vocabulario CERRADO (hoy sólo
+# `caddy`). El contrato es el MISMO que el del resto del interior: (declarado, leído)
+# -> operaciones, y un invitado ya convergido no produce NINGUNA (regla 6).
+# ---------------------------------------------------------------------------
+
+EQUIPO_SERVICIO = {
+    "rol": "caddy",
+    "tipo": "ctl",
+    "stage": 1,
+    "bridge": "vmb_gen",
+    "address": "10.60.0.20/24",
+    "config": {"linux": {"tunnel": {}, "servicio": "caddy"}},
+}
+
+comprobar(
+    "servicio" in motor.areas_de(EQUIPO_SERVICIO)
+    and "servicio" in motor.areas_que_piden_visita(EQUIPO_SERVICIO),
+    "un Linux que declara `servicio` lo tiene como área y pide ENTRAR (hay que leerlo para decidir)",
+)
+igual(
+    motor.areas_de(EQUIPO_SERVICIO)["servicio"], "caddy",
+    "el valor del área es el NOMBRE del servicio, tal cual (no se envuelve en un mapa)",
+)
+igual(
+    motor.SERVICIOS_LINUX, ("caddy",),
+    "el vocabulario de servicios es CERRADO y hoy tiene un solo miembro",
+)
+
+
+def _encontrado_servicio(caddy, curl, unidad, config, pagina):
+    """El `encontrado` del área, tal y como lo deja la vía de acceso (bloques separados)."""
+    return "\n".join([
+        f"caddy={caddy}",
+        f"curl={curl}",
+        motor.SEPARADOR,
+        unidad,
+        motor.SEPARADOR,
+        config,
+        motor.SEPARADOR,
+        pagina,
+    ])
+
+
+def _leer_servicio(caddy, curl, unidad, config, pagina):
+    return motor.leido_linux([
+        {"area": "servicio", "rc": 0,
+         "encontrado": _encontrado_servicio(caddy, curl, unidad, config, pagina)}
+    ])["servicio"]
+
+
+# Un invitado FRESCO: sin el paquete, sin la configuración y sin servir.
+_SERVICIO_FRESCO = _leer_servicio("NO", "NO", "inactive", "", "NO-SIRVE")
+igual(
+    _SERVICIO_FRESCO,
+    {"herramientas": {"caddy": False, "curl": False}, "servicio_activo": False,
+     "configurado": False, "sirve": False, "conf": ""},
+    "la relectura de un invitado fresco lo ve todo por poner: paquete, unidad, configuración y servicio",
+)
+igual(
+    [o["op"] for o in motor._servicio_canonico("caddy", _SERVICIO_FRESCO)],
+    ["install_service", "write_service_config", "enable_service", "reload_service"],
+    "el diff de un invitado fresco pide instalarlo, configurarlo, arrancarlo y dejarlo sirviendo",
+)
+
+# Un invitado CONVERGIDO: el paquete, la unidad y la configuración del motor están puestos.
+_SERVICIO_AL_DIA = _leer_servicio(
+    "/usr/bin/caddy", "/usr/bin/curl", "active",
+    motor.configuracion_servicio("caddy"), "<p>netlabs: servicio declarado y sirviendo.</p>",
+)
+igual(
+    motor._servicio_canonico("caddy", _SERVICIO_AL_DIA), [],
+    "un invitado ya convergido NO produce operación: es la prueba de la idempotencia (regla 6)",
+)
+
+# La MARCA distingue «el motor pasó por aquí» de «el paquete trae la suya»: el Caddyfile de
+# fábrica NO vale como la configuración del motor, y el área no gobernaría nada si lo valiera.
+_SIN_MARCA = _leer_servicio(
+    "/usr/bin/caddy", "/usr/bin/curl", "active",
+    ":80 {\n\trespond \"hola\"\n}",       # una configuración ajena cualquiera
+    "<p>hola</p>",                        # que sí sirve
+)
+comprobar(
+    _SIN_MARCA["configurado"] is False
+    and [o["op"] for o in motor._servicio_canonico("caddy", _SIN_MARCA)]
+    == ["write_service_config", "reload_service"],
+    "una configuración sin la MARCA del motor no cuenta como puesta: se reescribe y se recarga",
+)
+
+# Un nombre fuera del vocabulario no produce decisión (el validador ya lo caza antes de tocar
+# nada): el driver no inventa opciones para algo que no conoce.
+igual(
+    motor._servicio_canonico("nginx", _SERVICIO_FRESCO), [],
+    "un servicio fuera del vocabulario no se decide aquí: el validador lo rechaza antes",
+)
+igual(motor.configuracion_servicio("nginx"), "", "y no hay configuración de motor para él")
+
+# Y el camino ENTERO por `pasos_de_convergencia`: del invitado declarado salen los pasos del
+# área, y `escrituras_linux` los traduce a comandos IDEMPOTENTES que la vía de acceso ejecuta.
+_LEIDO_SERVICIO = {
+    "alcanzable": True,
+    "areas": {
+        "tunnel": {"salida": "puesta"},
+        "address": {"address": "10.60.0.20/24"},
+        "servicio": _SERVICIO_FRESCO,
+    },
+}
+_PASOS_SERVICIO = motor.pasos_de_convergencia(
+    EQUIPO_SERVICIO, IDENTIDAD, DECLARACION, _LEIDO_SERVICIO, PARAMETROS
+)
+_ESCRITURAS_SERVICIO = motor.escrituras_linux(
+    motor.operaciones_de_pasos(_PASOS_SERVICIO),
+    EQUIPO_SERVICIO, DECLARACION, IDENTIDAD, PARAMETROS,
+)
+igual(
+    [o["op"] for o in motor.operaciones_de_pasos(_PASOS_SERVICIO)],
+    ["install_service", "write_service_config", "enable_service", "reload_service"],
+    "del invitado declarado salen, en orden, las cuatro operaciones del área `servicio`",
+)
+comprobar(
+    all(o["area"] == "servicio" for o in _ESCRITURAS_SERVICIO),
+    "las escrituras del servicio están marcadas con su área (para el diario y para el error)",
+)
+comprobar(
+    any("DEBIAN_FRONTEND=noninteractive apt-get install -y -qq caddy curl" in c["comando"]
+        for c in _ESCRITURAS_SERVICIO),
+    "instalar el servicio incluye `curl`: la relectura lo necesita para comprobar que sirve",
+)
+comprobar(
+    any("apt-get update -qq" in c["comando"] for c in _ESCRITURAS_SERVICIO),
+    "instalar el servicio REFRESCA las listas de apt antes: la imagen base las trae "
+    "envejecidas y apuntan a versiones que ya no están (404, medido)",
+)
+comprobar(
+    any("/etc/caddy/Caddyfile" in c["comando"] and "/var/www/html/index.html" in c["comando"]
+        and "base64 -d" in c["comando"] for c in _ESCRITURAS_SERVICIO),
+    "la configuración del servicio y su página se escriben con la MISMA orden (base64 -d)",
+)
+comprobar(
+    any("systemctl enable --now caddy" in c["comando"] for c in _ESCRITURAS_SERVICIO)
+    and any("systemctl restart caddy" in c["comando"] for c in _ESCRITURAS_SERVICIO),
+    "el servicio se habilita/arranca y se recarga con systemd (su unidad, no un proceso suelto)",
+)
+comprobar(
+    all(motor.pendiente_de_driver(o) is None
+        for o in motor.operaciones_de_pasos(_PASOS_SERVICIO)),
+    "el driver SABE traducir las cuatro operaciones del servicio (no queda ninguna pendiente)",
+)
+
+# Y que la REELECTURA no deja nada pendiente: con el invitado ya convergido, no hay paso.
+_LEIDO_SERVICIO_AL_DIA = dict(
+    _LEIDO_SERVICIO, areas=dict(_LEIDO_SERVICIO["areas"], servicio=_SERVICIO_AL_DIA)
+)
+igual(
+    motor.pasos_de_convergencia(
+        EQUIPO_SERVICIO, IDENTIDAD, DECLARACION, _LEIDO_SERVICIO_AL_DIA, PARAMETROS
+    ),
+    [],
+    "releído y al día, el invitado declarado con `servicio` no deja ningún paso (convergió)",
+)
+
+
 if FALLOS:
     print(f"\nRESULTADO: {len(FALLOS)} fallo(s).")
     sys.exit(1)

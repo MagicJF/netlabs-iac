@@ -1,0 +1,139 @@
+---
+# PROPÓSITO:   el CANDAO del Greptile, mecánico. Lee la puntuación que Greptile escribe en
+#              el resumen de cada PR y publica un *status check* (`greptile-5-de-5`) que
+#              pasa SÓLO con 5/5. Si la puntuación baja, además re-dispara la revisión
+#              (`@greptileai review`) una vez por cabecera, sin esperar a que nadie se
+#              acuerde de pedirla.
+# INVARIANTES: la puntuación se lee del CUERPO del resumen (Greptile EDITA ese comentario
+#              en su sitio), nunca de su `created_at`: leer la fecha es leer una puntuación
+#              vieja. El check se publica sobre el SHA de la CABECERA del PR (lo que se
+#              mezclaría), no sobre el commit que se revisó. Sin puntuación legible, el
+#              check queda en `pending`: no saberlo no es aprobarlo.
+#              El bucle se cierra: se re-dispara como mucho `MAX_REINTENTOS` veces por
+#              cabecera (marcado en un comentario), y jamás reacciona a sus propios
+#              comentarios (`github-actions[bot]`), que serían un bucle infinito.
+# LÍMITES:     un *status check* sólo BLOQUEA el merge si además está exigido en la
+#              protección de rama (`./lab check` no puede hacerlo: es cosa de GitHub).
+#              Sin la protección, esto es un aviso que se ve, no un candao; se dice, no se
+#              maquilla. No opina sobre los HALLAZGOS: ésos se leen y se arreglan a mano
+#              (con su prueba), que es lo que `AGENTS.md` pide.
+# VER:         AGENTS.md §«Nada se mezcla con Greptile por debajo de 5/5»;
+#              .github/workflows/ci.yml (el CI de verdad, que es offline a propósito)
+
+name: candao del greptile
+
+on:
+  # Cuando Greptile publica o edita su resumen.
+  pull_request_review:
+    types: [submitted, edited]
+  # Y cuando cambia la cabecera (un push nuevo invalida la puntuación anterior).
+  pull_request:
+    types: [opened, synchronize, reopened]
+  # Para poder pedirlo a mano comentando en el PR.
+  issue_comment:
+    types: [created]
+
+# Un solo trabajo por PR y por cabecera: si llegan dos eventos seguidos, el segundo espera.
+concurrency:
+  group: greptile-gate-${{ github.event.pull_request.number || github.event.issue.number }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  statuses: write
+
+env:
+  # Cuántas veces se re-dispara la revisión por cabecera antes de pedir ayuda humana.
+  MAX_REINTENTOS: "2"
+  # El nombre del check que la protección de rama debe exigir.
+  NOMBRE_DEL_CHECK: "greptile-5-de-5"
+
+jobs:
+  candao:
+    runs-on: ubuntu-latest
+    # Un comentario de un bot no vuelve a disparar nada (sería un bucle).
+    if: github.actor != 'github-actions[bot]'
+    steps:
+      - name: Leer la puntuación y publicar el check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          python3 - <<'PY'
+          import json, os, re, subprocess, urllib.request
+
+          repo = os.environ["REPO"]
+          token = os.environ["GH_TOKEN"]
+          max_reintentos = int(os.environ.get("MAX_REINTENTOS", "2"))
+          nombre = os.environ["NOMBRE_DEL_CHECK"]
+
+          def api(ruta, datos=None, metodo="GET"):
+              peticion = urllib.request.Request(
+                  f"https://api.github.com/repos/{repo}/{ruta}",
+                  data=json.dumps(datos).encode() if datos is not None else None,
+                  method=metodo,
+                  headers={
+                      "Authorization": f"Bearer {token}",
+                      "Accept": "application/vnd.github+json",
+                      "Content-Type": "application/json",
+                  },
+              )
+              with urllib.request.urlopen(peticion) as r:
+                  return json.loads(r.read() or b"{}")
+
+          # 1. El número del PR, venga el evento de donde venga.
+          evento = json.load(open(os.environ["GITHUB_EVENT_PATH"]))
+          pr = (evento.get("pull_request") or {}).get("number") or (evento.get("issue") or {}).get("number")
+          if not pr:
+              print("este evento no es de un PR: nada que hacer")
+              raise SystemExit(0)
+
+          datos_pr = api(f"pulls/{pr}")
+          sha = datos_pr["head"]["sha"]
+
+          # 2. El ÚLTIMO comentario de Greptile, leído ENTERO y AHORA: Greptile edita su
+          #    resumen en su sitio, así que la fecha no dice nada de la puntuación.
+          comentarios = api(f"issues/{pr}/comments?per_page=100")
+          de_greptile = [c for c in comentarios
+                         if "greptile" in (c["user"]["login"] or "").lower()]
+
+          # 3. La puntuación, del cuerpo.
+          puntuacion = None
+          if de_greptile:
+              cuerpo = de_greptile[-1]["body"] or ""
+              m = re.search(r"Confidence Score:\s*(\d+(?:\.\d+)?)\s*/\s*5", cuerpo, re.IGNORECASE)
+              if m:
+                  puntuacion = float(m.group(1))
+
+          def publicar(estado, descripcion):
+              api(f"statuses/{sha}", {"state": estado, "context": nombre,
+                                     "description": descripcion[:140]}, "POST")
+              print(f"check '{nombre}' sobre {sha[:8]}: {estado} -- {descripcion}")
+
+          if puntuacion is None:
+              publicar("pending", "todavía sin puntuación de Greptile en el resumen")
+              raise SystemExit(0)
+
+          if puntuacion >= 5:
+              publicar("success", f"Greptile {puntuacion:g}/5: se puede mezclar")
+              raise SystemExit(0)
+
+          # Por debajo de 5/5: el check queda en rojo Y se re-dispara la revisión, una vez
+          # por cabecera y con un tope, marcando la cabecera para no contar dos veces.
+          publicar("failure", f"Greptile {puntuacion:g}/5: se leen los hallazgos y se arreglan")
+
+          marca = f"<!-- candao-greptile: {sha} -->"
+          disparos = sum(1 for c in comentarios
+                         if marca in (c["body"] or "") and "github-actions" in c["user"]["login"])
+          if disparos >= max_reintentos:
+              print(f"ya se re-disparó {disparos} vez/veces para esta cabecera: no se insiste")
+              raise SystemExit(0)
+
+          api(f"issues/{pr}/comments",
+              {"body": f"{marca}\npuntuación {puntuacion:g}/5: se re-dispara la revisión "
+                       f"(intento {disparos + 1} de {max_reintentos}).\n\n@greptileai review"},
+              "POST")
+          print(f"re-disparada la revisión (intento {disparos + 1} de {max_reintentos})")
+          PY

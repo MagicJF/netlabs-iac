@@ -175,6 +175,9 @@ configurar dentro** de cada equipo, y el motor lo converge como una fase más de
   driver. Dentro van las **áreas** (los campos que el motor sabe tocar y de los que
   responde): `identity`, `ip_services`, `addresses`, `routes`, `dhcp_server`, `uplink`,
   `firewall` (la tabla de filtrado entera, en orden: ADR 0019), `ip_forward`, `tunnel`…
+  En un Linux, además, **`servicio:`** — el NOMBRE de un servicio de un **vocabulario
+  cerrado** (hoy sólo `caddy`) que el motor instala, configura y **comprueba sirviéndolo**
+  (ADR 0027): el lab declara el nombre, nunca el paquete ni su configuración.
 - **`image:`** en una VM QEMU: el disco de fábrica que se importa al crearla (un CHR).
 - **`address:`** admite cuatro formas: `<ip>/<prefijo>` (estática), **`dhcp`** (dinámica: el
   invitado no la declara; se lee del host y, si hay túnel, de la concesión del router),
@@ -763,6 +766,30 @@ repositorio tenga menos de 10 estrellas (es su plan OSS); aun así, su configura
 está en el árbol para que revise con las reglas de la casa el día que le toque.
 Ninguno de los dos sustituye al ciclo `destroy → apply → verify`.
 
+**Un PR no se mezcla con Greptile por debajo de 5/5**, y eso no depende de que nadie se
+acuerde: lo vigila `.github/workflows/greptile-gate.yml`. Lee la puntuación del **cuerpo
+del resumen de Greptile** (que Greptile edita en su sitio: mirar su fecha es leer una
+puntuación vieja) y publica un *status check* `greptile-5-de-5`, sobre el SHA de la
+**cabecera** del PR, que sólo pasa con 5/5; sin puntuación legible queda en `pending`, que
+no es aprobar. Si baja de 5/5, además re-dispara la revisión (`@greptileai review`) hasta
+`MAX_REINTENTOS` veces por cabecera, y nunca reacciona a sus propios comentarios.
+
+Ese check **sólo bloquea el merge si está exigido en la protección de rama**, que es un
+ajuste de GitHub y no algo que `./lab check` pueda vigilar. Se activa así (deja los push
+directos a `main` como están: exige el check al *mezclar*, no al empujar):
+
+```
+gh api -X PUT repos/MagicJF/netlabs-iac/branches/main/protection \
+  -H "Accept: application/vnd.github+json" \
+  -F 'required_status_checks[strict]=false' \
+  -F 'required_status_checks[contexts][]=greptile-5-de-5' \
+  -F 'enforce_admins=false' \
+  -F 'required_pull_request_reviews=' \
+  -F 'restrictions='
+```
+
+Sin ese ajuste, el check se ve pero no cierra la puerta: se dice, no se maquilla.
+
 ---
 
 ## Decisiones conscientes
@@ -796,10 +823,11 @@ Ninguno de los dos sustituye al ciclo `destroy → apply → verify`.
 
 Una línea cada una, y nada más:
 
-- **Aplicaciones dentro de los invitados** (ficheros, paquetes, servicios): el
-  vocabulario llega a la **configuración de red del equipo** (RouterOS, Linux), no a
-  lo que corre encima. El punto de extensión es una primitiva nueva del motor, con
-  su ADR.
+- **Aplicaciones ARBITRARIAS dentro de los invitados** (ficheros que el lab elija, paquetes,
+  servicios, su configuración): el vocabulario llega a la **configuración de red del equipo**
+  (RouterOS, Linux) y, desde ADR 0027, a **UN servicio de un vocabulario cerrado** por área
+  `servicio` (`caddy` hoy) — nunca a lo que un lab quiera inventarse. El punto de extensión
+  sigue siendo una primitiva nueva del motor, con su ADR.
 - **Cloud-init y plantillas de disco** más allá del mínimo para que un invitado
   arranque.
 - **Inventario dinámico** de los invitados desplegados.

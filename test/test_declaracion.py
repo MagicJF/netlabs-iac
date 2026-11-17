@@ -566,6 +566,39 @@ comprobar(
     "6.4 · una captura en un bridge del lab donde el bastión NO tiene pata se caza al leer la declaración",
 )
 
+# ---------------------------------------------------------------------------
+
+print("\nEL ÁREA `servicio`: VOCABULARIO CERRADO (ADR 0027)\n")
+
+# El único miembro del vocabulario hoy (`caddy`) pasa: el motor sabe instalarlo y servirlo.
+igual(
+    errores_de(lambda d: d["containers"][0]["config"]["linux"].__setitem__("servicio", "caddy")),
+    [],
+    "`servicio: caddy` es vocabulario del motor y pasa sin una queja",
+)
+# Un servicio que el motor NO sabe instalar se RECHAZA con su nombre y los que hay, en vez de
+# aceptarse y no hacer nada con él. El vocabulario es cerrado (regla 15, ADR 0027).
+comprobar(
+    dice(errores_de(lambda d: d["containers"][0]["config"]["linux"].__setitem__("servicio", "nginx")), "nginx")
+    and dice(
+        errores_de(lambda d: d["containers"][0]["config"]["linux"].__setitem__("servicio", "nginx")),
+        "caddy",
+    ),
+    "un servicio que no está en el vocabulario cerrado se caza con su nombre y con los que hay",
+)
+# Y una forma que no es un nombre no cuela: `servicio` es un NOMBRE (una cadena), no un mapa.
+comprobar(
+    dice(
+        errores_de(
+            lambda d: d["containers"][0]["config"]["linux"].__setitem__(
+                "servicio", {"nombre": "caddy"}
+            )
+        ),
+        "servicio",
+    ),
+    "un `servicio` que no es un nombre (un mapa) se caza: no se acepta una forma a medias",
+)
+
 if FALLOS:
     print(f"\nRESULTADO: {len(FALLOS)} fallo(s).")
     sys.exit(1)

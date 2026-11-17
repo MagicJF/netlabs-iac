@@ -22,61 +22,79 @@ si los editas a mano, `./lab check docs` falla._
 ## Topología
 
 ```mermaid
-graph TD
-    b_vmb_fw_gestion(["vmb_fw_gestion<br/>10.44.0.1/24"])
-    b_vmb_fw_borde(["vmb_fw_borde<br/>10.44.20.1/24"])
-    b_vmb_fw_troncal(["vmb_fw_troncal<br/>10.44.10.254/24"])
-    b_vmb_fw_oficina(["vmb_fw_oficina<br/>10.44.1.1/24"])
-    b_vmb_fw_almacen(["vmb_fw_almacen<br/>10.44.2.1/24"])
-    b_vmb_fw_dmz(["vmb_fw_dmz<br/>10.44.3.1/24"])
-    i_almacen["almacen<br/>VM (qemu) · etapa 1"]
+graph LR
+    classDef segmento fill:#0b1220,stroke:#38bdf8,color:#dbeafe;
+    classDef salida fill:#111827,stroke:#9ca3af,color:#e5e7eb,stroke-dasharray:4 3;
+    classDef rt fill:#7c2d12,stroke:#fb923c,color:#ffedd5;
+    classDef fw fill:#701a1a,stroke:#f87171,color:#fee2e2;
+    classDef sw fill:#134e4a,stroke:#2dd4bf,color:#ccfbf1;
+    classDef srv fill:#1e3a8a,stroke:#60a5fa,color:#dbeafe;
+    classDef ws fill:#14532d,stroke:#4ade80,color:#dcfce7;
+    classDef ctl fill:#4c1d95,stroke:#a78bfa,color:#ede9fe;
+    b_vmb_fw_gestion(["vmb_fw_gestion<br/>10.44.0.1/24"]):::segmento
+    b_vmb_fw_borde(["vmb_fw_borde<br/>10.44.20.1/24"]):::segmento
+    b_vmb_fw_troncal(["vmb_fw_troncal<br/>10.44.10.254/24"]):::segmento
+    b_vmb_fw_oficina(["vmb_fw_oficina<br/>10.44.1.1/24"]):::segmento
+    b_vmb_fw_almacen(["vmb_fw_almacen<br/>10.44.2.1/24"]):::segmento
+    b_vmb_fw_dmz(["vmb_fw_dmz<br/>10.44.3.1/24"]):::segmento
+    salida["salida · la red del nodo"]:::salida
+    i_almacen{{"fw-almacen<br/>10.44.0.13/24<br/>etapa 1"}}:::fw
     i_almacen --- b_vmb_fw_gestion
     i_almacen --- b_vmb_fw_troncal
     i_almacen --- b_vmb_fw_almacen
-    i_borde["borde<br/>VM (qemu) · etapa 1"]
+    i_borde{{"fw-borde<br/>10.44.0.15/24<br/>etapa 1"}}:::fw
     i_borde --- b_vmb_fw_gestion
     i_borde --- b_vmb_fw_borde
     i_borde --- b_vmb_fw_troncal
-    i_control["control<br/>LXC · etapa 1"]
+    i_control[["ctl-1<br/>10.44.0.10/24<br/>etapa 1"]]:::ctl
     i_control --- b_vmb_fw_gestion
-    i_nucleo["nucleo<br/>VM (qemu) · etapa 1"]
+    i_nucleo(["rt-nucleo<br/>10.44.0.11/24<br/>etapa 1"]):::rt
     i_nucleo --- b_vmb_fw_gestion
     i_nucleo --- b_vmb_fw_borde
-    i_oficina["oficina<br/>VM (qemu) · etapa 1"]
+    i_nucleo -.->|uplink| salida
+    i_oficina{{"fw-oficina<br/>10.44.0.12/24<br/>etapa 1"}}:::fw
     i_oficina --- b_vmb_fw_gestion
     i_oficina --- b_vmb_fw_troncal
     i_oficina --- b_vmb_fw_oficina
-    i_servidores["servidores<br/>VM (qemu) · etapa 1"]
+    i_servidores{{"fw-servidores<br/>10.44.0.14/24<br/>etapa 1"}}:::fw
     i_servidores --- b_vmb_fw_gestion
     i_servidores --- b_vmb_fw_troncal
     i_servidores --- b_vmb_fw_dmz
-    i_ficheros["ficheros<br/>LXC · etapa 2"]
+    i_ficheros[("srv-1<br/>10.44.1.10/24<br/>etapa 2")]:::srv
     i_ficheros --- b_vmb_fw_oficina
-    i_puesto_1["puesto-1<br/>LXC · etapa 2"]
+    i_puesto_1["ws-1<br/>10.44.1.11/24<br/>etapa 2"]:::ws
     i_puesto_1 --- b_vmb_fw_oficina
-    i_puesto_2["puesto-2<br/>LXC · etapa 2"]
+    i_puesto_2["ws-2<br/>10.44.1.12/24<br/>etapa 2"]:::ws
     i_puesto_2 --- b_vmb_fw_oficina
-    i_puesto_3["puesto-3<br/>LXC · etapa 2"]
+    i_puesto_3["ws-3<br/>10.44.2.11/24<br/>etapa 2"]:::ws
     i_puesto_3 --- b_vmb_fw_almacen
-    i_web["web<br/>LXC · etapa 2"]
+    i_web[("srv-2<br/>10.44.3.10/24<br/>etapa 2")]:::srv
     i_web --- b_vmb_fw_dmz
 ```
 
+En el diagrama, la **forma** y el **color** de cada equipo dicen qué es (el tipo declarado):
+
+- `rt` — rt (enruta y sale)
+- `fw` — fw (filtra)
+- `srv` — srv (servidor)
+- `ws` — ws (puesto de trabajo)
+- `ctl` — ctl (control del lab)
+
 ## Invitados declarados
 
-| rol | tipo | stage | cores | memory (MB) | disk (GB) | bridge | address |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| almacen | VM (qemu) | 1 | 2 | 512 | 1 | vmb_fw_gestion + vmb_fw_troncal + vmb_fw_almacen | 10.44.0.13/24 |
-| borde | VM (qemu) | 1 | 2 | 512 | 1 | vmb_fw_gestion + vmb_fw_borde + vmb_fw_troncal | 10.44.0.15/24 |
-| control | LXC | 1 | 1 | 512 | 4 | vmb_fw_gestion | 10.44.0.10/24 |
-| nucleo | VM (qemu) | 1 | 2 | 512 | 1 | vmb_fw_gestion + vmb_fw_borde | 10.44.0.11/24 |
-| oficina | VM (qemu) | 1 | 2 | 512 | 1 | vmb_fw_gestion + vmb_fw_troncal + vmb_fw_oficina | 10.44.0.12/24 |
-| servidores | VM (qemu) | 1 | 2 | 512 | 1 | vmb_fw_gestion + vmb_fw_troncal + vmb_fw_dmz | 10.44.0.14/24 |
-| ficheros | LXC | 2 | 1 | 512 | 8 | vmb_fw_oficina | 10.44.1.10/24 |
-| puesto-1 | LXC | 2 | 1 | 512 | 4 | vmb_fw_oficina | 10.44.1.11/24 |
-| puesto-2 | LXC | 2 | 1 | 512 | 4 | vmb_fw_oficina | 10.44.1.12/24 |
-| puesto-3 | LXC | 2 | 1 | 512 | 4 | vmb_fw_almacen | 10.44.2.11/24 |
-| web | LXC | 2 | 1 | 512 | 8 | vmb_fw_dmz | 10.44.3.10/24 |
+| rol | tipo | plataforma | stage | cores | memory (MB) | disk (GB) | bridge | address |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| almacen | fw (filtra) | VM (qemu) | 1 | 2 | 512 | 1 | vmb_fw_gestion + vmb_fw_troncal + vmb_fw_almacen | 10.44.0.13/24 |
+| borde | fw (filtra) | VM (qemu) | 1 | 2 | 512 | 1 | vmb_fw_gestion + vmb_fw_borde + vmb_fw_troncal | 10.44.0.15/24 |
+| control | ctl (control del lab) | LXC | 1 | 1 | 512 | 4 | vmb_fw_gestion | 10.44.0.10/24 |
+| nucleo | rt (enruta y sale) | VM (qemu) | 1 | 2 | 512 | 1 | vmb_fw_gestion + vmb_fw_borde | 10.44.0.11/24 |
+| oficina | fw (filtra) | VM (qemu) | 1 | 2 | 512 | 1 | vmb_fw_gestion + vmb_fw_troncal + vmb_fw_oficina | 10.44.0.12/24 |
+| servidores | fw (filtra) | VM (qemu) | 1 | 2 | 512 | 1 | vmb_fw_gestion + vmb_fw_troncal + vmb_fw_dmz | 10.44.0.14/24 |
+| ficheros | srv (servidor) | LXC | 2 | 1 | 512 | 8 | vmb_fw_oficina | 10.44.1.10/24 |
+| puesto-1 | ws (puesto de trabajo) | LXC | 2 | 1 | 512 | 4 | vmb_fw_oficina | 10.44.1.11/24 |
+| puesto-2 | ws (puesto de trabajo) | LXC | 2 | 1 | 512 | 4 | vmb_fw_oficina | 10.44.1.12/24 |
+| puesto-3 | ws (puesto de trabajo) | LXC | 2 | 1 | 512 | 4 | vmb_fw_almacen | 10.44.2.11/24 |
+| web | srv (servidor) | LXC | 2 | 1 | 512 | 8 | vmb_fw_dmz | 10.44.3.10/24 |
 
 ## Bridges del lab
 
@@ -100,17 +118,17 @@ graph TD
 
 | rol | tipo | nombre canónico | vmid | MAC |
 | --- | --- | --- | --- | --- |
-| almacen | VM (qemu) | {equipo}-{alias} | — | — |
-| borde | VM (qemu) | {equipo}-{alias} | — | — |
-| control | LXC | {equipo}-{alias} | — | — |
-| nucleo | VM (qemu) | {equipo}-{alias} | — | — |
-| oficina | VM (qemu) | {equipo}-{alias} | — | — |
-| servidores | VM (qemu) | {equipo}-{alias} | — | — |
-| ficheros | LXC | {equipo}-{alias} | — | — |
-| puesto-1 | LXC | {equipo}-{alias} | — | — |
-| puesto-2 | LXC | {equipo}-{alias} | — | — |
-| puesto-3 | LXC | {equipo}-{alias} | — | — |
-| web | LXC | {equipo}-{alias} | — | — |
+| almacen | fw (filtra) | fw-almacen | — | — |
+| borde | fw (filtra) | fw-borde | — | — |
+| control | ctl (control del lab) | ctl-1 | — | — |
+| nucleo | rt (enruta y sale) | rt-nucleo | — | — |
+| oficina | fw (filtra) | fw-oficina | — | — |
+| servidores | fw (filtra) | fw-servidores | — | — |
+| ficheros | srv (servidor) | srv-1 | — | — |
+| puesto-1 | ws (puesto de trabajo) | ws-1 | — | — |
+| puesto-2 | ws (puesto de trabajo) | ws-2 | — | — |
+| puesto-3 | ws (puesto de trabajo) | ws-3 | — | — |
+| web | srv (servidor) | srv-2 | — | — |
 
 El **vmid** (el menor libre de *todo* el clúster) y la **MAC** (`BC:24:11` + los
 bytes del vmid) los asigna `apply` leyendo el estado de Proxmox: no se declaran aquí y
@@ -121,17 +139,17 @@ guion hasta que exista un despliegue real.
 
 | rol | tipo | usuario | credencial | forma de acceso |
 | --- | --- | --- | --- | --- |
-| almacen | VM (qemu) | admin | `admin` / la de `secrets.yml` → `routeros_clave` (HTTP Basic) | REST por el túnel del bastión (`21000`+vmid); su consola, por la serial del nodo |
-| borde | VM (qemu) | admin | `admin` / la de `secrets.yml` → `routeros_clave` (HTTP Basic) | REST por el túnel del bastión (`21000`+vmid); su consola, por la serial del nodo |
-| control | LXC | root | clave del lab (`~/.ssh/netlabs_tunnel_08_dunder-mifflin-con-fw_ed25519`), sin contraseña | SSH a `127.0.0.1`:(`20000`+vmid): él ES el bastión, se entra directo por su túnel |
-| nucleo | VM (qemu) | admin | `admin` / la de `secrets.yml` → `routeros_clave` (HTTP Basic) | REST por el túnel del bastión (`21000`+vmid); su consola, por la serial del nodo |
-| oficina | VM (qemu) | admin | `admin` / la de `secrets.yml` → `routeros_clave` (HTTP Basic) | REST por el túnel del bastión (`21000`+vmid); su consola, por la serial del nodo |
-| servidores | VM (qemu) | admin | `admin` / la de `secrets.yml` → `routeros_clave` (HTTP Basic) | REST por el túnel del bastión (`21000`+vmid); su consola, por la serial del nodo |
-| ficheros | LXC | — | — | no se entra: no declara `config:` |
-| puesto-1 | LXC | — | — | no se entra: no declara `config:` |
-| puesto-2 | LXC | — | — | no se entra: no declara `config:` |
-| puesto-3 | LXC | — | — | no se entra: no declara `config:` |
-| web | LXC | — | — | no se entra: no declara `config:` |
+| almacen | fw (filtra) | admin | `admin` / la de `secrets.yml` → `routeros_clave` (HTTP Basic) | REST por el túnel del bastión (`21000`+vmid); su consola, por la serial del nodo |
+| borde | fw (filtra) | admin | `admin` / la de `secrets.yml` → `routeros_clave` (HTTP Basic) | REST por el túnel del bastión (`21000`+vmid); su consola, por la serial del nodo |
+| control | ctl (control del lab) | root | clave del lab (`~/.ssh/netlabs_tunnel_08_dunder-mifflin-con-fw_ed25519`), sin contraseña | SSH a `127.0.0.1`:(`20000`+vmid): él ES el bastión, se entra directo por su túnel |
+| nucleo | rt (enruta y sale) | admin | `admin` / la de `secrets.yml` → `routeros_clave` (HTTP Basic) | REST por el túnel del bastión (`21000`+vmid); su consola, por la serial del nodo |
+| oficina | fw (filtra) | admin | `admin` / la de `secrets.yml` → `routeros_clave` (HTTP Basic) | REST por el túnel del bastión (`21000`+vmid); su consola, por la serial del nodo |
+| servidores | fw (filtra) | admin | `admin` / la de `secrets.yml` → `routeros_clave` (HTTP Basic) | REST por el túnel del bastión (`21000`+vmid); su consola, por la serial del nodo |
+| ficheros | srv (servidor) | — | — | no se entra: no declara `config:` |
+| puesto-1 | ws (puesto de trabajo) | — | — | no se entra: no declara `config:` |
+| puesto-2 | ws (puesto de trabajo) | — | — | no se entra: no declara `config:` |
+| puesto-3 | ws (puesto de trabajo) | — | — | no se entra: no declara `config:` |
+| web | srv (servidor) | — | — | no se entra: no declara `config:` |
 
 El **usuario**, la **credencial** (de dónde sale Y cuánto vale) y la **forma de acceso** se
 derivan de la declaración, del motor y de `deployment_engine/secrets.yml`. **Este lab es de un

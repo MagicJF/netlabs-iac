@@ -151,6 +151,26 @@ def _puentes_de(bloque):
     return puentes
 
 
+def _puentes_de_estado(actual):
+    """Los bridges que el ESTADO guarda de cada interfaz del invitado, por número.
+
+    El estado los lleva en `interfaces` (los arma `estado_desde_api` para TODAS las `netN`),
+    con las claves en texto porque viajan por variables de Ansible: aquí se convierten a
+    número, que es como los cuenta `_puentes_de`.
+
+    Se lee del estado y no de la config cruda a propósito: `construir_plan` recibe el estado,
+    y una comprobación que pidiera campos que el estado no guarda daría por roto un invitado
+    perfecto (los vería todos «en ningún bridge»). Le pasó a este mismo cambio.
+    """
+    puentes = {}
+    for indice, bridge in ((actual or {}).get("interfaces") or {}).items():
+        try:
+            puentes[int(indice)] = bridge
+        except (TypeError, ValueError):
+            continue
+    return puentes
+
+
 def interfaces_que_difieren(guest, actual, declaracion, estado, parametros):
     """Qué interfaces del invitado NO están en el bridge que la declaración pide.
 
@@ -167,7 +187,7 @@ def interfaces_que_difieren(guest, actual, declaracion, estado, parametros):
     aquí no se reinicia lo que está trabajando (§5). Lo dice quien llama, con el remedio.
     """
     esperados = _puentes_de(_redes_del_guest(guest, declaracion, estado, parametros))
-    actuales = _puentes_de(actual)
+    actuales = _puentes_de_estado(actual)
     return {
         numero: {"esperado": esperados[numero], "encontrado": actuales.get(numero)}
         for numero in sorted(esperados)

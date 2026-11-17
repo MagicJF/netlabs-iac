@@ -14,17 +14,29 @@ si los editas a mano, `./lab check docs` falla._
 ## Topología
 
 ```mermaid
-graph TD
-    b_vmb_lab_minimo(["vmb_lab_minimo<br/>198.51.100.1/24"])
-    i_workstation_1["workstation-1<br/>LXC · etapa 1"]
+graph LR
+    classDef segmento fill:#0b1220,stroke:#38bdf8,color:#dbeafe;
+    classDef salida fill:#111827,stroke:#9ca3af,color:#e5e7eb,stroke-dasharray:4 3;
+    classDef rt fill:#7c2d12,stroke:#fb923c,color:#ffedd5;
+    classDef fw fill:#701a1a,stroke:#f87171,color:#fee2e2;
+    classDef sw fill:#134e4a,stroke:#2dd4bf,color:#ccfbf1;
+    classDef srv fill:#1e3a8a,stroke:#60a5fa,color:#dbeafe;
+    classDef ws fill:#14532d,stroke:#4ade80,color:#dcfce7;
+    classDef ctl fill:#4c1d95,stroke:#a78bfa,color:#ede9fe;
+    b_vmb_lab_minimo(["vmb_lab_minimo<br/>198.51.100.1/24"]):::segmento
+    i_workstation_1["ws-1<br/>198.51.100.11/24"]:::ws
     i_workstation_1 --- b_vmb_lab_minimo
 ```
 
+En el diagrama, la **forma** y el **color** de cada equipo dicen qué es (el tipo declarado):
+
+- `ws` — ws (puesto de trabajo)
+
 ## Invitados declarados
 
-| rol | tipo | stage | cores | memory (MB) | disk (GB) | bridge | address |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| workstation-1 | LXC | 1 | 1 | 256 | 4 | vmb_lab_minimo | 198.51.100.11/24 |
+| rol | tipo | plataforma | stage | cores | memory (MB) | disk (GB) | bridge | address |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| workstation-1 | ws (puesto de trabajo) | LXC | 1 | 1 | 256 | 4 | vmb_lab_minimo | 198.51.100.11/24 |
 
 ## Bridges del lab
 
@@ -42,7 +54,7 @@ graph TD
 
 | rol | tipo | nombre canónico | vmid | MAC |
 | --- | --- | --- | --- | --- |
-| workstation-1 | LXC | {equipo}-{alias} | — | — |
+| workstation-1 | ws (puesto de trabajo) | ws-1 | — | — |
 
 El **vmid** (el menor libre de *todo* el clúster) y la **MAC** (`BC:24:11` + los
 bytes del vmid) los asigna `apply` leyendo el estado de Proxmox: no se declaran aquí y
@@ -53,7 +65,7 @@ guion hasta que exista un despliegue real.
 
 | rol | tipo | usuario | credencial | forma de acceso |
 | --- | --- | --- | --- | --- |
-| workstation-1 | LXC | — | — | no se entra: no declara `config:` |
+| workstation-1 | ws (puesto de trabajo) | — | — | no se entra: no declara `config:` |
 
 El **usuario**, la **credencial** (de dónde sale Y cuánto vale) y la **forma de acceso** se
 derivan de la declaración, del motor y de `deployment_engine/secrets.yml`. **Este lab es de un

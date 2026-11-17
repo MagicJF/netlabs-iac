@@ -20,20 +20,33 @@ si los editas a mano, `./lab check docs` falla._
 ## Topología
 
 ```mermaid
-graph TD
-    b_vmb_research(["vmb_research<br/>10.41.0.1/24"])
-    i_chr_agente["chr-agente<br/>VM (qemu) · etapa 1"]
+graph LR
+    classDef segmento fill:#0b1220,stroke:#38bdf8,color:#dbeafe;
+    classDef salida fill:#111827,stroke:#9ca3af,color:#e5e7eb,stroke-dasharray:4 3;
+    classDef rt fill:#7c2d12,stroke:#fb923c,color:#ffedd5;
+    classDef fw fill:#701a1a,stroke:#f87171,color:#fee2e2;
+    classDef sw fill:#134e4a,stroke:#2dd4bf,color:#ccfbf1;
+    classDef srv fill:#1e3a8a,stroke:#60a5fa,color:#dbeafe;
+    classDef ws fill:#14532d,stroke:#4ade80,color:#dcfce7;
+    classDef ctl fill:#4c1d95,stroke:#a78bfa,color:#ede9fe;
+    b_vmb_research(["vmb_research<br/>10.41.0.1/24"]):::segmento
+    i_chr_agente(["rt-agente<br/>10.41.0.11/24"]):::rt
     i_chr_agente --- b_vmb_research
-    i_control["control<br/>LXC · etapa 1"]
+    i_control[["ctl-1<br/>10.41.0.10/24"]]:::ctl
     i_control --- b_vmb_research
 ```
 
+En el diagrama, la **forma** y el **color** de cada equipo dicen qué es (el tipo declarado):
+
+- `rt` — rt (enruta y sale)
+- `ctl` — ctl (control del lab)
+
 ## Invitados declarados
 
-| rol | tipo | stage | cores | memory (MB) | disk (GB) | bridge | address |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| chr-agente | VM (qemu) | 1 | 1 | 512 | 1 | vmb_research | 10.41.0.11/24 |
-| control | LXC | 1 | 1 | 512 | 4 | vmb_research | 10.41.0.10/24 |
+| rol | tipo | plataforma | stage | cores | memory (MB) | disk (GB) | bridge | address |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| chr-agente | rt (enruta y sale) | VM (qemu) | 1 | 1 | 512 | 1 | vmb_research | 10.41.0.11/24 |
+| control | ctl (control del lab) | LXC | 1 | 1 | 512 | 4 | vmb_research | 10.41.0.10/24 |
 
 ## Bridges del lab
 
@@ -51,8 +64,8 @@ graph TD
 
 | rol | tipo | nombre canónico | vmid | MAC |
 | --- | --- | --- | --- | --- |
-| chr-agente | VM (qemu) | {equipo}-{alias} | — | — |
-| control | LXC | {equipo}-{alias} | — | — |
+| chr-agente | rt (enruta y sale) | rt-agente | — | — |
+| control | ctl (control del lab) | ctl-1 | — | — |
 
 El **vmid** (el menor libre de *todo* el clúster) y la **MAC** (`BC:24:11` + los
 bytes del vmid) los asigna `apply` leyendo el estado de Proxmox: no se declaran aquí y
@@ -63,8 +76,8 @@ guion hasta que exista un despliegue real.
 
 | rol | tipo | usuario | credencial | forma de acceso |
 | --- | --- | --- | --- | --- |
-| chr-agente | VM (qemu) | admin | `admin` / la de `secrets.yml` → `routeros_clave` (HTTP Basic) | REST por el túnel del bastión (`21000`+vmid); su consola, por la serial del nodo |
-| control | LXC | root | clave del lab (`~/.ssh/netlabs_tunnel_05_research_ed25519`), sin contraseña | SSH a `127.0.0.1`:(`20000`+vmid): él ES el bastión, se entra directo por su túnel |
+| chr-agente | rt (enruta y sale) | admin | `admin` / la de `secrets.yml` → `routeros_clave` (HTTP Basic) | REST por el túnel del bastión (`21000`+vmid); su consola, por la serial del nodo |
+| control | ctl (control del lab) | root | clave del lab (`~/.ssh/netlabs_tunnel_05_research_ed25519`), sin contraseña | SSH a `127.0.0.1`:(`20000`+vmid): él ES el bastión, se entra directo por su túnel |
 
 El **usuario**, la **credencial** (de dónde sale Y cuánto vale) y la **forma de acceso** se
 derivan de la declaración, del motor y de `deployment_engine/secrets.yml`. **Este lab es de un

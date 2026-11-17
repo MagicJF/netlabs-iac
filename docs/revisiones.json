@@ -5,21 +5,21 @@
       "deployment_engine/tasks/interior_ssh.yml": "82bee4b7201604d0accf34c38ca9aaf297319b858a125811d0bd3ea0063a96ca",
       "deployment_engine/tasks/pve_api.yml": "42b30c7d2a79a68b54ea68ef0aadf90b9d3eaa6800aeb89378c7c50d551e2817",
       "deployment_engine/tasks/ros_api.yml": "4c046afb65edc202ec05535611f9b5069914ded3aabf572c6534ab579090d309",
-      "deployment_engine/templates/lab-region.md.j2": "f574153ca4f3c8ceae6ba5c534ad816a18f56046f1892ab3f6d340b92ba2ffc9",
-      "deployment_engine/tools/documentos.py": "85ea0c2b6552d0f1d4d9c30a62a3e9f22c3709f3d39505169162a610d155b93c"
+      "deployment_engine/templates/lab-region.md.j2": "d521b3f32e8c08c8ef5df0511f64f195cab76a93e35360c10f40cc93570af8c4",
+      "deployment_engine/tools/documentos.py": "fc63504b3aeecb567bfbb44f385c636c9747cbb2b7a060f8818792bceb645b2d"
     }
   },
   "README.md": {
     "citados": {
-      "deployment_engine/filter_plugins/estado.py": "388945b0cf3912b20cd833d36d6af4c912e38c93947d0f46a11d725388af73c5",
+      "deployment_engine/filter_plugins/estado.py": "53b22c6747df568ccaff6d91a8534fffaed38d4a3a0a76556b39d5a6e72c3e31",
       "deployment_engine/filter_plugins/identidad.py": "8d00bddc83100774ff8f3343f33f12dbcf3328ed09e4964cc8e9442052b06367",
       "deployment_engine/filter_plugins/interior.py": "11380bdab8d9ee726d2f00ed0307d388ea909389be2c9a436c8d09f3affcf113",
       "deployment_engine/playbooks/plan.yml": "1a11a151d2e4691ab4611a43f39319503e8153b67145fe450e8f31df70baca24",
       "deployment_engine/tasks/pve_api.yml": "42b30c7d2a79a68b54ea68ef0aadf90b9d3eaa6800aeb89378c7c50d551e2817",
       "deployment_engine/tasks/pve_api_y_esperar.yml": "6226f0c9e87cac7ff936dd4ead8c4f318bea3c5afc1dfaefaf1bf0ec09cd23dc",
-      "deployment_engine/tools/documentos.py": "85ea0c2b6552d0f1d4d9c30a62a3e9f22c3709f3d39505169162a610d155b93c",
+      "deployment_engine/tools/documentos.py": "fc63504b3aeecb567bfbb44f385c636c9747cbb2b7a060f8818792bceb645b2d",
       "deployment_engine/tools/framework_check.py": "630692aa772f3db8155cd57fed9281bcbe395f86ba1d0fc79b1a16144a2013a7",
-      "deployment_engine/tools/plan.py": "f88525e8fb3d59a79ef8fa03aadbe33940dfffac352640099a88b027ecc58d2e",
+      "deployment_engine/tools/plan.py": "d51a9685f3c72cd3d19c1a192df2ab53d01daaa1f9301829550c7c769b461ae1",
       "deployment_engine/vars/engine.yml": "a8f147b01f83db6ac821e69988a4b4e641dbff39155592b72910da71af710a7d"
     }
   },
@@ -35,13 +35,13 @@
   },
   "docs/decisiones/0002-el-pool-como-frontera-de-propiedad.md": {
     "citados": {
-      "deployment_engine/filter_plugins/estado.py": "388945b0cf3912b20cd833d36d6af4c912e38c93947d0f46a11d725388af73c5",
+      "deployment_engine/filter_plugins/estado.py": "53b22c6747df568ccaff6d91a8534fffaed38d4a3a0a76556b39d5a6e72c3e31",
       "deployment_engine/filter_plugins/identidad.py": "8d00bddc83100774ff8f3343f33f12dbcf3328ed09e4964cc8e9442052b06367"
     }
   },
   "docs/decisiones/0003-documento-con-dos-regiones.md": {
     "citados": {
-      "deployment_engine/tools/documentos.py": "85ea0c2b6552d0f1d4d9c30a62a3e9f22c3709f3d39505169162a610d155b93c"
+      "deployment_engine/tools/documentos.py": "fc63504b3aeecb567bfbb44f385c636c9747cbb2b7a060f8818792bceb645b2d"
     }
   },
   "docs/decisiones/0004-el-tunnel-y-el-token.md": {
@@ -65,12 +65,12 @@
   "docs/decisiones/0008-una-direccion-por-interface.md": {
     "citados": {
       "deployment_engine/filter_plugins/interior.py": "11380bdab8d9ee726d2f00ed0307d388ea909389be2c9a436c8d09f3affcf113",
-      "deployment_engine/tools/plan.py": "f88525e8fb3d59a79ef8fa03aadbe33940dfffac352640099a88b027ecc58d2e"
+      "deployment_engine/tools/plan.py": "d51a9685f3c72cd3d19c1a192df2ab53d01daaa1f9301829550c7c769b461ae1"
     }
   },
   "docs/decisiones/0009-verify-mira-dentro.md": {
     "citados": {
-      "deployment_engine/filter_plugins/estado.py": "388945b0cf3912b20cd833d36d6af4c912e38c93947d0f46a11d725388af73c5",
+      "deployment_engine/filter_plugins/estado.py": "53b22c6747df568ccaff6d91a8534fffaed38d4a3a0a76556b39d5a6e72c3e31",
       "deployment_engine/filter_plugins/interior.py": "11380bdab8d9ee726d2f00ed0307d388ea909389be2c9a436c8d09f3affcf113",
       "deployment_engine/playbooks/verify.yml": "6a653eca5ef7498845658c825aea07761bc5ca377c360cf79435f7456f43b9b2",
       "deployment_engine/tasks/configurar_linux.yml": "46b219af623f4e1c845dff1f71cdc5bc89a4d7ff3a83fee436e88c1f1bb47e66",
@@ -90,9 +90,9 @@
   },
   "docs/decisiones/0011-el-agente-de-invitado.md": {
     "citados": {
-      "deployment_engine/filter_plugins/estado.py": "388945b0cf3912b20cd833d36d6af4c912e38c93947d0f46a11d725388af73c5",
+      "deployment_engine/filter_plugins/estado.py": "53b22c6747df568ccaff6d91a8534fffaed38d4a3a0a76556b39d5a6e72c3e31",
       "deployment_engine/tasks/addresses.yml": "40d77d67530936a86881e55f47ebb2a02137abbee55d1c4665d8839dac2de0ad",
-      "deployment_engine/tools/plan.py": "f88525e8fb3d59a79ef8fa03aadbe33940dfffac352640099a88b027ecc58d2e",
+      "deployment_engine/tools/plan.py": "d51a9685f3c72cd3d19c1a192df2ab53d01daaa1f9301829550c7c769b461ae1",
       "deployment_engine/vars/engine.yml": "a8f147b01f83db6ac821e69988a4b4e641dbff39155592b72910da71af710a7d"
     }
   },
@@ -100,13 +100,13 @@
     "citados": {
       "deployment_engine/filter_plugins/declaracion.py": "546771f503f3d27116fd70a9717608f9f540c3183c35e29149ff7bf75ddc3c45",
       "deployment_engine/filter_plugins/interior.py": "11380bdab8d9ee726d2f00ed0307d388ea909389be2c9a436c8d09f3affcf113",
-      "deployment_engine/tools/plan.py": "f88525e8fb3d59a79ef8fa03aadbe33940dfffac352640099a88b027ecc58d2e"
+      "deployment_engine/tools/plan.py": "d51a9685f3c72cd3d19c1a192df2ab53d01daaa1f9301829550c7c769b461ae1"
     }
   },
   "docs/decisiones/0013-una-estacion-pregunta-un-servidor-dice.md": {
     "citados": {
       "deployment_engine/filter_plugins/declaracion.py": "546771f503f3d27116fd70a9717608f9f540c3183c35e29149ff7bf75ddc3c45",
-      "deployment_engine/tools/plan.py": "f88525e8fb3d59a79ef8fa03aadbe33940dfffac352640099a88b027ecc58d2e"
+      "deployment_engine/tools/plan.py": "d51a9685f3c72cd3d19c1a192df2ab53d01daaa1f9301829550c7c769b461ae1"
     }
   },
   "docs/decisiones/0014-los-diarios-callan-lo-que-no-pasa.md": {
@@ -179,7 +179,7 @@
     "citados": {
       "deployment_engine/tasks/pve_api.yml": "42b30c7d2a79a68b54ea68ef0aadf90b9d3eaa6800aeb89378c7c50d551e2817",
       "deployment_engine/tools/framework_check.py": "630692aa772f3db8155cd57fed9281bcbe395f86ba1d0fc79b1a16144a2013a7",
-      "deployment_engine/tools/plan.py": "f88525e8fb3d59a79ef8fa03aadbe33940dfffac352640099a88b027ecc58d2e"
+      "deployment_engine/tools/plan.py": "d51a9685f3c72cd3d19c1a192df2ab53d01daaa1f9301829550c7c769b461ae1"
     }
   },
   "docs/tunnel-del-bastion.md": {
@@ -195,7 +195,7 @@
       "deployment_engine/filter_plugins/identidad.py": "8d00bddc83100774ff8f3343f33f12dbcf3328ed09e4964cc8e9442052b06367",
       "deployment_engine/tasks/pve_api.yml": "42b30c7d2a79a68b54ea68ef0aadf90b9d3eaa6800aeb89378c7c50d551e2817",
       "deployment_engine/tools/framework_check.py": "630692aa772f3db8155cd57fed9281bcbe395f86ba1d0fc79b1a16144a2013a7",
-      "deployment_engine/tools/plan.py": "f88525e8fb3d59a79ef8fa03aadbe33940dfffac352640099a88b027ecc58d2e"
+      "deployment_engine/tools/plan.py": "d51a9685f3c72cd3d19c1a192df2ab53d01daaa1f9301829550c7c769b461ae1"
     }
   },
   "labs/02_lab-minimo/02_lab-minimo.md": {
@@ -210,12 +210,12 @@
       "deployment_engine/filter_plugins/identidad.py": "8d00bddc83100774ff8f3343f33f12dbcf3328ed09e4964cc8e9442052b06367",
       "deployment_engine/tasks/pve_api.yml": "42b30c7d2a79a68b54ea68ef0aadf90b9d3eaa6800aeb89378c7c50d551e2817",
       "deployment_engine/tools/framework_check.py": "630692aa772f3db8155cd57fed9281bcbe395f86ba1d0fc79b1a16144a2013a7",
-      "deployment_engine/tools/plan.py": "f88525e8fb3d59a79ef8fa03aadbe33940dfffac352640099a88b027ecc58d2e"
+      "deployment_engine/tools/plan.py": "d51a9685f3c72cd3d19c1a192df2ab53d01daaa1f9301829550c7c769b461ae1"
     }
   },
   "labs/05_research/05_research.md": {
     "citados": {
-      "deployment_engine/filter_plugins/estado.py": "388945b0cf3912b20cd833d36d6af4c912e38c93947d0f46a11d725388af73c5",
+      "deployment_engine/filter_plugins/estado.py": "53b22c6747df568ccaff6d91a8534fffaed38d4a3a0a76556b39d5a6e72c3e31",
       "deployment_engine/tasks/addresses.yml": "40d77d67530936a86881e55f47ebb2a02137abbee55d1c4665d8839dac2de0ad"
     }
   },

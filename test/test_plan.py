@@ -61,11 +61,14 @@ DOS_PATAS = {
 
 
 def actual_de(guest, puentes):
-    """Lo que el NODO diría que tiene puesto: `net<n>=virtio=<mac>,bridge=<bridge>`."""
-    return {
-        f"net{indice}": f"virtio=BC:24:11:00:0{indice}:01,bridge={bridge}"
-        for indice, bridge in enumerate(puentes)
-    }
+    """Lo que el ESTADO dice que tiene puesto el invitado.
+
+    `interfaces` es {índice: bridge} con las claves en TEXTO, porque el estado viaja por
+    variables de Ansible y ahí las claves siempre son texto. Se escribe así a propósito: la
+    versión anterior de esta prueba pasaba la config cruda del nodo (`net0=...`) y por eso no
+    vio que el estado no guardaba más que la PRIMERA interfaz.
+    """
+    return {"interfaces": {str(indice): bridge for indice, bridge in enumerate(puentes)}}
 
 
 def difieren(guest, puentes):
@@ -110,16 +113,26 @@ comprobar(
 )
 
 # Y por qué hizo falta una comprobación nueva en vez de añadir `netN` a la lista de campos:
-# `campos_que_difieren` compara `bridge` (en singular), y `bridge` NO está en lo que el nodo
-# devuelve -- allí las interfaces son `net0`, `net1`...--, así que esa comprobación pasaba de
-# largo y el invitado se daba por bueno. Aquí se ve el agujero tal cual era.
+# `campos_que_difieren` compara `bridge` (en singular, el de `net0`), así que con la segunda
+# pata en otro sitio NO ve nada -- el invitado se daba por bueno. Aquí se ve el agujero tal
+# cual era, contra el MISMO estado que ahora se conserva entero.
 igual(
     modulo.campos_que_difieren(
         modulo._esperado_del_guest(copy.deepcopy(DOS_PATAS)),
-        actual_de(DOS_PATAS, ["vmb_gestion", "vmb_troncal"]),
+        dict(actual_de(DOS_PATAS, ["vmb_gestion", "vmb_troncal"]), bridge="vmb_gestion"),
     ),
     {},
     "la comparación de campos por sí sola NO ve la segunda pata: es el agujero que esto cierra",
+)
+
+# Y la otra mitad del contrato, la que se coló y se vio en un `plan --api` de verdad: el
+# estado TIENE que traer las interfaces. Si no las trajera, este mismo invitado perfecto
+# saldría con todas sus patas «en ningún bridge» y el plan daría por roto un lab entero.
+comprobar(
+    actual_de(DOS_PATAS, ["vmb_gestion", "vmb_lan"]).get("interfaces") ==
+    {"0": "vmb_gestion", "1": "vmb_lan"},
+    "el estado dice el bridge de CADA interfaz (si sólo dijera el de la primera, la "
+    "comparación vería huecos donde no los hay)",
 )
 
 # ---------------------------------------------------------------------------
@@ -128,9 +141,7 @@ print("\nLA PATA DE FUERA CUENTA COMO CUALQUIER OTRA\n")
 
 
 def actual_con_salida(guest, puentes, salida):
-    bloque = actual_de(guest, puentes)
-    bloque[f"net{len(puentes)}"] = f"virtio=BC:24:11:00:09:01,bridge={salida}"
-    return bloque
+    return actual_de(guest, list(puentes) + [salida])
 
 
 # Un invitado con `uplink` sale al bridge del nodo: esa interfaz es la ÚLTIMA y también tiene
@@ -175,7 +186,9 @@ print("\nLA MISMA FUNCIÓN QUE CREA ES LA QUE COMPARA\n")
 comprobado = True
 for guest, puentes in ((DOS_PATAS, ["vmb_gestion", "vmb_lan"]),):
     escrito = modulo._redes_del_guest(copy.deepcopy(guest), {}, {}, PARAMETROS)
-    comprobado = comprobado and modulo._puentes_de(escrito) == modulo._puentes_de(actual_de(guest, puentes))
+    comprobado = comprobado and (
+        modulo._puentes_de(escrito) == modulo._puentes_de_estado(actual_de(guest, puentes))
+    )
 comprobar(
     comprobado,
     "los bridges que crear escribe y los que comparar espera son los MISMOS: una sola fuente",

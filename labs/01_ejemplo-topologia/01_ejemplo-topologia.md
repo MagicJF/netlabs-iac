@@ -22,23 +22,36 @@ si los editas a mano, `./lab check docs` falla._
 ## Topología
 
 ```mermaid
-graph TD
-    b_vmb_ejemplo(["vmb_ejemplo<br/>192.0.2.1/24"])
-    i_switch["switch<br/>VM (qemu) · etapa 1"]
+graph LR
+    classDef segmento fill:#0b1220,stroke:#38bdf8,color:#dbeafe;
+    classDef salida fill:#111827,stroke:#9ca3af,color:#e5e7eb,stroke-dasharray:4 3;
+    classDef rt fill:#7c2d12,stroke:#fb923c,color:#ffedd5;
+    classDef fw fill:#701a1a,stroke:#f87171,color:#fee2e2;
+    classDef sw fill:#134e4a,stroke:#2dd4bf,color:#ccfbf1;
+    classDef srv fill:#1e3a8a,stroke:#60a5fa,color:#dbeafe;
+    classDef ws fill:#14532d,stroke:#4ade80,color:#dcfce7;
+    classDef ctl fill:#4c1d95,stroke:#a78bfa,color:#ede9fe;
+    b_vmb_ejemplo(["vmb_ejemplo<br/>192.0.2.1/24"]):::segmento
+    i_switch[/"sw-1<br/>192.0.2.2/24<br/>etapa 1"/]:::sw
     i_switch --- b_vmb_ejemplo
-    i_workstation_1["workstation-1<br/>LXC · etapa 2"]
+    i_workstation_1["ws-1<br/>192.0.2.11/24<br/>etapa 2"]:::ws
     i_workstation_1 --- b_vmb_ejemplo
-    i_workstation_2["workstation-2<br/>LXC · etapa 2"]
+    i_workstation_2["ws-2<br/>192.0.2.12/24<br/>etapa 2"]:::ws
     i_workstation_2 --- b_vmb_ejemplo
 ```
 
+En el diagrama, la **forma** y el **color** de cada equipo dicen qué es (el tipo declarado):
+
+- `sw` — sw (conmuta)
+- `ws` — ws (puesto de trabajo)
+
 ## Invitados declarados
 
-| rol | tipo | stage | cores | memory (MB) | disk (GB) | bridge | address |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| switch | VM (qemu) | 1 | 2 | 512 | 8 | vmb_ejemplo | 192.0.2.2/24 |
-| workstation-1 | LXC | 2 | 1 | 256 | 4 | vmb_ejemplo | 192.0.2.11/24 |
-| workstation-2 | LXC | 2 | 1 | 256 | 4 | vmb_ejemplo | 192.0.2.12/24 |
+| rol | tipo | plataforma | stage | cores | memory (MB) | disk (GB) | bridge | address |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| switch | sw (conmuta) | VM (qemu) | 1 | 2 | 512 | 8 | vmb_ejemplo | 192.0.2.2/24 |
+| workstation-1 | ws (puesto de trabajo) | LXC | 2 | 1 | 256 | 4 | vmb_ejemplo | 192.0.2.11/24 |
+| workstation-2 | ws (puesto de trabajo) | LXC | 2 | 1 | 256 | 4 | vmb_ejemplo | 192.0.2.12/24 |
 
 ## Bridges del lab
 
@@ -57,9 +70,9 @@ graph TD
 
 | rol | tipo | nombre canónico | vmid | MAC |
 | --- | --- | --- | --- | --- |
-| switch | VM (qemu) | {equipo}-{alias} | — | — |
-| workstation-1 | LXC | {equipo}-{alias} | — | — |
-| workstation-2 | LXC | {equipo}-{alias} | — | — |
+| switch | sw (conmuta) | sw-1 | — | — |
+| workstation-1 | ws (puesto de trabajo) | ws-1 | — | — |
+| workstation-2 | ws (puesto de trabajo) | ws-2 | — | — |
 
 El **vmid** (el menor libre de *todo* el clúster) y la **MAC** (`BC:24:11` + los
 bytes del vmid) los asigna `apply` leyendo el estado de Proxmox: no se declaran aquí y
@@ -70,9 +83,9 @@ guion hasta que exista un despliegue real.
 
 | rol | tipo | usuario | credencial | forma de acceso |
 | --- | --- | --- | --- | --- |
-| switch | VM (qemu) | — | — | no se entra: no declara `config:` |
-| workstation-1 | LXC | — | — | no se entra: no declara `config:` |
-| workstation-2 | LXC | — | — | no se entra: no declara `config:` |
+| switch | sw (conmuta) | — | — | no se entra: no declara `config:` |
+| workstation-1 | ws (puesto de trabajo) | — | — | no se entra: no declara `config:` |
+| workstation-2 | ws (puesto de trabajo) | — | — | no se entra: no declara `config:` |
 
 El **usuario**, la **credencial** (de dónde sale Y cuánto vale) y la **forma de acceso** se
 derivan de la declaración, del motor y de `deployment_engine/secrets.yml`. **Este lab es de un

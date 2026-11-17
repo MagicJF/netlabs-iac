@@ -195,6 +195,7 @@ Un fichero con dos escritores es el que envejece mal. `labs/<lab>/<lab>.md` tien
 | tocaste `VERSION`, el `CHANGELOG.md`, o vas a publicar | `./lab check version` |
 | antes de cualquier commit | `./lab check` (todo) + `ansible-lint` |
 | tocaste la propiedad de los bridges (`plan`, `destroy`, `estado`) | `python3 test/test_bridges.py` y `./lab check` |
+| tocaste `tools/plan.py` (lo que el plan da por bueno) | `python3 test/test_plan.py` y `python3 test/test_regresion_planes.py` |
 | tocaste un driver del interior (`routeros`/`linux`) | `./lab check access` + `python3 test/test_interior.py` y `test/test_routeros.py` |
 | vas a decir "hecho" | `./lab check` verde y la evidencia pegada en la respuesta |
 | vas a subir a GitHub | ciclo `destroy → apply → verify` verde + `./lab check` (ver §Commits y subida a GitHub) |

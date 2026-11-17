@@ -23,6 +23,7 @@
 # nada). Se importa por RUTA y no por PYTHONPATH porque el motor no depende de
 # variables de entorno (regla 3): la ruta se calcula desde este mismo fichero.
 import os as _os
+import re
 import sys as _sys
 
 _AQUI = _os.path.dirname(_os.path.abspath(__file__))
@@ -130,6 +131,48 @@ def campos_que_difieren(esperado, actual):
         if str(actual[campo]) != str(esperado[campo]):
             diferencias[campo] = {"esperado": esperado[campo], "encontrado": actual[campo]}
     return diferencias
+
+
+def _puentes_de(bloque):
+    """El bridge de CADA interfaz de un bloque `netN`, por número de interfaz.
+
+    Se saca del TEXTO que el motor escribe (`net0=...,bridge=X,...`), con la misma forma en
+    que lo lee de la API: así crear y comparar dicen lo mismo, que es la razón por la que la
+    cadena se construye en un solo sitio (`_redes_del_guest`).
+    """
+    puentes = {}
+    for clave, valor in (bloque or {}).items():
+        numero = re.match(r"^net(\d+)$", str(clave))
+        if not numero:
+            continue
+        encontrado = re.search(r"(?:^|,)bridge=([^,]+)", str(valor))
+        if encontrado:
+            puentes[int(numero.group(1))] = encontrado.group(1)
+    return puentes
+
+
+def interfaces_que_difieren(guest, actual, declaracion, estado, parametros):
+    """Qué interfaces del invitado NO están en el bridge que la declaración pide.
+
+    `campos_que_difieren` mira `bridge` -- la PRIMERA. Un invitado con varias patas puede
+    tener la segunda en otro bridge sin que nadie se entere: la declaración pide
+    `[gestion, borde]`, el nodo tiene `[gestion, troncal]`, y como la primera coincide el
+    plan dice que no hay nada que hacer. El interior configura entonces una interfaz que ya
+    no está donde la declaración dice, y el invitado se queda sin camino.
+
+    Se compara contra lo que escribiría CREAR (`_redes_del_guest`), no contra una copia: si
+    cada uno lo calculara por su cuenta, el plan vería diferencias que no son.
+
+    Y no se arregla: cambiarle las interfaces a un invitado EN MARCHA lo obliga a reiniciar, y
+    aquí no se reinicia lo que está trabajando (§5). Lo dice quien llama, con el remedio.
+    """
+    esperados = _puentes_de(_redes_del_guest(guest, declaracion, estado, parametros))
+    actuales = _puentes_de(actual)
+    return {
+        numero: {"esperado": esperados[numero], "encontrado": actuales.get(numero)}
+        for numero in sorted(esperados)
+        if actuales.get(numero) != esperados[numero]
+    }
 
 
 def comentario_bridge(lab, parametros):
@@ -243,6 +286,25 @@ def construir_plan(declaracion, estado, identidad, parametros):
                     stage=guest["stage"],
                     rol=guest["rol"],
                 )
+            )
+
+        # Y las INTERFACES, que `campos_que_difieren` no mira más allá de la primera: un
+        # invitado con varias patas puede tener la segunda en OTRO bridge sin que nadie se
+        # entere. No se puede arreglar en marcha (§5: aquí no se reinicia lo que está
+        # trabajando), así que no se rodea -- se para y se dice el remedio.
+        de_interfaces = interfaces_que_difieren(guest, actual, declaracion, estado, parametros)
+        if de_interfaces:
+            donde = "; ".join(
+                f"net{numero} está en {dato['encontrado'] or 'NINGÚN bridge'} y la "
+                f"declaración pide {dato['esperado']}"
+                for numero, dato in de_interfaces.items()
+            )
+            raise modulo_interior.ErrorMotor(
+                f"el rol '{guest['rol']}' (vmid {guest['vmid']}) tiene las interfaces donde "
+                f"no las pide la declaración: {donde}. Cambiarle las interfaces a un invitado "
+                "EN MARCHA lo obliga a reiniciar, y este motor no reinicia lo que está "
+                "trabajando: se rehace el invitado, con "
+                f"`./lab --lab {lab} destroy --yes` y luego `apply`."
             )
 
     # Fase 2 — arrancar, etapa a etapa, y CONVERGER SU INTERIOR antes de tocar el

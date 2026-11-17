@@ -59,6 +59,36 @@ si no lo reenviara no sería un cortafuegos, sería un adorno. Lo que un `fw` no
 decidir el camino de la red (no es la vía de acceso de nadie), ni traducir, ni repartir. La
 definición del tipo se corrige en el motor para decir eso exactamente.
 
+**6. TODOS los tipos tienen entrada, y eso es parte de la regla.** `rt`, `fw` y `sw` son los
+que tienen una función de red que perder; `srv`, `ws` y `ctl` **no son de red** y no tienen
+ninguna de las cuatro (filtrar, enrutar, ser la vía de acceso, repartir). Dejar un tipo fuera
+de la tabla es dejar la grieta abierta por la puerta de al lado: bastaba con declarar la misma
+tabla de filtrado en un `srv` para colarla, porque **un tipo que no está en la tabla no tiene
+ninguna regla**. (Lo cazó Greptile en la primera revisión de este cambio, y tenía razón.)
+
+**7. Y la tabla se lee por tipo Y por interior.** Hace falta la segunda dimensión porque hay
+nombres de área compartidos entre vocabularios: `dhcp_server` existe en RouterOS y en Linux, y
+el bastión **sí** reparte direcciones en la red de gestión con su Linux (ADR 0005). Prohibirle
+`dhcp_server` en bloque le prohibiría hacer su trabajo; lo que no le toca es hacerlo con el
+vocabulario de un equipo de red. Por eso la entrada del `ctl` es `{"routeros": ...}` y no `"*"`.
+
+**8. Un invitado que NO está donde dice la declaración no se da por bueno.** Esto no es del
+validador sino del plan, y salió de la misma revisión: `campos_que_difieren` mira el campo
+`bridge` —**la primera** interfaz— y en lo que el nodo devuelve ese campo no existe (allí las
+interfaces son `net0`, `net1`…), así que un invitado con varias patas podía tener la **segunda
+en otro bridge** y el plan decía «no hay nada que hacer». La declaración pide
+`[gestión, borde]`, el nodo tiene `[gestión, troncal]`, y como la primera coincide nadie se
+entera: el interior configura entonces una interfaz que ya no está donde la declaración dice y
+el invitado se queda sin camino. Ahora se comparan **todas** las interfaces, contra la misma
+función que las escribe al crear (`_redes_del_guest`), para que crear y comparar no puedan
+decir cosas distintas.
+
+Y **no se arregla en marcha**: cambiarle las interfaces a un invitado que está trabajando lo
+obliga a reiniciar, y aquí no se reinicia lo que está trabajando (§5). El plan **para** y dice
+el motivo y el remedio — `destroy --yes` y `apply`, que es como se validó este mismo cambio.
+Callarse habría sido lo cómodo y lo que había: un lab que sigue diciendo «convergido» con una
+pata en el sitio equivocado.
+
 ## Lo que esto NO es
 
 - **No es un tipo por área.** No se prohíbe declarar áreas: se prohíbe declararlas en el
@@ -76,8 +106,14 @@ definición del tipo se corrige en el motor para decir eso exactamente.
 - **`test/test_declaracion.py`** §«EL TIPO DE EQUIPO MANDA SOBRE LAS ÁREAS»: un `rt` con
   `firewall` se caza y el motivo nombra al `fw`; **el mismo equipo declarado `fw`, con la
   misma tabla, pasa** (la regla es del tipo, no del área); un `fw` con `uplink` o con
-  `dhcp_server` se caza; y un `sw` con `routes` se caza.
-- **La batería del cortafuegos** de ese mismo fichero declara ahora su CHR como `fw`, que es
+  `dhcp_server` se caza; un `sw` con `routes` se caza; y **los seis tipos del vocabulario
+  tienen entrada** (con `srv`, `ws` y `ctl` cazados por cada una de las cuatro funciones, y
+  con la prueba de que la regla del `ctl` está acotada a `routeros`).
+- **`test/test_plan.py`**: las interfaces de un invitado donde la declaración pide no dan
+  trabajo; **una segunda pata en otro bridge sí lo da** (y se ve que la comparación de campos
+  por sí sola no lo veía); la pata de fuera cuenta como cualquier otra; y crear y comparar
+  salen de la misma función.
+- **La batería del cortafuegos** de `test_declaracion.py` declara ahora su CHR como `fw`, que es
   lo que le toca: sin el tipo, cada prueba de forma saldría además con el motivo del tipo y
   no se leería nada.
 - **`./lab check declaracion`** sobre los ocho labs del repo, sin credenciales: ninguno

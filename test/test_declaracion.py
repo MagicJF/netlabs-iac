@@ -244,6 +244,48 @@ comprobar(
     "un `sw` que declara `routes` se caza: conmutar no es enrutar",
 )
 
+# Y el agujero que Greptile cazó en la primera revisión de este mismo cambio: la tabla tenía
+# `rt`, `fw` y `sw`, y **ningún** tipo más -- así que bastaba declarar la misma tabla de
+# filtrado en un `srv` para colarla. El tipo que no está en la tabla no tiene ninguna regla.
+igual(
+    sorted(modulo.AREAS_QUE_NO_LE_TOCAN),
+    sorted(modulo.TIPOS_DE_EQUIPO),
+    "los SEIS tipos del vocabulario tienen entrada: un tipo fuera de la tabla es una grieta "
+    "por la puerta de al lado",
+)
+
+
+def _con_area(tipo, area, interior="routeros"):
+    """El mismo equipo, con otro `tipo` y un área de equipo de red declarada."""
+    def mutar(declaracion):
+        declaracion["vms"][0]["tipo"] = tipo
+        declaracion["vms"][0]["config"][interior][area] = []
+    return mutar
+
+
+# Quien NO es de red no tiene NINGUNA de las cuatro funciones, y `ctl` no se queda fuera.
+# (`vms[0]` ya declara `dhcp_server` en el lab de aceptación, así que ese caso sale solo.)
+for tipo, area in (
+    ("srv", "firewall"), ("srv", "uplink"), ("srv", "dhcp_server"),
+    ("ws", "firewall"), ("ws", "routes"), ("ws", "dhcp_server"),
+    ("ctl", "firewall"), ("ctl", "uplink"),
+):
+    comprobar(
+        dice(errores_de(_con_area(tipo, area)), "una responsabilidad"),
+        f"un `{tipo}` que declara '{area}' con el vocabulario de un equipo de red se caza: "
+        "no es un equipo de red",
+    )
+
+# Y la precisión que hace falta para no pasarse de frenada: al `ctl` no se le prohíbe
+# `dhcp_server` en bloque, sólo con el vocabulario del equipo de red. El bastión REPARTE
+# direcciones en la red de gestión con su Linux (ADR 0005), y eso tiene que seguir pasando.
+comprobar(
+    "dhcp_server" in modulo.AREAS_QUE_NO_LE_TOCAN["ctl"].get("routeros", {})
+    and "dhcp_server" not in modulo.AREAS_QUE_NO_LE_TOCAN["ctl"].get("*", {}),
+    "la regla del `ctl` está acotada al interior `routeros`: repartir con su Linux es su "
+    "trabajo, no una segunda responsabilidad",
+)
+
 # ---------------------------------------------------------------------------
 
 print("\nUN INVITADO CON INTERIOR TIENE QUE SER ALCANZABLE\n")

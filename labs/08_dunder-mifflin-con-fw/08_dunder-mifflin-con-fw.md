@@ -287,6 +287,14 @@ segundo intento convergió en el mismo lab a medio construir.
   El día que un lab necesite un RouterOS conmutando (con VLAN, o con un espejo), será otra
   área y otro ADR — y ese día el validador ya tiene la regla puesta: conmutar no es enrutar
   ni filtrar, así que `bridges` no podrá caer en un `rt` ni en un `fw` (ADR 0026).
+- **Este lab se aplicó desde cero, y con razón.** El refactor le cambia la SEGUNDA pata al
+  `rt-nucleo` (de `vmb_fw_troncal` a `vmb_fw_borde`), y las interfaces de un invitado en
+  marcha no se cambian sin reiniciarlo — y aquí no se reinicia lo que está trabajando (§5). El
+  ciclo verde de arriba es un `destroy --yes` y luego `apply`, que es el camino que hay. Un
+  `apply` sobre un despliegue anterior **no** movería esa pata y dejaría el router con su
+  salida en el bridge viejo: el plan lo detecta (compara **todas** las interfaces, no sólo la
+  primera) y **para** diciendo qué invitado y qué bridge, en vez de dar por bueno un lab con
+  una pata en el sitio equivocado.
 - **Aquí no hay aplicaciones dentro de los invitados.** El motor despliega y verifica
   máquinas, no servicios: no se instala ni se comprueba un servidor web en `srv-2`.
 - **La red de gestión es una vía fuera de banda, y el bastión está en todas las patas.** El

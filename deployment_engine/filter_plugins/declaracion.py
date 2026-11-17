@@ -131,21 +131,52 @@ TIPOS_DE_EQUIPO = {
 #   * salir no es filtrar    -> `uplink` (cliente DHCP + NAT + resolutor) es de un `rt`.
 #   * repartir no es filtrar -> `dhcp_server` no vive en un `fw`.
 #   * conmutar no es enrutar -> un `sw` no enruta, no filtra, no traduce y no reparte.
+#   * y quien NO es de red (`srv`, `ws`, `ctl`) no tiene NINGUNA de las cuatro: filtrar,
+#     enrutar, ser la vía de acceso y repartir son de quien sirve la red.
+#
+# TODOS los tipos del vocabulario tienen entrada, y eso es parte de la regla: un tipo que no
+# está aquí no tiene ninguna restricción, así que dejar uno fuera es dejar la grieta abierta
+# por la puerta de al lado (bastaba con declarar la misma tabla en un `srv`).
+#
+# Lo que NO puede declarar un equipo que no es de red: las cuatro funciones que dan a un
+# equipo su papel en la red -- filtrar, enrutar, ser la vía de acceso (traducir y salir) y
+# repartir direcciones. Se escribe UNA vez y se reusa: `srv`, `ws` y `ctl` (con el vocabulario
+# de un equipo de red) no son de red, y no hay tres listas distintas que mantener en sincronía.
+_NO_ES_DE_RED = {
+    "firewall": "filtrar es la responsabilidad de un equipo `fw` (ADR 0026)",
+    "routes": "enrutar es la responsabilidad de un equipo `rt` (ADR 0026)",
+    "uplink": "ser la vía de acceso (traducir y salir) es la de un `rt` (ADR 0012 y ADR 0026)",
+    "dhcp_server": "repartir direcciones es la responsabilidad de quien sirve la red (ADR 0026)",
+}
+
 AREAS_QUE_NO_LE_TOCAN = {
-    "rt": {
+    "rt": {"*": {
         "firewall": "filtrar es la responsabilidad de un equipo `fw` (ADR 0019 y ADR 0026); "
         "un router que además filtra es un router con dos trabajos",
-    },
-    "fw": {
+    }},
+    "fw": {"*": {
         "uplink": "traducir y repartir no es filtrar: la vía de acceso es un `rt` (ADR 0012)",
         "dhcp_server": "repartir direcciones no es filtrar: un `fw` no sirve DHCP (ADR 0026)",
-    },
-    "sw": {
+    }},
+    "sw": {"*": {
         "firewall": "un conmutador no filtra: eso es un `fw` (ADR 0026)",
         "routes": "un conmutador no enruta: eso es un `rt` (ADR 0026)",
         "uplink": "un conmutador no traduce ni sale: eso es un `rt` (ADR 0026)",
         "dhcp_server": "un conmutador no reparte direcciones (ADR 0026)",
-    },
+    }},
+    # Un SERVIDOR y un PUESTO no son equipos de red. Lo que hacen, lo hacen por dentro, como
+    # software; la red la sirve quien es de red (`rt` enruta y reparte, `fw` filtra). Sin esta
+    # entrada, cambiarle el `tipo` a un `srv` dejaba pasar la misma mezcla de responsabilidades
+    # que el ADR 0026 prohíbe: el tipo que no está en esta tabla no tiene ninguna regla.
+    "srv": {"*": _NO_ES_DE_RED},
+    "ws": {"*": _NO_ES_DE_RED},
+    # El bastión es la puerta del MOTOR, no un equipo del lab (ADR 0006): reparte direcciones
+    # en la red de gestión, reenvía el túnel y enruta -- pero TODO eso por dentro de su Linux,
+    # con el vocabulario de Linux, que es donde vive su declaración. Con el vocabulario de un
+    # equipo de red no le toca ninguna de esas funciones, y por eso la entrada es por interior:
+    # prohibirle `dhcp_server` en seco le prohibiría hacer su trabajo (el `ctl` del lab 08 lo
+    # declara en `linux`, y tiene que seguir pasando).
+    "ctl": {"routeros": _NO_ES_DE_RED},
 }
 
 
@@ -533,7 +564,17 @@ def _validar_interior(guest, etiqueta, rol, errores):
     # vocabulario a propósito -- primero se dice si el área existe, y sólo si existe se
     # discute si le toca a este equipo. Un motivo por área, no un «no puedes».
     tipo_de_equipo = guest.get("tipo")
-    prohibidas = AREAS_QUE_NO_LE_TOCAN.get(tipo_de_equipo, {})
+    # La tabla es por tipo y, dentro, por INTERIOR (`*` = cualquiera de ellos y el nombre de
+    # un interior = sólo ahí). Hace falta la segunda dimensión porque hay NOMBRES DE ÁREA
+    # COMPARTIDOS entre vocabularios: `dhcp_server` existe en RouterOS y en Linux, y el
+    # bastión tiene que poder repartir direcciones con su Linux sin que la regla del equipo
+    # de red se lo impida.
+    por_interior = AREAS_QUE_NO_LE_TOCAN.get(tipo_de_equipo, {})
+    prohibidas = {
+        area: motivo
+        for clave in ("*", tipo)
+        for area, motivo in (por_interior.get(clave) or {}).items()
+    }
     for area in declarado:
         if area in prohibidas:
             errores.append(

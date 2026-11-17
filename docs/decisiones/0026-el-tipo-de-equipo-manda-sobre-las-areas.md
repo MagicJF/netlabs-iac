@@ -34,8 +34,9 @@ cosa, y el tipo es la declaración de cuál. El criterio, palabra por palabra el
   resolutor, ADR 0012) es de un `rt`.
 - **repartir no es filtrar** → `dhcp_server` no vive en un `fw`.
 - **conmutar no es enrutar** → un `sw` no enruta (`routes`), no filtra (`firewall`), no
-  traduce (`uplink`), no reparte (`dhcp_server`) y no pide dirección de la vía de acceso
-  (`dhcp_client`).
+  traduce (`uplink`) y no reparte (`dhcp_server`). (`dhcp_client` no está en la lista a
+  propósito: esa área sólo **apaga** el cliente de fábrica de un CHR recién nacido —es
+  higiene, no una función— y prohibirla sería prohibir la higiene.)
 
 **2. Se declara en NEGATIVO, y con el motivo.** `AREAS_QUE_NO_LE_TOCAN` dice lo que cada
 tipo **no** puede pedir, no lo que puede. La lista de lo permitido ya está en `AREAS`, y una

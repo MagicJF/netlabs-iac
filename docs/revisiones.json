@@ -171,7 +171,7 @@
   },
   "docs/decisiones/0026-el-tipo-de-equipo-manda-sobre-las-areas.md": {
     "citados": {
-      "deployment_engine/filter_plugins/declaracion.py": "728e9ec6fcac20c09d3b06ac4cc11b17e21d739584bb00578d1bbfe258954876",
+      "deployment_engine/filter_plugins/declaracion.py": "4698e940feb77ff837deb9104325a55111a0513288afcce3828e4fb73503c4a2",
       "deployment_engine/filter_plugins/interior.py": "a4a16171829ba044df03b8bb63fd1ec22f1923dfeea406919282f60ea8e40bd2"
     }
   },

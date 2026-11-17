@@ -145,7 +145,6 @@ AREAS_QUE_NO_LE_TOCAN = {
         "routes": "un conmutador no enruta: eso es un `rt` (ADR 0026)",
         "uplink": "un conmutador no traduce ni sale: eso es un `rt` (ADR 0026)",
         "dhcp_server": "un conmutador no reparte direcciones (ADR 0026)",
-        "dhcp_client": "un conmutador no pide dirección por DHCP de la vía de acceso (ADR 0026)",
     },
 }
 

@@ -1,42 +1,50 @@
 ---
 # PROPÓSITO:   el CANDAO del Greptile, mecánico. Lee la puntuación que Greptile escribe en
 #              el resumen de cada PR y publica un *status check* (`greptile-5-de-5`) que
-#              pasa SÓLO con 5/5. Si la puntuación baja, además re-dispara la revisión
-#              (`@greptileai review`) una vez por cabecera, sin esperar a que nadie se
-#              acuerde de pedirla.
-# INVARIANTES: la puntuación se lee del CUERPO del resumen (Greptile EDITA ese comentario
-#              en su sitio), nunca de su `created_at`: leer la fecha es leer una puntuación
-#              vieja. El check se publica sobre el SHA de la CABECERA del PR (lo que se
-#              mezclaría), no sobre el commit que se revisó. Sin puntuación legible, el
-#              check queda en `pending`: no saberlo no es aprobarlo.
-#              El bucle se cierra: se re-dispara como mucho `MAX_REINTENTOS` veces por
-#              cabecera (marcado en un comentario), y jamás reacciona a sus propios
-#              comentarios (`github-actions[bot]`), que serían un bucle infinito.
+#              pasa SÓLO con 5/5 y SÓLO si esa puntuación es del commit que se mezclaría.
+#              Por debajo de 5/5 re-dispara la revisión, sin esperar a que nadie se acuerde.
+# INVARIANTES: la puntuación se lee del CUERPO del resumen (Greptile EDITA ese comentario en
+#              su sitio), nunca de su `created_at`: la fecha es una puntuación vieja.
+#              El autor del resumen se casa por su identidad EXACTA (`greptile-apps[bot]`),
+#              nunca por un trozo del nombre: un `in` deja que una cuenta llamada
+#              «notgreptile» firme un 5/5 y el candao aprobaría código sin revisar.
+#              La puntuación vale sólo si el commit que Greptile dice haber revisado es la
+#              CABECERA de ahora: un 5/5 de un commit anterior no dice nada del que se va a
+#              mezclar, así que ahí el check queda `pending`.
+#              Sin puntuación legible, `pending`: no saberlo no es aprobarlo.
+#              Se leen TODAS las páginas de comentarios: un PR largo no puede esconder la
+#              puntuación nueva detrás de la primera página.
+#              El bucle se cierra: como mucho `MAX_REINTENTOS` por cabecera, y jamás
+#              reacciona a sus propios comentarios (`github-actions[bot]`).
 # LÍMITES:     un *status check* sólo BLOQUEA el merge si además está exigido en la
 #              protección de rama (`./lab check` no puede hacerlo: es cosa de GitHub).
 #              Sin la protección, esto es un aviso que se ve, no un candao; se dice, no se
 #              maquilla. No opina sobre los HALLAZGOS: ésos se leen y se arreglan a mano
-#              (con su prueba), que es lo que `AGENTS.md` pide.
+#              (con su prueba), que es lo que AGENTS.md pide.
 # VER:         AGENTS.md §«Nada se mezcla con Greptile por debajo de 5/5»;
 #              .github/workflows/ci.yml (el CI de verdad, que es offline a propósito)
 
 name: candao del greptile
 
 on:
-  # Cuando Greptile publica o edita su resumen.
+  # Cuando Greptile publica o EDITA su resumen. Las dos cosas: el `submitted` trae la
+  # primera revisión y el `edited` la puntuación buena (Greptile reescribe su comentario).
   pull_request_review:
     types: [submitted, edited]
-  # Y cuando cambia la cabecera (un push nuevo invalida la puntuación anterior).
+  # Y cuando cambia la cabecera (un push invalida la puntuación anterior).
   pull_request:
     types: [opened, synchronize, reopened]
-  # Para poder pedirlo a mano comentando en el PR.
+  # Un comentario también dispara, y EDITARLO cuenta: editar un comentario NO emite
+  # `pull_request_review`, así que sin el `edited` una puntuación corregida se quedaría
+  # con el veredicto viejo hasta que ocurriera otra cosa.
   issue_comment:
-    types: [created]
+    types: [created, edited]
 
-# Un solo trabajo por PR y por cabecera: si llegan dos eventos seguidos, el segundo espera.
+# Un solo trabajo por PR, y el nuevo CANCELA al viejo: si dos eventos se pisan, quien publica
+# el estado es el último en llegar, no el que termine por casualidad más tarde.
 concurrency:
   group: greptile-gate-${{ github.event.pull_request.number || github.event.issue.number }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -49,6 +57,8 @@ env:
   MAX_REINTENTOS: "2"
   # El nombre del check que la protección de rama debe exigir.
   NOMBRE_DEL_CHECK: "greptile-5-de-5"
+  # La identidad EXACTA del revisor. No es un trozo del nombre: es el nombre.
+  AUTOR_DE_GREPTILE: "greptile-apps[bot]"
 
 jobs:
   candao:
@@ -62,12 +72,13 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           python3 - <<'PY'
-          import json, os, re, subprocess, urllib.request
+          import json, os, re, urllib.request
 
           repo = os.environ["REPO"]
           token = os.environ["GH_TOKEN"]
           max_reintentos = int(os.environ.get("MAX_REINTENTOS", "2"))
           nombre = os.environ["NOMBRE_DEL_CHECK"]
+          autor_greptile = os.environ["AUTOR_DE_GREPTILE"].lower()
 
           def api(ruta, datos=None, metodo="GET"):
               peticion = urllib.request.Request(
@@ -83,6 +94,18 @@ jobs:
               with urllib.request.urlopen(peticion) as r:
                   return json.loads(r.read() or b"{}")
 
+          def todas_las_paginas(ruta):
+              """TODAS las páginas: una discusión larga no puede esconder la puntuación nueva."""
+              pagina, todo = 1, []
+              while True:
+                  lote = api(f"{ruta}?per_page=100&page={pagina}")
+                  if not isinstance(lote, list) or not lote:
+                      return todo
+                  todo.extend(lote)
+                  if len(lote) < 100:
+                      return todo
+                  pagina += 1
+
           # 1. El número del PR, venga el evento de donde venga.
           evento = json.load(open(os.environ["GITHUB_EVENT_PATH"]))
           pr = (evento.get("pull_request") or {}).get("number") or (evento.get("issue") or {}).get("number")
@@ -93,40 +116,55 @@ jobs:
           datos_pr = api(f"pulls/{pr}")
           sha = datos_pr["head"]["sha"]
 
-          # 2. El ÚLTIMO comentario de Greptile, leído ENTERO y AHORA: Greptile edita su
-          #    resumen en su sitio, así que la fecha no dice nada de la puntuación.
-          comentarios = api(f"issues/{pr}/comments?per_page=100")
+          # 2. Todos los comentarios del PR. El resumen de Greptile se casa por su identidad
+          #    EXACTA: un `in` sobre el nombre dejaría que una cuenta impostora firmara un 5/5
+          #    y el candao aprobaría código que nadie ha revisado.
+          comentarios = todas_las_paginas(f"issues/{pr}/comments")
           de_greptile = [c for c in comentarios
-                         if "greptile" in (c["user"]["login"] or "").lower()]
-
-          # 3. La puntuación, del cuerpo.
-          puntuacion = None
-          if de_greptile:
-              cuerpo = de_greptile[-1]["body"] or ""
-              m = re.search(r"Confidence Score:\s*(\d+(?:\.\d+)?)\s*/\s*5", cuerpo, re.IGNORECASE)
-              if m:
-                  puntuacion = float(m.group(1))
+                         if (c["user"]["login"] or "").lower() == autor_greptile]
 
           def publicar(estado, descripcion):
               api(f"statuses/{sha}", {"state": estado, "context": nombre,
                                      "description": descripcion[:140]}, "POST")
               print(f"check '{nombre}' sobre {sha[:8]}: {estado} -- {descripcion}")
 
-          if puntuacion is None:
-              publicar("pending", "todavía sin puntuación de Greptile en el resumen")
+          if not de_greptile:
+              publicar("pending", "todavía sin resumen de Greptile en el PR")
+              raise SystemExit(0)
+
+          cuerpo = de_greptile[-1]["body"] or ""
+
+          # 3. La puntuación, del cuerpo.
+          m = re.search(r"Confidence Score:\s*(\d+(?:\.\d+)?)\s*/\s*5", cuerpo, re.IGNORECASE)
+          if not m:
+              publicar("pending", "el resumen de Greptile todavía no lleva puntuación")
+              raise SystemExit(0)
+          puntuacion = float(m.group(1))
+
+          # 4. DE QUÉ COMMIT es esa puntuación. El resumen la ata al commit que revisó
+          #    («Last reviewed commit: …/commit/<sha>»), y un 5/5 de un commit anterior no
+          #    dice nada del que se va a mezclar: la cabecera espera a SU revisión.
+          revisado = re.search(r"/commit/([0-9a-f]{7,40})", cuerpo, re.IGNORECASE)
+          if not revisado:
+              publicar("pending", "el resumen no dice qué commit revisó: no se puede atar")
+              raise SystemExit(0)
+          sha_revisado = revisado.group(1).lower()
+          if not sha.lower().startswith(sha_revisado):
+              publicar("pending", f"la puntuación es del commit {sha_revisado[:8]}, no de esta cabecera")
               raise SystemExit(0)
 
           if puntuacion >= 5:
-              publicar("success", f"Greptile {puntuacion:g}/5: se puede mezclar")
+              publicar("success", f"Greptile {puntuacion:g}/5 sobre esta cabecera: se puede mezclar")
               raise SystemExit(0)
 
-          # Por debajo de 5/5: el check queda en rojo Y se re-dispara la revisión, una vez
-          # por cabecera y con un tope, marcando la cabecera para no contar dos veces.
+          # Por debajo de 5/5: el check queda en rojo Y se re-dispara la revisión, una vez por
+          # cabecera y con un tope, marcando la cabecera para no contar dos veces.
           publicar("failure", f"Greptile {puntuacion:g}/5: se leen los hallazgos y se arreglan")
 
           marca = f"<!-- candao-greptile: {sha} -->"
           disparos = sum(1 for c in comentarios
-                         if marca in (c["body"] or "") and "github-actions" in c["user"]["login"])
+                         if marca in (c["body"] or "")
+                         and "github-actions" in (c["user"]["login"] or ""))
           if disparos >= max_reintentos:
               print(f"ya se re-disparó {disparos} vez/veces para esta cabecera: no se insiste")
               raise SystemExit(0)

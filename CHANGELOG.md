@@ -44,10 +44,19 @@ aquí está su entrada; los tres tienen que contar lo mismo, y eso es lo que vig
   re-dispara la revisión hasta `MAX_REINTENTOS` veces por cabecera, sin reaccionar a sus
   propios comentarios. Bloquea el merge el día que se exija en la protección de rama (el
   comando está en el README); sin eso es un aviso que se ve, y así se dice.
+- **Un Linux puede declarar un `servicio`, y el motor lo instala y lo deja SIRVIENDO (ADR 0027).**
+  El área `servicio` de `config.linux` toma el NOMBRE de un servicio de un vocabulario **cerrado**
+  (hoy sólo `caddy`): el motor instala el paquete, escribe su configuración y su página, habilita
+  y arranca la unidad, y lo comprueba **sirviéndolo** (un `curl` a 127.0.0.1 desde dentro). Un
+  invitado ya convergido no produce **ninguna** operación, y un nombre que no esté en el
+  vocabulario —o una clave presente pero vacía— se **rechaza** con su motivo, no se ignora. La
+  convergencia se decide comparando el **contenido entero** de los dos ficheros que el área
+  gobierna (la marca sola no prueba que estén bien) y mirando `is-active` **y** `is-enabled`.
 - **`09_lxc-caddy`**: el lab más simple que enseña el YAML declarativo —un contenedor Linux
-  con Caddy dentro, en su propio bridge de gestión, sin un solo RouterOS— y a la vez el que
-  destapó el gemelo de abajo. Su `tipo: ctl` lo hace el bastión de su propio lab: es el
-  único invitado y su túnel es la vía por la que el motor entra a configurarlo.
+  con Caddy dentro, en su propio bridge, sin un solo RouterOS— y a la vez el que destapó el
+  gemelo de abajo. Su `tipo: ctl` lo hace el bastión de su propio lab: es el único invitado y su
+  túnel es la vía por la que el motor entra a configurarlo (el paquete sale a internet por su
+  pata de gestión, no por el túnel).
 
 ### Corregido
 

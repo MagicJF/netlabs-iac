@@ -14,8 +14,10 @@
 #              nada (regla 17). El nombre es de un vocabulario CERRADO (hoy sólo `caddy`):
 #              un nombre que no esté se rechaza (regla 15, ADR 0027). Lo que este lab NO
 #              demuestra: no hay router (nada que enrutar) ni segunda red. El paquete se
-#              instala saliendo a internet por el túnel del bastión, que el motor ya
-#              construye para entrar en él.
+#              instala saliendo a internet por la PATA DE GESTIÓN -- la segunda interfaz que
+#              el motor añade al invitado, en el bridge de gestión del nodo y con su puerta
+#              de enlace (medido: `net1` en el bridge de gestión con `gw`)--, NO por el
+#              túnel: el túnel es una conexión que se apoya en esa salida, no la salida.
 # VER:         docs/decisiones/0027-el-area-servicio-de-un-linux.md (el área `servicio`),
 #              docs/decisiones/0002-el-pool-como-frontera-de-propiedad.md (el pool es la
 #              frontera de propiedad), docs/decisiones/0005-*.md (el bastión y su DHCP),

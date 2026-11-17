@@ -814,16 +814,20 @@ def _validar_linux(declarado, etiqueta, rol, errores):
     # motor lo instala, escribe su configuración y lo deja sirviendo. Un nombre que no esté
     # se RECHAZA aquí con el motivo -- en vez de aceptarlo y no hacer nada con él -- porque el
     # vocabulario es cerrado (regla 15): una primitiva nueva se añade al motor, con su ADR.
-    servicio = declarado.get("servicio")
-    if servicio is not None and (
-        not isinstance(servicio, str) or servicio not in modulo_interior.SERVICIOS_LINUX
-    ):
-        errores.append(
-            f"`{etiqueta}` ({rol}): el servicio {servicio!r} no está en el vocabulario "
-            f"cerrado de `servicio` (los que hay: {', '.join(modulo_interior.SERVICIOS_LINUX)}). "
-            "Un servicio que el motor no sabe instalar y servir se rechaza aquí, no se acepta "
-            "y se ignora. Añadirlo es una primitiva nueva, con su ADR."
-        )
+    # Se mira la PRESENCIA de la clave, no su valor: `servicio:` sin nada declara el área y
+    # `get()` lo devolvería como `None`, que es justo lo que NO puede pasar en silencio (un
+    # valor vacío no está en el vocabulario, y darlo por no declarado deja el área sin hacer
+    # nada sin decir nada).
+    if "servicio" in declarado:
+        servicio = declarado.get("servicio")
+        if (not isinstance(servicio, str) or not servicio.strip()
+                or servicio not in modulo_interior.SERVICIOS_LINUX):
+            errores.append(
+                f"`{etiqueta}` ({rol}): el servicio {servicio!r} no está en el vocabulario "
+                f"cerrado de `servicio` (los que hay: {', '.join(modulo_interior.SERVICIOS_LINUX)}). "
+                "Un servicio que el motor no sabe instalar y servir se rechaza aquí, no se acepta "
+                "y se ignora. Añadirlo es una primitiva nueva, con su ADR."
+            )
 
 
 def _address_space_de(declaracion):

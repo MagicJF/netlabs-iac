@@ -61,13 +61,27 @@ servicio podría romper con facilidad (ver *la trampa*).
 **La relectura no puede fiarse de «hay algo».** El paquete de Debian **trae su propio
 `Caddyfile`** y ya sirve algo de fábrica. Si la relectura diera por puesta la configuración sólo
 porque el fichero existe, el área **no gobernaría nada**: el motor no escribiría nunca la suya.
-Por eso el motor escribe una **MARCA** (`# netlabs-servicio`) en su configuración y la relectura
-busca la MARCA, no el fichero. Sin ella, «configurado» es una mentira cómoda.
+Por eso el motor escribe una **MARCA** (`# netlabs-servicio`) en su configuración: distingue el
+fichero del motor del de fábrica y hace legible el diario.
+
+**Pero la marca NO es la prueba — y aquí la revisión tenía razón.** Una configuración **editada a
+mano conserva la marca**, así que «la marca está» daba el área por buena con el fichero cambiado;
+y una **página borrada** no se reponía nunca (nadie volvía a escribirla). El comparador
+**compara el CONTENIDO ENTERO de los DOS ficheros** que el área gobierna contra lo que el motor
+escribiría, y reescribe si difieren. La marca se queda por lo que sí es: una firma para leer el
+diario, no una prueba de convergencia. (Hallazgo del PR #12, reproducido con su caso en
+`test_interior.py`.)
+
+**«Vivo» no es «habilitado» (`is-active` no es `is-enabled`).** Un servicio **vivo pero
+deshabilitado** no arranca al reiniciar el invitado — que es justo lo que el área promete
+gobernar. La lectura pregunta las DOS cosas y el comparador pide habilitar cuando falta
+cualquiera de ellas. (También medido por la revisión.)
 
 **Y no puede pedir `reload` cuando ya sirve.** Si la relectura no comprobara de verdad que el
 servicio **responde** (el `curl`), pediría «recargar» en **cada** pasada: idempotencia rota por
-un restaurante de más. La lectura tiene que **medir** que sirve, no suponerlo; por eso la cuarta
-cosa que se pregunta al invitado es exactamente esa.
+un restaurante de más. La lectura tiene que **medir** que sirve, no suponerlo; por eso la ÚLTIMA
+cosa que se pregunta al invitado es exactamente esa (y no se pregunta nada más de lo que la
+decisión usa).
 
 **El orden importa.** La configuración se escribe **antes** de arrancar (si la unidad arrancara
 con la de fábrica, se recargaría igual), y cuando la configuración **cambia** sobre un servicio
@@ -94,12 +108,15 @@ se paga una vez y la convergencia sigue siendo idempotente.
 
 - **`test/test_interior.py`**: la relectura de un invitado fresco lo ve todo por poner y el diff
   pide las cuatro operaciones; la de un invitado convergido **no pide ninguna** (idempotencia);
-  una configuración **sin la MARCA** se reescribe; un nombre fuera del vocabulario no produce
-  decisión; y el camino entero (`pasos_de_convergencia` → `escrituras_linux`) traduce las cuatro
-  operaciones a comandos, sin dejar ninguna `pendiente_de_driver`.
+  una configuración **con la marca pero cambiada** se reescribe —y una **página borrada**
+  también—; un servicio **vivo pero deshabilitado** pide habilitarse; un nombre fuera del
+  vocabulario no produce decisión; y el camino entero (`pasos_de_convergencia` →
+  `escrituras_linux`) traduce las cuatro operaciones a comandos, sin dejar ninguna
+  `pendiente_de_driver`.
 - **`test/test_declaracion.py`**: `servicio: caddy` pasa; un nombre que no está en el vocabulario
-  se **rechaza** con su nombre y con los que hay; y una forma que no es un nombre (un mapa)
-  tampoco cuela.
+  se **rechaza** con su nombre y con los que hay; y ni una forma que no es un nombre (un mapa) ni
+  una clave **presente pero vacía** (`servicio:` sin valor, o en blanco) cuelan: declarar el área
+  y no decir qué servicio no puede pasar en silencio.
 - **El ciclo real** del lab `09_lxc-caddy` (`destroy → apply → verify`): el motor instala Caddy
   dentro, lo deja sirviendo y `verify` da **CORRECTO** — con la relectura viendo `servido` y
   `changed=0` en la segunda pasada.

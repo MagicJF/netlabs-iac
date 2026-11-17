@@ -103,8 +103,10 @@ configuración que escribe el motor; **no** borra paquetes ajenos, y si un lab n
 no produce ni una operación, y la relectura lo demuestra.
 
 **Lo que este lab NO hace, y por qué.** No hay router ni segunda red: no hay nada que enrutar
-ni que filtrar. La instalación del paquete sale a internet por el **túnel** del bastión, que el
-motor ya construye para entrar en él; por eso el lab no necesita router. Lo que tampoco
+ni que filtrar. La instalación del paquete sale a internet por la **pata de gestión** del
+contenedor —la segunda interfaz que el motor le añade, en el bridge de gestión del nodo y con su
+puerta de enlace (medido: `net1` con `gw`)—, **no** por el túnel: el túnel es una conexión que se
+apoya en esa salida, no la salida. Por eso el lab no necesita router. Lo que tampoco
 demuestra es un servicio detrás de un cortafuegos o en una red interna —para eso harían falta un
 `rt` y un `fw`—, y este lab existe justo para ser el caso mínimo: un contenedor, una red, una
 etapa y un servicio que se enciende solo.

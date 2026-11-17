@@ -1437,34 +1437,50 @@ igual(
 )
 
 
-def _encontrado_servicio(caddy, curl, unidad, config, pagina):
-    """El `encontrado` del área, tal y como lo deja la vía de acceso (bloques separados)."""
+def _encontrado_servicio(caddy, curl, activa, habilitada, config, pagina, servido):
+    """El `encontrado` del área, tal y como lo deja la vía de acceso (SEIS bloques separados)."""
     return "\n".join([
         f"caddy={caddy}",
         f"curl={curl}",
         motor.SEPARADOR,
-        unidad,
+        activa,
+        motor.SEPARADOR,
+        habilitada,
         motor.SEPARADOR,
         config,
         motor.SEPARADOR,
         pagina,
+        motor.SEPARADOR,
+        servido,
     ])
 
 
-def _leer_servicio(caddy, curl, unidad, config, pagina):
+def _leer_servicio(caddy, curl, activa, habilitada, config, pagina, servido):
     return motor.leido_linux([
         {"area": "servicio", "rc": 0,
-         "encontrado": _encontrado_servicio(caddy, curl, unidad, config, pagina)}
+         "encontrado": _encontrado_servicio(caddy, curl, activa, habilitada, config, pagina, servido)}
     ])["servicio"]
 
 
-# Un invitado FRESCO: sin el paquete, sin la configuración y sin servir.
-_SERVICIO_FRESCO = _leer_servicio("NO", "NO", "inactive", "", "NO-SIRVE")
+# Un invitado FRESCO: sin el paquete, sin habilitar y sin servir.
+_SERVICIO_FRESCO = _leer_servicio("NO", "NO", "inactive", "disabled", "", "", "NO-SIRVE")
 igual(
-    _SERVICIO_FRESCO,
-    {"herramientas": {"caddy": False, "curl": False}, "servicio_activo": False,
-     "configurado": False, "sirve": False, "conf": ""},
-    "la relectura de un invitado fresco lo ve todo por poner: paquete, unidad, configuración y servicio",
+    motor.leido_linux([{"area": "servicio", "rc": 0,
+                        "encontrado": _encontrado_servicio("NO", "NO", "inactive", "disabled",
+                                                           "", "", "NO-SIRVE")}])["servicio"]["herramientas"],
+    {"caddy": False, "curl": False},
+    "la relectura de un invitado fresco no encuentra NI el paquete NI `curl`",
+)
+comprobar(
+    _SERVICIO_FRESCO["activo"] is False
+    and _SERVICIO_FRESCO["habilitado"] is False
+    and _SERVICIO_FRESCO["sirve"] is False
+    # Los dos ficheros llegan EN BLANCO (con el salto de línea que deja el propio comando): se
+    # comparan por su contenido sin espacios de sobra, que es lo que hace el canónico.
+    and _SERVICIO_FRESCO["config_leida"].strip() == ""
+    and _SERVICIO_FRESCO["pagina_leida"].strip() == "",
+    "la relectura de un invitado fresco lo ve todo por poner: unidad, habilitación, los dos "
+    "ficheros (en blanco) y el servicio sin servir",
 )
 igual(
     [o["op"] for o in motor._servicio_canonico("caddy", _SERVICIO_FRESCO)],
@@ -1472,28 +1488,56 @@ igual(
     "el diff de un invitado fresco pide instalarlo, configurarlo, arrancarlo y dejarlo sirviendo",
 )
 
-# Un invitado CONVERGIDO: el paquete, la unidad y la configuración del motor están puestos.
+# Un invitado CONVERGIDO: los DOS ficheros con el contenido EXACTO del motor, la unidad viva y
+# habilitada, y sirviendo.
 _SERVICIO_AL_DIA = _leer_servicio(
-    "/usr/bin/caddy", "/usr/bin/curl", "active",
-    motor.configuracion_servicio("caddy"), "<p>netlabs: servicio declarado y sirviendo.</p>",
+    "/usr/bin/caddy", "/usr/bin/curl", "active", "enabled",
+    motor.configuracion_servicio("caddy"), motor.pagina_servicio(), motor.pagina_servicio(),
 )
 igual(
     motor._servicio_canonico("caddy", _SERVICIO_AL_DIA), [],
     "un invitado ya convergido NO produce operación: es la prueba de la idempotencia (regla 6)",
 )
 
-# La MARCA distingue «el motor pasó por aquí» de «el paquete trae la suya»: el Caddyfile de
-# fábrica NO vale como la configuración del motor, y el área no gobernaría nada si lo valiera.
-_SIN_MARCA = _leer_servicio(
-    "/usr/bin/caddy", "/usr/bin/curl", "active",
-    ":80 {\n\trespond \"hola\"\n}",       # una configuración ajena cualquiera
-    "<p>hola</p>",                        # que sí sirve
+# LA MARCA NO ES PRUEBA (hallazgo del revisor, reproducido). Una configuración EDITADA a mano
+# conserva la marca del motor; darla por buena dejaba el área sin gobernar el fichero que
+# escribe -- que es justo lo que promete. El contenido se compara entero.
+_CONFIG_TOCADA = motor.configuracion_servicio("caddy") + "\n# tocado a mano\n"
+_SERVICIO_TOCADO = _leer_servicio(
+    "/usr/bin/caddy", "/usr/bin/curl", "active", "enabled",
+    _CONFIG_TOCADA, motor.pagina_servicio(), motor.pagina_servicio(),
 )
 comprobar(
-    _SIN_MARCA["configurado"] is False
-    and [o["op"] for o in motor._servicio_canonico("caddy", _SIN_MARCA)]
+    motor.MARCA_SERVICIO in _CONFIG_TOCADA
+    and [o["op"] for o in motor._servicio_canonico("caddy", _SERVICIO_TOCADO)]
     == ["write_service_config", "reload_service"],
-    "una configuración sin la MARCA del motor no cuenta como puesta: se reescribe y se recarga",
+    "una configuración con la MARCA pero cambiada se reescribe: la marca no prueba que el "
+    "fichero esté bien, se compara su contenido entero",
+)
+
+# Y una PÁGINA BORRADA tampoco cuela (el otro fichero que el motor gobierna): antes sólo se
+# recargaba el servicio y la página no volvía nunca.
+_SIN_PAGINA = _leer_servicio(
+    "/usr/bin/caddy", "/usr/bin/curl", "active", "enabled",
+    motor.configuracion_servicio("caddy"), "", motor.pagina_servicio(),
+)
+igual(
+    [o["op"] for o in motor._servicio_canonico("caddy", _SIN_PAGINA)],
+    ["write_service_config", "reload_service"],
+    "una página borrada se vuelve a escribir: los dos ficheros gobernados se comparan, no se suponen",
+)
+
+# VIVO PERO DESHABILITADO (hallazgo del revisor, reproducido): `is-active` no es `is-enabled`.
+# Un servicio vivo que no arranca al reiniciar el invitado no está gobernado.
+_SERVICIO_DESHABILITADO = _leer_servicio(
+    "/usr/bin/caddy", "/usr/bin/curl", "active", "disabled",
+    motor.configuracion_servicio("caddy"), motor.pagina_servicio(), motor.pagina_servicio(),
+)
+igual(
+    [o["op"] for o in motor._servicio_canonico("caddy", _SERVICIO_DESHABILITADO)],
+    ["enable_service"],
+    "un servicio vivo pero DESHABILITADO se habilita: si no, no arranca al reiniciar el invitado "
+    "(`is-active` no es `is-enabled`)",
 )
 
 # Un nombre fuera del vocabulario no produce decisión (el validador ya lo caza antes de tocar

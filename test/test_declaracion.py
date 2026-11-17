@@ -598,6 +598,23 @@ comprobar(
     ),
     "un `servicio` que no es un nombre (un mapa) se caza: no se acepta una forma a medias",
 )
+# Y una clave PRESENTE pero VACÍA tampoco pasa en silencio (hallazgo del revisor): `servicio:`
+# sin nada declara el área, y tomarla por «no declarada» dejaba al motor sin hacer nada y sin
+# decir nada. Un valor vacío no está en el vocabulario cerrado, así que se caza con su motivo.
+comprobar(
+    dice(
+        errores_de(lambda d: d["containers"][0]["config"]["linux"].__setitem__("servicio", None)),
+        "servicio",
+    ),
+    "un `servicio:` SIN valor se caza: declarar el área y no decir qué servicio no puede pasar en silencio",
+)
+comprobar(
+    dice(
+        errores_de(lambda d: d["containers"][0]["config"]["linux"].__setitem__("servicio", "  ")),
+        "servicio",
+    ),
+    "un `servicio` en blanco se caza igual: el espacio no es un nombre del vocabulario",
+)
 
 if FALLOS:
     print(f"\nRESULTADO: {len(FALLOS)} fallo(s).")

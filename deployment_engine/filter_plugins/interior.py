@@ -1828,16 +1828,20 @@ LECTURAS_LINUX = {
         "descripcion": "cuántas claves autorizadas tiene (la del motor se deja al crear)",
     },
     "servicio": {
-        # CUATRO cosas en un viaje, como en `dhcp_server`:
+        # SEIS cosas en un viaje, como en `dhcp_server`:
         #   1) qué herramientas hay -- el paquete del servicio y `curl`, que la relectura
         #      necesita para comprobar que sirve,
-        #   2) si la unidad de systemd está VIVA,
-        #   3) si la configuración que escribe el motor está puesta (por su MARCA, no por
-        #      «hay algo»: el paquete trae la suya y confundirlas dejaría el área sin gobernar),
-        #   4) si de verdad SIRVE la página (curl a 127.0.0.1). Sin la 4 no se puede afirmar
+        #   2) si la unidad de systemd está VIVA (`is-active`),
+        #   3) si además está HABILITADA (`is-enabled`): son DOS hechos distintos, y un
+        #      servicio vivo pero deshabilitado no arranca al reiniciar el invitado,
+        #   4) el CONTENIDO de la configuración que escribe el motor,
+        #   5) el CONTENIDO de la página: los dos ficheros se comparan ENTEROS, porque la
+        #      marca sola no prueba nada -- una configuración editada a mano conserva la
+        #      marca, y una página borrada no se repondría nunca,
+        #   6) si de verdad SIRVE la página (curl a 127.0.0.1). Sin la 6 no se puede afirmar
         #      que el servicio hace lo que promete, y `reload` se pediría en CADA pasada -- que
         #      es romper la idempotencia (regla 6).
-        "comando": "for h in caddy curl; do printf '%s=%s\\n' \"$h\" \"$(command -v $h || echo NO)\"; done; echo ---NETLABS---; systemctl is-active caddy 2>/dev/null || echo inactive; echo ---NETLABS---; cat /etc/caddy/Caddyfile 2>/dev/null; echo ---NETLABS---; curl -fsS -m 5 http://127.0.0.1/ 2>/dev/null || echo NO-SIRVE",
+        "comando": "for h in caddy curl; do printf '%s=%s\\n' \"$h\" \"$(command -v $h || echo NO)\"; done; echo ---NETLABS---; systemctl is-active caddy 2>/dev/null || echo inactive; echo ---NETLABS---; systemctl is-enabled caddy 2>/dev/null || echo disabled; echo ---NETLABS---; cat /etc/caddy/Caddyfile 2>/dev/null; echo ---NETLABS---; cat /var/www/html/index.html 2>/dev/null; echo ---NETLABS---; curl -fsS -m 5 http://127.0.0.1/ 2>/dev/null || echo NO-SIRVE",
         "descripcion": "si el servicio declarado está instalado, su unidad viva, su configuración puesta y sirviendo la página",
     },
 }
@@ -1962,9 +1966,11 @@ def leido_linux(lecturas):
         elif area == "servicio":
             bloques = str(texto).split(SEPARADOR)
             herramientas = _lineas(bloques[0] if bloques else "")
-            unidad = _lineas(bloques[1] if len(bloques) > 1 else "")
-            configuracion = bloques[2] if len(bloques) > 2 else ""
-            pagina = bloques[3] if len(bloques) > 3 else ""
+            activa = _lineas(bloques[1] if len(bloques) > 1 else "")
+            habilitada = _lineas(bloques[2] if len(bloques) > 2 else "")
+            configuracion = bloques[3] if len(bloques) > 3 else ""
+            pagina = bloques[4] if len(bloques) > 4 else ""
+            servido = bloques[5] if len(bloques) > 5 else ""
             # Las herramientas tal y como las lee el motor: el paquete del servicio y `curl`.
             # Un `command -v` sin resultado (la línea no está) se toma por PRESENTE -- igual
             # que en `dhcp_server` -- porque la ausencia de la línea es una lectura incompleta,
@@ -1973,13 +1979,18 @@ def leido_linux(lecturas):
                      for herramienta in SERVICIOS_LINUX_OPCIONES["caddy"]["paquetes"]}
             leido["servicio"] = {
                 "herramientas": tiene,
-                "servicio_activo": bool(unidad) and unidad[0] == "active",
-                # La configuración cuenta por su MARCA, no por «hay algo»: el paquete trae la
-                # suya, y darla por buena dejaría el área sin gobernar el fichero que escribe.
-                "configurado": any(linea.startswith(MARCA_SERVICIO) for linea in _lineas(configuracion)),
+                # DOS hechos distintos, no uno: estar VIVO (`is-active`) y estar HABILITADO
+                # (`is-enabled`). Un servicio vivo pero deshabilitado no arranca al reiniciar,
+                # y mirar sólo `is-active` lo daba por bueno para siempre.
+                "activo": bool(activa) and activa[0] == "active",
+                "habilitado": bool(habilitada) and habilitada[0] == "enabled",
+                # Los ficheros se leen ENTEROS, crudos: quien decide si están bien es el
+                # canónico, que es quien sabe qué se escribiría. La marca sola no prueba nada
+                # -- una configuración editada a mano la conserva, y la página puede no estar.
+                "config_leida": (configuracion if isinstance(configuracion, str) else ""),
+                "pagina_leida": (pagina if isinstance(pagina, str) else ""),
                 # Sirve si curl sacó algo que NO sea la marca de fallo: un 200 con cuerpo.
-                "sirve": bool(str(pagina).strip()) and "NO-SIRVE" not in str(pagina),
-                "conf": (configuracion.strip() if isinstance(configuracion, str) else ""),
+                "sirve": bool(str(servido).strip()) and "NO-SIRVE" not in str(servido),
             }
     return leido
 
@@ -2123,17 +2134,27 @@ def _servicio_canonico(declarado, leido):
     if faltan:
         operaciones.append({"op": "install_service", "servicio": nombre, "paquetes": faltan})
 
-    if not actual.get("configurado"):
+    # Los DOS ficheros que el motor gobierna se comparan por su CONTENIDO ENTERO contra lo
+    # que el motor escribiría -- no por su marca: una configuración editada a mano conserva
+    # la marca, y una página borrada no tiene ninguna, así que la marca sola daba el área por
+    # buena con los ficheros mal (medido por el revisor).
+    config_ok = (str(actual.get("config_leida") or "").strip()
+                 == configuracion_servicio(nombre).strip())
+    pagina_ok = (str(actual.get("pagina_leida") or "").strip() == pagina_servicio().strip())
+    ficheros_cambiados = not (config_ok and pagina_ok)
+    if ficheros_cambiados:
         operaciones.append({"op": "write_service_config", "servicio": nombre})
 
-    if not actual.get("servicio_activo"):
+    # `is-active` no es `is-enabled`: un servicio VIVO pero DESHABILITADO no arranca al
+    # reiniciar el invitado, y mirar sólo si está vivo lo daba por bueno para siempre.
+    if not actual.get("activo") or not actual.get("habilitado"):
         operaciones.append({"op": "enable_service", "servicio": nombre})
 
     # Si la configuración se acaba de escribir, el servicio ya vivo seguiría sirviendo la
-    # vieja hasta recargarlo; por eso «recargar» también se pide cuando la configuración
-    # cambió. Y si simplemente no sirve (config inválida, unidad a medias), recargar es lo
-    # que lo levanta.
-    if not actual.get("sirve") or not actual.get("configurado"):
+    # vieja hasta recargarlo; por eso «recargar» también se pide cuando los ficheros cambian.
+    # Y si simplemente no sirve (config inválida, unidad a medias), recargar es lo que lo
+    # levanta.
+    if not actual.get("sirve") or ficheros_cambiados:
         operaciones.append({"op": "reload_service", "servicio": nombre})
 
     return operaciones

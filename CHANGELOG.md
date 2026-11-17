@@ -16,6 +16,57 @@ aquí está su entrada; los tres tienen que contar lo mismo, y eso es lo que vig
 `./lab check version`. Lo que entra en `main` sin publicarse se apunta bajo
 `[No publicado]`, y se convierte en una versión el día que se publica.
 
+## [No publicado]
+
+### Añadido
+
+- **El tipo de equipo manda sobre las áreas: un equipo, una responsabilidad (ADR 0026).** El
+  validador caza un área declarada en el tipo al que no le toca, con el motivo y con el equipo
+  que sí puede — «un `rt` que filtra es un router con dos trabajos: eso es un `fw`». Cubre los
+  dos ejes que el encargo pidió separar: filtrar no es enrutar (`firewall` es de un `fw`, y
+  `uplink`/`dhcp_server` no) y **conmutar no es enrutar** (un `sw` no enruta, no filtra, no
+  traduce y no reparte), así que el día que llegue el área `bridges` ya tiene dónde caer.
+- **`08_dunder-mifflin-con-fw` gana un cortafuegos de borde (`fw-borde`)** y su router pierde la
+  tabla de filtrado: `rt-nucleo` enruta y sale, y el borde filtra. Seis bridges y once invitados.
+- **La topología de cada lab se dibuja como diagrama de RED.** La región generada del documento
+  lleva un diagrama Mermaid con un nodo por segmento (el bridge y su subred), un nodo por equipo
+  con su nombre canónico, su dirección y su etapa, y la SALIDA del lab en discontinuo para quien
+  la declara (`uplink`). La forma y el color del nodo dicen qué es el equipo —estadio el `rt`,
+  hexágono el `fw`, paralelogramo el `sw`, cilindro el `srv`, rectángulo el `ws`, subrutina el
+  `ctl`—, con una leyenda de los tipos que el lab USA. Se deriva de la declaración, como el
+  resto de la región: no hay prosa que mantener.
+- **`test/test_documentos.py`**, que no existía: la región generada (la que ningún humano
+  escribe, y cuyos fallos son silenciosos) tenía cero pruebas.
+
+### Corregido
+
+- **El estado compartido no guardaba más que la primera interfaz.** `estado_desde_api` se
+  quedaba con `bridge` y `mac` —los de `net0`— y tiraba las demás `netN`, así que la
+  comprobación que compara las interfaces declaradas con las que hay veía TODAS las patas «en
+  ningún bridge» y tumbaba con `ErrorMotor` el `plan --api` de un lab desplegado y correcto.
+  Ahora el estado guarda el bridge de cada interfaz (`interfaces`, con las claves en texto
+  porque viajan por variables de Ansible), y `bridge`/`mac` siguen siendo los de `net0`.
+- **La columna `tipo` de las tablas enseñaba la PLATAFORMA.** Decía «VM (qemu)» donde el repo
+  entiende el tipo de EQUIPO (`rt`, `fw`, `srv`...), porque el normalizador pisaba `tipo` con
+  la virtualización. Ahora la tabla lleva las dos columnas: `tipo` (el del equipo) y
+  `plataforma` (`VM (qemu)`/`LXC`).
+- **El nombre canónico salía sin sustituir.** La región enseñaba el literal `{equipo}-{alias}`:
+  se sustituían `{lab}` y `{rol}`, que no están en la plantilla del motor. Se deriva con la
+  MISMA plantilla (`engine_plantilla_nombre`), así que si la plantilla cambia, el documento
+  cambia con ella.
+- **El check de marcadores sin sustituir buscaba un `{{` a secas**, y el hexágono del `fw` en el
+  diagrama de red usa esa forma (`{{"..."}}`): ahora busca la forma de un marcador de verdad,
+  `{{ clave }}`.
+- **`rt-nucleo` (lab 08) filtraba.** Era el router con dos trabajos que la regla prohíbe, y
+  estaba justificado en su propio comentario. La política del borde (lo que sale, sale; lo que
+  entra de internet, no pasa) vive ahora en `fw-borde`, que es un equipo cuya responsabilidad es
+  filtrar. El precio queda medido y escrito en el documento del lab: la pata de fuera del router
+  no la filtra nadie, porque la vía de acceso es una primitiva cerrada y un `fw` no puede
+  traducir.
+- La definición de `fw` decía «no enruta», y un cortafuegos **en línea** reenvía el paquete que
+  deja pasar. Se corrige el vocabulario: no traduce, no reparte direcciones y no es la vía de
+  acceso de nadie.
+
 ## [0.3.0] - 2026-11-17
 
 ### Añadido

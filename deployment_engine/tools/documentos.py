@@ -19,6 +19,7 @@
 #     python3 deployment_engine/tools/documentos.py actualizar <dir-del-lab>
 
 import os
+import re
 import sys
 
 import yaml
@@ -33,7 +34,67 @@ MARCA_FIN = "<!-- generado:fin -->"
 
 # Los tipos de invitado, tal como se leen en el documento. El nombre de la API
 # (`qemu`) no es lo que un humano espera ver; se traduce en un solo sitio.
-ETIQUETA_TIPO = {"qemu": "VM (qemu)", "lxc": "LXC"}
+ETIQUETA_PLATAFORMA = {"qemu": "VM (qemu)", "lxc": "LXC"}
+
+# El TIPO DE EQUIPO (`rt`, `fw`, `sw`, `srv`, `ws`, `ctl`) y la PLATAFORMA (`qemu`/`lxc`) son
+# dos cosas distintas y la tabla las enseña por separado: el tipo dice QUÉ es el invitado en la
+# red (ADR 0026), la plataforma dice CÓMO se virtualiza. Confundirlas hacía que la columna
+# `tipo` dijera «VM (qemu)» -- la virtualización -- donde el repo entiende `rt`, `fw`, `srv`...
+#
+# Se repite el vocabulario a propósito, como el normalizador de invitados: `documentos.py` es
+# una herramienta y no carga el filtro de Ansible para leer un YAML.
+ETIQUETA_EQUIPO = {
+    "rt": "rt (enruta y sale)",
+    "fw": "fw (filtra)",
+    "sw": "sw (conmuta)",
+    "srv": "srv (servidor)",
+    "ws": "ws (puesto de trabajo)",
+    "ctl": "ctl (control del lab)",
+}
+
+# La FORMA de cada nodo en el diagrama, por tipo de equipo: un router no se dibuja como un
+# servidor ni un cortafuegos como un puesto. Con la forma y el color, el diagrama de red se
+# lee sin tener la tabla al lado.
+FORMA_EQUIPO = {
+    "rt": ("([\"", "\"])"),    # estadio: el borde, por donde se entra y se sale
+    "fw": ("{{\"", "\"}}"),    # hexágono: el escudo
+    "sw": ("[/\"", "\"/]"),    # paralelogramo: el que reparte
+    "srv": ("[(\"", "\")]"),   # cilindro: el que guarda
+    "ws": ("[\"", "\"]"),      # rectángulo: el que usa una persona
+    "ctl": ("[[\"", "\"]]"),   # subrutina: el que manda
+}
+
+# El color, por el mismo tipo: la forma dice qué es y el color lo agrupa de un vistazo.
+COLOR_EQUIPO = {
+    "rt": "fill:#7c2d12,stroke:#fb923c,color:#ffedd5",
+    "fw": "fill:#701a1a,stroke:#f87171,color:#fee2e2",
+    "sw": "fill:#134e4a,stroke:#2dd4bf,color:#ccfbf1",
+    "srv": "fill:#1e3a8a,stroke:#60a5fa,color:#dbeafe",
+    "ws": "fill:#14532d,stroke:#4ade80,color:#dcfce7",
+    "ctl": "fill:#4c1d95,stroke:#a78bfa,color:#ede9fe",
+}
+
+
+def _patas_de(invitado):
+    """Los bridges por los que el invitado tiene interfaz, en el orden declarado.
+
+    Un invitado puede declararlo como lista (`bridges`) o como uno solo (`bridge`); el motor
+    admite las dos formas y aquí se leen las dos.
+    """
+    return invitado.get("bridges") or ([invitado["bridge"]] if invitado.get("bridge") else [])
+
+
+def _declara_salida(invitado):
+    """¿Este invitado declara por dónde se sale a la red de fuera? (`uplink`, ADR 0012.)
+
+    `uplink` es una MARCA, y por eso en el YAML es un diccionario vacío: no vale preguntar si
+    es verdadera -- siempre sería falsa --, se pregunta si ESTÁ. Y se mira en cualquier
+    interior declarado (`routeros`, `linux`...), no en uno concreto: la marca es del motor.
+    """
+    for interior in (invitado.get("config") or {}).values():
+        if isinstance(interior, dict) and "uplink" in interior:
+            return True
+    return False
 
 
 def _leer_yaml(ruta):
@@ -54,18 +115,36 @@ def _filas(filas, columnas):
     return "\n".join("| " + " | ".join(str(celda) for celda in fila) + " |" for fila in filas)
 
 
-def _guests_normalizados(declaracion):
+def _guests_normalizados(declaracion, motor):
     """Misma normalización que el motor, sin depender de él.
 
     Se repite a propósito: `documentos.py` es una herramienta y no debe cargar el
     filtro de Ansible para leer un YAML. La duplicación es de 6 líneas y está aquí
     a la vista; la alternativa (importar el filtro) ataría la documentación a
     Ansible, que es justo lo que se quiere evitar.
+
+    Dos campos NO se dejan como vengan:
+
+    - `tipo` es el del EQUIPO (`rt`, `fw`, `srv`...) y se respeta tal cual: es lo que dice qué
+      es el invitado en la red (ADR 0026). La VIRTUALIZACIÓN (`qemu`/`lxc`) va aparte, en
+      `plataforma`. Antes se pisaba `tipo` con la plataforma y las tablas acababan diciendo
+      «VM (qemu)» en la columna del tipo de equipo -- que no es lo que el repo llama tipo.
+    - `canonico` es el nombre con el que el invitado existe en el clúster, y se deriva con la
+      MISMA plantilla del motor (`{equipo}-{alias}`), no con una copia: si la plantilla cambia,
+      el documento cambia con ella.
     """
     guests = []
-    for seccion, tipo in (("vms", "qemu"), ("containers", "lxc")):
+    for seccion, plataforma in (("vms", "qemu"), ("containers", "lxc")):
         for guest in declaracion.get(seccion) or []:
-            guests.append({**guest, "tipo": tipo})
+            # El alias es el `nombre:` corto si lo hay, y si no el rol (como hace el motor).
+            alias = guest["rol"] if guest.get("nombre") is None else str(guest["nombre"])
+            guests.append({**guest, "plataforma": plataforma, "alias": alias})
+    for guest in guests:
+        guest["canonico"] = (
+            motor["engine_plantilla_nombre"]
+            .replace("{equipo}", str(guest.get("tipo") or "?"))
+            .replace("{alias}", guest["alias"])
+        )
     guests.sort(key=lambda i: (i["stage"], i["rol"]))
     return guests
 
@@ -89,29 +168,76 @@ def _id_mermaid(texto, clase):
 
 
 def _diagrama_mermaid(guests, bridges):
-    """La topología como diagrama Mermaid, derivada de la declaración.
+    """La topología como DIAGRAMA DE RED, derivada de la declaración.
 
-    Un nodo por bridge (hexágono, con su dirección) y un nodo por invitado, unido a cada
-    bridge por el que tiene pata. Determinista: los invitados salen en el orden de la
-    declaración (etapa, rol) y los bridges en el suyo, sin depender del orden de un
-    diccionario.
+    Se dibuja lo que SE CONECTA, no lo que se lista: un nodo por SEGMENTO (cada bridge, con su
+    subred), un nodo por EQUIPO -- con su nombre canónico y su dirección -- unido al segmento
+    por el que tiene pata, y la SALIDA del lab para quien la declara (`uplink`, ADR 0012). La
+    salida es la pregunta que un diagrama de red tiene que contestar de un vistazo: por dónde
+    se sale.
+
+    La FORMA y el COLOR dicen qué es cada equipo (router, cortafuegos, servidor, puesto...):
+    así el diagrama se lee sin tener la tabla al lado.
+
+    Determinista: los equipos salen en el orden de la declaración (etapa, rol) y los segmentos
+    en el suyo. Reordenar un diccionario no puede cambiar el documento.
     """
-    lineas = ["```mermaid", "graph TD"]
+    lineas = ["```mermaid", "graph LR"]
+    lineas.append("    classDef segmento fill:#0b1220,stroke:#38bdf8,color:#dbeafe;")
+    lineas.append(
+        "    classDef salida fill:#111827,stroke:#9ca3af,color:#e5e7eb,stroke-dasharray:4 3;"
+    )
+    for tipo, color in COLOR_EQUIPO.items():
+        lineas.append(f"    classDef {tipo} {color};")
+
+    # Los segmentos primero: son el suelo del lab, y verlos arriba ordena la lectura.
     for puente in bridges:
         etiqueta = puente["nombre"]
         if puente.get("address"):
-            etiqueta += "<br/>" + puente["address"]
-        lineas.append("    " + _id_mermaid(puente["nombre"], "b") + '(["' + etiqueta + '"])')
+            etiqueta += "<br/>" + str(puente["address"])
+        lineas.append(
+            "    " + _id_mermaid(puente["nombre"], "b") + '(["' + etiqueta + '"]):::segmento'
+        )
+
+    # Sólo hay nodo de salida si algún equipo la declara.
+    if any(_declara_salida(invitado) for invitado in guests):
+        lineas.append('    salida["salida · la red del nodo"]:::salida')
+
+    varias_etapas = len({invitado["stage"] for invitado in guests}) > 1
     for invitado in guests:
-        etiqueta = f"{invitado['rol']}<br/>{ETIQUETA_TIPO[invitado['tipo']]} · etapa {invitado['stage']}"
-        lineas.append("    " + _id_mermaid(invitado["rol"], "i") + '["' + etiqueta + '"]')
-        patas = invitado.get("bridges") or ([invitado["bridge"]] if invitado.get("bridge") else [])
-        for nombre_puente in patas:
+        identificador = _id_mermaid(invitado["rol"], "i")
+        partes = [invitado["canonico"]]
+        if invitado.get("address"):
+            partes.append(str(invitado["address"]))
+        # La etapa sólo se escribe cuando hay más de una: en un lab de una sola etapa sería
+        # ruido en cada nodo; en uno por etapas dice el ORDEN, que es la mitad del diseño.
+        if varias_etapas:
+            partes.append(f"etapa {invitado['stage']}")
+        abre, cierra = FORMA_EQUIPO.get(invitado["tipo"], ('["', '"]'))
+        lineas.append(
+            "    " + identificador + abre + "<br/>".join(partes) + cierra
+            + f":::{invitado['tipo']}"
+        )
+        for nombre_puente in _patas_de(invitado):
             lineas.append(
-                "    " + _id_mermaid(invitado["rol"], "i") + " --- " + _id_mermaid(nombre_puente, "b")
+                "    " + identificador + " --- " + _id_mermaid(nombre_puente, "b")
             )
+        # La salida se dibuja DISCONTINUA: no es un cable del lab, es lo que hay al otro lado.
+        if _declara_salida(invitado):
+            lineas.append("    " + identificador + " -.->|uplink| salida")
     lineas.append("```")
     return "\n".join(lineas)
+
+
+def _leyenda_del_diagrama(guests):
+    """La leyenda del diagrama: qué tipo de equipo hay y qué significa su forma.
+
+    Sólo los tipos que el lab USA, en el orden del vocabulario: una leyenda que enumera seis
+    formas cuando el lab tiene dos es ruido. Se deriva, como el resto: no se escribe a mano en
+    la prosa del lab (la prosa no repite lo que la región generada ya dice).
+    """
+    presentes = [tipo for tipo in ETIQUETA_EQUIPO if any(i["tipo"] == tipo for i in guests)]
+    return "\n".join(f"- `{tipo}` — {ETIQUETA_EQUIPO[tipo]}" for tipo in presentes) or "—"
 
 
 def _localizar_region(texto, ruta_documento):
@@ -139,7 +265,7 @@ def renderizar_region(directorio_lab):
     declaracion = _leer_yaml(os.path.join(directorio_lab, archivo_declaracion))
     motor = _vars_del_motor()
 
-    guests = _guests_normalizados(declaracion)
+    guests = _guests_normalizados(declaracion, motor)
     bridges = declaracion["lab"]["bridges"]
     stages = sorted(set(declaracion["lab"]["stages"]))
 
@@ -147,7 +273,8 @@ def renderizar_region(directorio_lab):
         [
             [
                 i["rol"],
-                ETIQUETA_TIPO[i["tipo"]],
+                ETIQUETA_EQUIPO.get(i["tipo"], str(i["tipo"] or "—")),
+                ETIQUETA_PLATAFORMA[i["plataforma"]],
                 i["stage"],
                 i["cores"],
                 i["memory"],
@@ -159,7 +286,7 @@ def renderizar_region(directorio_lab):
             ]
             for i in guests
         ],
-        8,
+        9,
     )
 
     tabla_bridges = _filas(
@@ -186,10 +313,8 @@ def renderizar_region(directorio_lab):
         [
             [
                 i["rol"],
-                ETIQUETA_TIPO[i["tipo"]],
-                motor["engine_plantilla_nombre"]
-                .replace("{lab}", declaracion["lab"]["nombre"])
-                .replace("{rol}", i["rol"]),
+                ETIQUETA_EQUIPO.get(i["tipo"], str(i["tipo"] or "—")),
+                i["canonico"],
                 "—",
                 "—",
             ]
@@ -218,12 +343,12 @@ def renderizar_region(directorio_lab):
     def _fila_de_acceso(i):
         config = i.get("config") or {}
         if not config:
-            return [i["rol"], ETIQUETA_TIPO[i["tipo"]], "—", "—",
+            return [i["rol"], ETIQUETA_EQUIPO.get(i["tipo"], str(i["tipo"] or "—")), "—", "—",
                     "no se entra: no declara `config:`"]
         if "routeros" in config:
             usuario = motor["engine_routeros_usuario"]
             return [
-                i["rol"], ETIQUETA_TIPO[i["tipo"]],
+                i["rol"], ETIQUETA_EQUIPO.get(i["tipo"], str(i["tipo"] or "—")),
                 usuario,
                 f"`{usuario}` / la de `secrets.yml` → `routeros_clave` (HTTP Basic)",
                 f"REST por el túnel del bastión "
@@ -239,7 +364,8 @@ def renderizar_region(directorio_lab):
         else:
             acceso = "SSH: este lab no declara bastión, y sin él no se entra al interior"
         return [
-            i["rol"], ETIQUETA_TIPO[i["tipo"]], motor["engine_usuario_guest"],
+            i["rol"], ETIQUETA_EQUIPO.get(i["tipo"], str(i["tipo"] or "—")),
+            motor["engine_usuario_guest"],
             f"clave del lab (`{motor['engine_tunnel_clave_base']}_"
             f"{declaracion['lab']['nombre']}_ed25519`), sin contraseña",
             acceso,
@@ -255,6 +381,7 @@ def renderizar_region(directorio_lab):
         "archivo_declaracion": archivo_declaracion,
         "prefijo_mac": motor["engine_prefijo_mac"],
         "diagrama_mermaid": _diagrama_mermaid(guests, bridges),
+        "leyenda_diagrama": _leyenda_del_diagrama(guests),
         "tabla_guests": tabla_guests,
         "tabla_bridges": tabla_bridges,
         "tabla_stages": tabla_stages,
@@ -270,7 +397,14 @@ def renderizar_region(directorio_lab):
     for clave, valor in sustituciones.items():
         resultado = resultado.replace("{{ " + clave + " }}", str(valor))
 
-    sobrantes = [linea for linea in resultado.splitlines() if "{{" in linea]
+    # Un marcador que se quedó sin sustituir tiene SIEMPRE la forma `{{ clave }}`. No vale
+    # buscar un `{{` a secas: el diagrama de red usa formas de Mermaid que llevan llaves
+    # (`{{"..."}}`, el hexágono del cortafuegos) y eso no es un marcador.
+    sobrantes = [
+        linea
+        for linea in resultado.splitlines()
+        if re.search(r"\{\{\s*[a-z_]+\s*\}\}", linea)
+    ]
     if sobrantes:
         raise SystemExit(
             "la plantilla tiene marcadores sin sustituir: " + "; ".join(sobrantes)

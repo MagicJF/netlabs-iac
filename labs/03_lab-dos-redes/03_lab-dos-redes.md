@@ -25,30 +25,44 @@ si los editas a mano, `./lab check docs` falla._
 ## Topología
 
 ```mermaid
-graph TD
-    b_vmb_perimetro(["vmb_perimetro<br/>203.0.113.1/24"])
-    b_vmb_nucleo(["vmb_nucleo<br/>203.0.113.129/24"])
-    i_borde["borde<br/>VM (qemu) · etapa 1"]
+graph LR
+    classDef segmento fill:#0b1220,stroke:#38bdf8,color:#dbeafe;
+    classDef salida fill:#111827,stroke:#9ca3af,color:#e5e7eb,stroke-dasharray:4 3;
+    classDef rt fill:#7c2d12,stroke:#fb923c,color:#ffedd5;
+    classDef fw fill:#701a1a,stroke:#f87171,color:#fee2e2;
+    classDef sw fill:#134e4a,stroke:#2dd4bf,color:#ccfbf1;
+    classDef srv fill:#1e3a8a,stroke:#60a5fa,color:#dbeafe;
+    classDef ws fill:#14532d,stroke:#4ade80,color:#dcfce7;
+    classDef ctl fill:#4c1d95,stroke:#a78bfa,color:#ede9fe;
+    b_vmb_perimetro(["vmb_perimetro<br/>203.0.113.1/24"]):::segmento
+    b_vmb_nucleo(["vmb_nucleo<br/>203.0.113.129/24"]):::segmento
+    i_borde(["rt-borde<br/>203.0.113.2/24<br/>etapa 1"]):::rt
     i_borde --- b_vmb_perimetro
-    i_nucleo["nucleo<br/>VM (qemu) · etapa 2"]
+    i_nucleo(["rt-nucleo<br/>203.0.113.130/24<br/>etapa 2"]):::rt
     i_nucleo --- b_vmb_nucleo
-    i_puesto_1["puesto-1<br/>LXC · etapa 3"]
+    i_puesto_1["ws-1<br/>203.0.113.131/24<br/>etapa 3"]:::ws
     i_puesto_1 --- b_vmb_nucleo
-    i_puesto_2["puesto-2<br/>LXC · etapa 3"]
+    i_puesto_2["ws-2<br/>203.0.113.132/24<br/>etapa 3"]:::ws
     i_puesto_2 --- b_vmb_nucleo
-    i_servidor["servidor<br/>LXC · etapa 3"]
+    i_servidor[("srv-1<br/>203.0.113.21/24<br/>etapa 3")]:::srv
     i_servidor --- b_vmb_perimetro
 ```
 
+En el diagrama, la **forma** y el **color** de cada equipo dicen qué es (el tipo declarado):
+
+- `rt` — rt (enruta y sale)
+- `srv` — srv (servidor)
+- `ws` — ws (puesto de trabajo)
+
 ## Invitados declarados
 
-| rol | tipo | stage | cores | memory (MB) | disk (GB) | bridge | address |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| borde | VM (qemu) | 1 | 2 | 512 | 8 | vmb_perimetro | 203.0.113.2/24 |
-| nucleo | VM (qemu) | 2 | 2 | 1024 | 8 | vmb_nucleo | 203.0.113.130/24 |
-| puesto-1 | LXC | 3 | 1 | 512 | 4 | vmb_nucleo | 203.0.113.131/24 |
-| puesto-2 | LXC | 3 | 1 | 512 | 4 | vmb_nucleo | 203.0.113.132/24 |
-| servidor | LXC | 3 | 1 | 512 | 6 | vmb_perimetro | 203.0.113.21/24 |
+| rol | tipo | plataforma | stage | cores | memory (MB) | disk (GB) | bridge | address |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| borde | rt (enruta y sale) | VM (qemu) | 1 | 2 | 512 | 8 | vmb_perimetro | 203.0.113.2/24 |
+| nucleo | rt (enruta y sale) | VM (qemu) | 2 | 2 | 1024 | 8 | vmb_nucleo | 203.0.113.130/24 |
+| puesto-1 | ws (puesto de trabajo) | LXC | 3 | 1 | 512 | 4 | vmb_nucleo | 203.0.113.131/24 |
+| puesto-2 | ws (puesto de trabajo) | LXC | 3 | 1 | 512 | 4 | vmb_nucleo | 203.0.113.132/24 |
+| servidor | srv (servidor) | LXC | 3 | 1 | 512 | 6 | vmb_perimetro | 203.0.113.21/24 |
 
 ## Bridges del lab
 
@@ -69,11 +83,11 @@ graph TD
 
 | rol | tipo | nombre canónico | vmid | MAC |
 | --- | --- | --- | --- | --- |
-| borde | VM (qemu) | {equipo}-{alias} | — | — |
-| nucleo | VM (qemu) | {equipo}-{alias} | — | — |
-| puesto-1 | LXC | {equipo}-{alias} | — | — |
-| puesto-2 | LXC | {equipo}-{alias} | — | — |
-| servidor | LXC | {equipo}-{alias} | — | — |
+| borde | rt (enruta y sale) | rt-borde | — | — |
+| nucleo | rt (enruta y sale) | rt-nucleo | — | — |
+| puesto-1 | ws (puesto de trabajo) | ws-1 | — | — |
+| puesto-2 | ws (puesto de trabajo) | ws-2 | — | — |
+| servidor | srv (servidor) | srv-1 | — | — |
 
 El **vmid** (el menor libre de *todo* el clúster) y la **MAC** (`BC:24:11` + los
 bytes del vmid) los asigna `apply` leyendo el estado de Proxmox: no se declaran aquí y
@@ -84,11 +98,11 @@ guion hasta que exista un despliegue real.
 
 | rol | tipo | usuario | credencial | forma de acceso |
 | --- | --- | --- | --- | --- |
-| borde | VM (qemu) | — | — | no se entra: no declara `config:` |
-| nucleo | VM (qemu) | — | — | no se entra: no declara `config:` |
-| puesto-1 | LXC | — | — | no se entra: no declara `config:` |
-| puesto-2 | LXC | — | — | no se entra: no declara `config:` |
-| servidor | LXC | — | — | no se entra: no declara `config:` |
+| borde | rt (enruta y sale) | — | — | no se entra: no declara `config:` |
+| nucleo | rt (enruta y sale) | — | — | no se entra: no declara `config:` |
+| puesto-1 | ws (puesto de trabajo) | — | — | no se entra: no declara `config:` |
+| puesto-2 | ws (puesto de trabajo) | — | — | no se entra: no declara `config:` |
+| servidor | srv (servidor) | — | — | no se entra: no declara `config:` |
 
 El **usuario**, la **credencial** (de dónde sale Y cuánto vale) y la **forma de acceso** se
 derivan de la declaración, del motor y de `deployment_engine/secrets.yml`. **Este lab es de un

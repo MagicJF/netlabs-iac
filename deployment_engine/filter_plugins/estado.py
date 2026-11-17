@@ -20,6 +20,7 @@
 #              AGENTS.md §Identidad; ./lab check declaracion
 
 import os
+import re
 import sys
 
 # `estado.py` es el filtro que Ansible ve; el cálculo del plan (mucho más grande)
@@ -61,6 +62,28 @@ def _red_de_net0(net0):
             # En una VM la MAC va en la propia clave: `virtio=<mac>`.
             mac = valor.strip().upper()
     return bridge, mac
+
+
+def _puentes_de_config(config):
+    """El bridge de CADA interfaz de una config de Proxmox: {indice: bridge}.
+
+    `_red_de_net0` mira sólo `net0`, y con eso no se puede saber si un invitado con varias
+    patas tiene la SEGUNDA en el bridge que la declaración pide: el plan compara lo declarado
+    con lo que hay, y si el estado no guarda las demás interfaces, la comparación ve huecos
+    donde no los hay (todos los `netN` «en ningún bridge») y da por roto un lab entero.
+
+    Las claves son el NÚMERO en texto, porque el estado viaja por variables de Ansible y ahí
+    las claves son siempre texto: quien lo lea convierte, y así no hay sorpresa a medias.
+    """
+    puentes = {}
+    for clave, valor in (config or {}).items():
+        importado = re.match(r"^net(\d+)$", str(clave))
+        if not importado:
+            continue
+        bridge, _ = _red_de_net0(valor)
+        if bridge:
+            puentes[importado.group(1)] = bridge
+    return puentes
 
 
 def _descripcion_sin_ruido(texto):
@@ -203,6 +226,12 @@ def estado_desde_api(datos):
                 "memory": config.get("memory"),
                 "bridge": bridge,
                 "mac": mac,
+                # TODAS las interfaces, no sólo la primera: el plan compara lo declarado con
+                # lo que hay para no dar por bueno un invitado con una pata en otro sitio, y
+                # con `bridge`/`mac` (que son de `net0`) esa comparación veía huecos en todos
+                # los `netN` y daba por roto un lab entero. El `bridge` de arriba se queda:
+                # hay cosas que preguntan por «el bridge del invitado» y eso es `net0`.
+                "interfaces": _puentes_de_config(config),
                 "arrancado": recurso.get("status") == "running",
                 "pool": pool,
                 "nodo": recurso.get("node"),

@@ -418,6 +418,14 @@ que chocan. Las pruebas: añadir un lab nuevo no modifica ni un fichero de `depl
 (`check pureza-lab`), y dos labs distintos reciben **vmids y descripciones disjuntos** (tests con
 fixtures).
 
+**El tipo no es sólo el nombre: manda sobre lo que el equipo puede declarar (ADR 0026).** Un
+equipo hace **una** cosa, y el tipo dice cuál: un `rt` **enruta y sale** (y no filtra), un `fw`
+**filtra** (y no traduce, ni reparte direcciones, ni es la vía de acceso de nadie), un `sw`
+**conmuta** (y no enruta). El validador lo caza con el motivo y con el equipo al que sí le toca,
+antes de tocar nada — «un `rt` que filtra es un router con dos trabajos: eso es un `fw`». Cuando
+un lab necesita dos funciones, se levantan **dos equipos**: es lo que hace el `08` con su router
+y su cortafuegos de borde.
+
 **Sin fichero de estado.** La asignación se **re-deriva** en cada ejecución
 leyendo la API, con tres piezas: el **pool del lab** (llamado como su carpeta) es
 la frontera de propiedad, la **descripción** de cada invitado lleva el rol, y el
@@ -735,6 +743,7 @@ python3 test/test_regresion_planes.py  # los labs de fase 1 no cambian ni un pas
 python3 test/test_secretos.py        # el candado: caza lo que abre el NODO, deja en paz lo demás
 python3 test/test_secretos_cifrados.py  # el descifrado de `secrets.sops.yml` (sops/age)
 python3 test/test_colision.py        # la decisión de reintentar por un vmid que se ocupó
+python3 test/test_plan.py            # el plan no da por bueno un invitado en otro sitio
 ansible-lint                         # perfil basic, 0 hallazgos
 yamllint -c .yamllint .              # 0 hallazgos
 for p in deployment_engine/playbooks/*.yml; do ansible-playbook --syntax-check "$p"; done

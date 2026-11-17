@@ -181,6 +181,113 @@ comprobar(dice(errores, "static_leases"), "`static_leases: derivada` (en singula
 
 # ---------------------------------------------------------------------------
 
+print("\nEL TIPO DE EQUIPO MANDA SOBRE LAS ÁREAS (ADR 0026)\n")
+
+# Un `rt` que filtra: el router con dos trabajos. `firewall` EXISTE en el vocabulario de
+# RouterOS -- lo que se caza no es el área, es a quién le toca.
+errores = errores_de(
+    lambda d: d["vms"][0]["config"]["routeros"].__setitem__(
+        "firewall",
+        [
+            {"chain": "input", "action": "accept", "src_address": "10.40.0.0/24"},
+            {"chain": "input", "action": "drop"},
+        ],
+    )
+)
+comprobar(
+    dice(errores, "firewall") and dice(errores, "fw") and dice(errores, "responsabilidad"),
+    "un `rt` que declara `firewall` se caza: filtrar es la responsabilidad de un equipo `fw`",
+)
+
+
+def _como_fw(declaracion):
+    """El MISMO equipo declarado `fw`: fuera lo que no le toca, dentro su tabla."""
+    routeros = declaracion["vms"][0]["config"]["routeros"]
+    declaracion["vms"][0]["tipo"] = "fw"
+    routeros.pop("dhcp_server")  # repartir no es filtrar
+    routeros["firewall"] = [
+        {"chain": "input", "action": "accept", "src_address": "10.40.0.0/24"},
+        {"chain": "input", "action": "drop"},
+    ]
+
+
+# Y la mitad que importa: con el tipo `fw`, la MISMA tabla pasa. Si esto no pasara, la
+# regla sería «aquí no se filtra», que no es la regla -- es «filtra quien debe».
+igual(
+    errores_de(_como_fw),
+    [],
+    "el mismo equipo declarado `fw`, y sin lo que no le toca, filtra sin una sola queja: "
+    "la regla es del TIPO, no del área",
+)
+
+# Al revés también: un `fw` que traduce (vía de acceso) o reparte, se caza.
+errores = errores_de(
+    lambda d: (
+        d["vms"][0].__setitem__("tipo", "fw"),
+        d["vms"][0]["config"]["routeros"].__setitem__("uplink", {}),
+    )
+)
+comprobar(
+    dice(errores, "uplink") and dice(errores, "vía de acceso"),
+    "un `fw` con `uplink` se caza: traducir y salir no es filtrar (la vía de acceso es un `rt`)",
+)
+errores = errores_de(lambda d: d["vms"][0].__setitem__("tipo", "fw"))
+comprobar(
+    dice(errores, "dhcp_server"),
+    "y un `fw` que reparte direcciones, también: repartir no es filtrar",
+)
+
+# Y el que cierra el otro eje: conmutar no es enrutar. `vms[0]` ya declara `routes`.
+errores = errores_de(lambda d: d["vms"][0].__setitem__("tipo", "sw"))
+comprobar(
+    dice(errores, "routes") and dice(errores, "enruta"),
+    "un `sw` que declara `routes` se caza: conmutar no es enrutar",
+)
+
+# Y el agujero que Greptile cazó en la primera revisión de este mismo cambio: la tabla tenía
+# `rt`, `fw` y `sw`, y **ningún** tipo más -- así que bastaba declarar la misma tabla de
+# filtrado en un `srv` para colarla. El tipo que no está en la tabla no tiene ninguna regla.
+igual(
+    sorted(modulo.AREAS_QUE_NO_LE_TOCAN),
+    sorted(modulo.TIPOS_DE_EQUIPO),
+    "los SEIS tipos del vocabulario tienen entrada: un tipo fuera de la tabla es una grieta "
+    "por la puerta de al lado",
+)
+
+
+def _con_area(tipo, area, interior="routeros"):
+    """El mismo equipo, con otro `tipo` y un área de equipo de red declarada."""
+    def mutar(declaracion):
+        declaracion["vms"][0]["tipo"] = tipo
+        declaracion["vms"][0]["config"][interior][area] = []
+    return mutar
+
+
+# Quien NO es de red no tiene NINGUNA de las cuatro funciones, y `ctl` no se queda fuera.
+# (`vms[0]` ya declara `dhcp_server` en el lab de aceptación, así que ese caso sale solo.)
+for tipo, area in (
+    ("srv", "firewall"), ("srv", "uplink"), ("srv", "dhcp_server"),
+    ("ws", "firewall"), ("ws", "routes"), ("ws", "dhcp_server"),
+    ("ctl", "firewall"), ("ctl", "uplink"),
+):
+    comprobar(
+        dice(errores_de(_con_area(tipo, area)), "una responsabilidad"),
+        f"un `{tipo}` que declara '{area}' con el vocabulario de un equipo de red se caza: "
+        "no es un equipo de red",
+    )
+
+# Y la precisión que hace falta para no pasarse de frenada: al `ctl` no se le prohíbe
+# `dhcp_server` en bloque, sólo con el vocabulario del equipo de red. El bastión REPARTE
+# direcciones en la red de gestión con su Linux (ADR 0005), y eso tiene que seguir pasando.
+comprobar(
+    "dhcp_server" in modulo.AREAS_QUE_NO_LE_TOCAN["ctl"].get("routeros", {})
+    and "dhcp_server" not in modulo.AREAS_QUE_NO_LE_TOCAN["ctl"].get("*", {}),
+    "la regla del `ctl` está acotada al interior `routeros`: repartir con su Linux es su "
+    "trabajo, no una segunda responsabilidad",
+)
+
+# ---------------------------------------------------------------------------
+
 print("\nUN INVITADO CON INTERIOR TIENE QUE SER ALCANZABLE\n")
 
 errores = errores_de(lambda d: d["containers"][0].__setitem__("address", None))
@@ -384,7 +491,18 @@ print("\nEL CORTAFUEGOS: forma cerrada, y la guarda que evita el tiro en el pie\
 
 
 def con_reglas(reglas):
-    return lambda d: d["vms"][0]["config"]["routeros"].__setitem__("firewall", reglas)
+    """El lab de aceptación con una tabla de filtrado en su PRIMER CHR.
+
+    El CHR se declara `fw` y se le quita el servidor DHCP, porque esta batería prueba la
+    FORMA de la tabla y la guarda de supervivencia -- no a quién le toca filtrar, que es lo
+    que prueba la sección «EL TIPO DE EQUIPO MANDA SOBRE LAS ÁREAS» (ADR 0026). Sin el
+    tipo, cada prueba de aquí saldría además con el motivo del tipo y no se leería nada.
+    """
+    def mutar(d):
+        d["vms"][0]["tipo"] = "fw"
+        d["vms"][0]["config"]["routeros"].pop("dhcp_server", None)
+        d["vms"][0]["config"]["routeros"]["firewall"] = reglas
+    return mutar
 
 
 igual(

@@ -663,6 +663,16 @@ def pasos_del_tunnel(guest, declaracion, estado, parametros, identidad=None):
                 "salida_host": host_salida,
                 "salida_puerto": puerto_salida,
                 "vmid": guest["vmid"],
+                # La MISMA lista de reenvíos que la mitad 1, y no es un detalle: este paso
+                # es el único de los dos que se emite SIEMPRE (el `construir` no se emite
+                # si el túnel ya responde), así que es el que converge la línea de
+                # `authorized_keys`. Sin esto, `tasks/tunnel.yml` --que calcula lo que
+                # autoriza desde `item.parametros.rest`-- reescribía la línea con la lista
+                # VACÍA y dejaba el túnel sin los reenvíos REST: la primera sesión, abierta
+                # antes de esa reescritura, seguía viva y todo parecía funcionar, y a la
+                # primera reconexión el bastión se quedaba mudo sin que nada diera error.
+                # Medido: 230 «request was denied» de sshd y 0/6 invitados leídos.
+                "rest": interfaces_rest,
             },
             "porque": (
                 f"comprueba la cadena entera: si el puerto {puerto_local} del nodo de control "

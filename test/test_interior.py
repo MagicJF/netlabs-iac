@@ -778,6 +778,39 @@ igual(
     ["comprobar_tunnel"],
     "si el túnel YA responde no se reconstruye: sólo se comprueba (que es una lectura)",
 )
+
+# Y los DOS pasos llevan la MISMA lista de reenvíos REST. No es cosmético: `tunnel.yml`
+# calcula lo que autoriza en `authorized_keys` desde `parametros.rest`, así que un paso del
+# túnel sin la lista la reescribe VACÍA, deja el túnel sin los reenvíos REST y el bastión se
+# queda mudo en cuanto reconecta (la sesión abierta antes de la reescritura sigue viva, así
+# que nada avisa). Pasó de verdad: 230 «request was denied» de sshd y 0 invitados leídos.
+_rest_de = lambda paso: [i["puerto"] for i in paso["parametros"].get("rest") or []]
+
+# Con el mapa de identidad delante (`borde` = vmid 201), la lista no es vacía: es el puerto
+# que sale del vmid. En el plan de verdad la identidad viaja siempre; aquí se pasa a mano.
+pasos_con_identidad = motor.pasos_del_tunnel(
+    CONTROL_CON_VMID, DECLARACION, ESTADO_NODO, PARAMETROS, IDENTIDAD
+)
+igual(
+    _rest_de(pasos_con_identidad[0]), [21201],
+    "el reenvío REST sale del vmid del equipo que tiene interior de RouterOS (21000 + 201)",
+)
+comprobar(
+    _rest_de(pasos_con_identidad[0]) == _rest_de(pasos_con_identidad[1]),
+    "y los DOS pasos del túnel llevan la misma lista: el que se emite siempre es el que "
+    "converge la línea de authorized_keys",
+)
+igual(
+    _rest_de(
+        motor.pasos_del_tunnel(
+            CONTROL_CON_VMID, DECLARACION,
+            dict(ESTADO_NODO, tunnel={"responde": True}), PARAMETROS, IDENTIDAD
+        )[0]
+    ),
+    [21201],
+    "aunque el túnel ya responda y sólo se compruebe, el paso sigue llevando la lista: "
+    "es la que deja authorized_keys como estaba",
+)
 igual(
     motor.pasos_del_tunnel(BORDE, DECLARACION, {}, PARAMETROS), [],
     "un invitado que no es el bastión no genera pasos de túnel",

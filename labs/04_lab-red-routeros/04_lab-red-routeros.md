@@ -13,36 +13,51 @@ si los editas a mano, `./lab check docs` falla._
 ## Topología
 
 ```mermaid
-graph TD
-    b_vmb_gestion(["vmb_gestion<br/>10.40.0.1/24"])
-    b_vmb_lan1(["vmb_lan1<br/>10.40.1.1/24"])
-    b_vmb_lan2(["vmb_lan2<br/>10.40.2.1/24"])
-    i_borde["borde<br/>VM (qemu) · etapa 1"]
+graph LR
+    classDef segmento fill:#0b1220,stroke:#38bdf8,color:#dbeafe;
+    classDef salida fill:#111827,stroke:#9ca3af,color:#e5e7eb,stroke-dasharray:4 3;
+    classDef rt fill:#7c2d12,stroke:#fb923c,color:#ffedd5;
+    classDef fw fill:#701a1a,stroke:#f87171,color:#fee2e2;
+    classDef sw fill:#134e4a,stroke:#2dd4bf,color:#ccfbf1;
+    classDef srv fill:#1e3a8a,stroke:#60a5fa,color:#dbeafe;
+    classDef ws fill:#14532d,stroke:#4ade80,color:#dcfce7;
+    classDef ctl fill:#4c1d95,stroke:#a78bfa,color:#ede9fe;
+    b_vmb_gestion(["vmb_gestion<br/>10.40.0.1/24"]):::segmento
+    b_vmb_lan1(["vmb_lan1<br/>10.40.1.1/24"]):::segmento
+    b_vmb_lan2(["vmb_lan2<br/>10.40.2.1/24"]):::segmento
+    i_borde(["rt-borde<br/>10.40.0.11/24<br/>etapa 1"]):::rt
     i_borde --- b_vmb_gestion
     i_borde --- b_vmb_lan1
-    i_control["control<br/>LXC · etapa 1"]
+    i_control[["ctl-1<br/>10.40.0.10/24<br/>etapa 1"]]:::ctl
     i_control --- b_vmb_gestion
-    i_nucleo["nucleo<br/>VM (qemu) · etapa 2"]
+    i_nucleo(["rt-nucleo<br/>10.40.1.11/24<br/>etapa 2"]):::rt
     i_nucleo --- b_vmb_lan1
     i_nucleo --- b_vmb_lan2
-    i_servidor["servidor<br/>LXC · etapa 2"]
+    i_servidor[("srv-1<br/>dhcp<br/>etapa 2")]:::srv
     i_servidor --- b_vmb_lan1
-    i_puesto_1["puesto-1<br/>LXC · etapa 3"]
+    i_puesto_1["ws-1<br/>dhcp<br/>etapa 3"]:::ws
     i_puesto_1 --- b_vmb_lan1
-    i_puesto_2["puesto-2<br/>LXC · etapa 3"]
+    i_puesto_2["ws-2<br/>dhcp<br/>etapa 3"]:::ws
     i_puesto_2 --- b_vmb_lan2
 ```
 
+En el diagrama, la **forma** y el **color** de cada equipo dicen qué es (el tipo declarado):
+
+- `rt` — rt (enruta y sale)
+- `srv` — srv (servidor)
+- `ws` — ws (puesto de trabajo)
+- `ctl` — ctl (control del lab)
+
 ## Invitados declarados
 
-| rol | tipo | stage | cores | memory (MB) | disk (GB) | bridge | address |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| borde | VM (qemu) | 1 | 2 | 512 | 1 | vmb_gestion + vmb_lan1 | 10.40.0.11/24 |
-| control | LXC | 1 | 1 | 512 | 4 | vmb_gestion | 10.40.0.10/24 |
-| nucleo | VM (qemu) | 2 | 1 | 512 | 1 | vmb_lan1 + vmb_lan2 | 10.40.1.11/24 |
-| servidor | LXC | 2 | 1 | 512 | 4 | vmb_lan1 | dhcp |
-| puesto-1 | LXC | 3 | 1 | 512 | 4 | vmb_lan1 | dhcp |
-| puesto-2 | LXC | 3 | 1 | 512 | 4 | vmb_lan2 | dhcp |
+| rol | tipo | plataforma | stage | cores | memory (MB) | disk (GB) | bridge | address |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| borde | rt (enruta y sale) | VM (qemu) | 1 | 2 | 512 | 1 | vmb_gestion + vmb_lan1 | 10.40.0.11/24 |
+| control | ctl (control del lab) | LXC | 1 | 1 | 512 | 4 | vmb_gestion | 10.40.0.10/24 |
+| nucleo | rt (enruta y sale) | VM (qemu) | 2 | 1 | 512 | 1 | vmb_lan1 + vmb_lan2 | 10.40.1.11/24 |
+| servidor | srv (servidor) | LXC | 2 | 1 | 512 | 4 | vmb_lan1 | dhcp |
+| puesto-1 | ws (puesto de trabajo) | LXC | 3 | 1 | 512 | 4 | vmb_lan1 | dhcp |
+| puesto-2 | ws (puesto de trabajo) | LXC | 3 | 1 | 512 | 4 | vmb_lan2 | dhcp |
 
 ## Bridges del lab
 
@@ -64,12 +79,12 @@ graph TD
 
 | rol | tipo | nombre canónico | vmid | MAC |
 | --- | --- | --- | --- | --- |
-| borde | VM (qemu) | {equipo}-{alias} | — | — |
-| control | LXC | {equipo}-{alias} | — | — |
-| nucleo | VM (qemu) | {equipo}-{alias} | — | — |
-| servidor | LXC | {equipo}-{alias} | — | — |
-| puesto-1 | LXC | {equipo}-{alias} | — | — |
-| puesto-2 | LXC | {equipo}-{alias} | — | — |
+| borde | rt (enruta y sale) | rt-borde | — | — |
+| control | ctl (control del lab) | ctl-1 | — | — |
+| nucleo | rt (enruta y sale) | rt-nucleo | — | — |
+| servidor | srv (servidor) | srv-1 | — | — |
+| puesto-1 | ws (puesto de trabajo) | ws-1 | — | — |
+| puesto-2 | ws (puesto de trabajo) | ws-2 | — | — |
 
 El **vmid** (el menor libre de *todo* el clúster) y la **MAC** (`BC:24:11` + los
 bytes del vmid) los asigna `apply` leyendo el estado de Proxmox: no se declaran aquí y
@@ -80,12 +95,12 @@ guion hasta que exista un despliegue real.
 
 | rol | tipo | usuario | credencial | forma de acceso |
 | --- | --- | --- | --- | --- |
-| borde | VM (qemu) | admin | `admin` / la de `secrets.yml` → `routeros_clave` (HTTP Basic) | REST por el túnel del bastión (`21000`+vmid); su consola, por la serial del nodo |
-| control | LXC | root | clave del lab (`~/.ssh/netlabs_tunnel_04_lab-red-routeros_ed25519`), sin contraseña | SSH a `127.0.0.1`:(`20000`+vmid): él ES el bastión, se entra directo por su túnel |
-| nucleo | VM (qemu) | admin | `admin` / la de `secrets.yml` → `routeros_clave` (HTTP Basic) | REST por el túnel del bastión (`21000`+vmid); su consola, por la serial del nodo |
-| servidor | LXC | root | clave del lab (`~/.ssh/netlabs_tunnel_04_lab-red-routeros_ed25519`), sin contraseña | SSH por el bastión (salta por su túnel), a su dirección en el lab |
-| puesto-1 | LXC | root | clave del lab (`~/.ssh/netlabs_tunnel_04_lab-red-routeros_ed25519`), sin contraseña | SSH por el bastión (salta por su túnel), a su dirección en el lab |
-| puesto-2 | LXC | root | clave del lab (`~/.ssh/netlabs_tunnel_04_lab-red-routeros_ed25519`), sin contraseña | SSH por el bastión (salta por su túnel), a su dirección en el lab |
+| borde | rt (enruta y sale) | admin | `admin` / la de `secrets.yml` → `routeros_clave` (HTTP Basic) | REST por el túnel del bastión (`21000`+vmid); su consola, por la serial del nodo |
+| control | ctl (control del lab) | root | clave del lab (`~/.ssh/netlabs_tunnel_04_lab-red-routeros_ed25519`), sin contraseña | SSH a `127.0.0.1`:(`20000`+vmid): él ES el bastión, se entra directo por su túnel |
+| nucleo | rt (enruta y sale) | admin | `admin` / la de `secrets.yml` → `routeros_clave` (HTTP Basic) | REST por el túnel del bastión (`21000`+vmid); su consola, por la serial del nodo |
+| servidor | srv (servidor) | root | clave del lab (`~/.ssh/netlabs_tunnel_04_lab-red-routeros_ed25519`), sin contraseña | SSH por el bastión (salta por su túnel), a su dirección en el lab |
+| puesto-1 | ws (puesto de trabajo) | root | clave del lab (`~/.ssh/netlabs_tunnel_04_lab-red-routeros_ed25519`), sin contraseña | SSH por el bastión (salta por su túnel), a su dirección en el lab |
+| puesto-2 | ws (puesto de trabajo) | root | clave del lab (`~/.ssh/netlabs_tunnel_04_lab-red-routeros_ed25519`), sin contraseña | SSH por el bastión (salta por su túnel), a su dirección en el lab |
 
 El **usuario**, la **credencial** (de dónde sale Y cuánto vale) y la **forma de acceso** se
 derivan de la declaración, del motor y de `deployment_engine/secrets.yml`. **Este lab es de un

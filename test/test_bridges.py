@@ -317,6 +317,58 @@ def caso_10_el_informe_no_se_deja_ningun_bridge_declarado():
     )
 
 
+def caso_11_el_estado_guarda_todas_las_interfaces():
+    """El estado guarda el bridge de CADA interfaz de un invitado, no sólo el de la primera.
+
+    Es el contrato que necesita el plan para no dar por bueno un invitado con una pata en
+    otro sitio -- y el que se rompió de verdad: con sólo `net0` en el estado, la comprobación
+    de interfaces veía TODOS los `netN` «en ningún bridge» y tumbaba el `plan --api` de un lab
+    perfectamente desplegado (`failed=1`). Se prueba por `estado_desde_api`, que es quien
+    compone el estado, y no armando el dict a mano: el fallo estaba precisamente en cómo se
+    componía.
+    """
+    print("\ncaso 11 — el estado guarda TODAS las interfaces del invitado, no sólo net0")
+    lab = "alfa"
+    vmid = 301
+    estado = modulo_estado.estado_desde_api(
+        {
+            "lab": lab,
+            "nodo": NODO,
+            "cluster_recursos": [
+                {
+                    "vmid": vmid,
+                    "type": "qemu",
+                    "name": "rt-nucleo",
+                    "node": NODO,
+                    "status": "running",
+                    "pool": modulo_identidad.identidad_pool(lab),
+                }
+            ],
+            "pools_lista": [{"poolid": modulo_identidad.identidad_pool(lab)}],
+            "red_nodo": [{"iface": "vmbr1", "type": "bridge", "comments": ""}],
+            "configs": {
+                str(vmid): {
+                    "name": "rt-nucleo",
+                    "net0": "virtio=BC:24:11:00:00:01,bridge=vmbr1",
+                    "net1": "virtio=BC:24:11:00:00:02,bridge=vmb_gestion",
+                    "net2": "virtio=BC:24:11:00:00:03,bridge=vmb_lan",
+                }
+            },
+        }
+    )
+    invitado = (estado["guests"] or {}).get(str(vmid)) or {}
+    comprobar(
+        invitado.get("interfaces") == {"0": "vmbr1", "1": "vmb_gestion", "2": "vmb_lan"},
+        f"las tres patas quedan en el estado (obtenido {invitado.get('interfaces')})",
+    )
+    # Y `bridge`/`mac` siguen siendo los de `net0` como siempre: hay cosas que preguntan por
+    # «el bridge del invitado» y eso no cambia porque ahora se guarden las demás.
+    comprobar(
+        invitado.get("bridge") == "vmbr1" and invitado.get("mac") == "BC:24:11:00:00:01",
+        "`bridge` y `mac` siguen siendo los de net0: la interfaz de siempre no se mueve",
+    )
+
+
 def main():
     print("=" * 62)
     print("TESTS DE LA PROPIEDAD DE LOS BRIDGES (fixtures, sin Proxmox)")
@@ -331,6 +383,7 @@ def main():
     caso_8_de_dos_declarados_cae_solo_el_marcado()
     caso_9_un_bridge_declarado_que_no_existe()
     caso_10_el_informe_no_se_deja_ningun_bridge_declarado()
+    caso_11_el_estado_guarda_todas_las_interfaces()
     print()
     print("=" * 62)
     if FALLOS:

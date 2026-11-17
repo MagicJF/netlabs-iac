@@ -131,6 +131,11 @@ falla una tarea— existe una vía de depuración por SSH **para quien diagnosti
   **qué configurar dentro** (`config:`, `image:`). Un `nombre:` corto por invitado es
   opcional: es su alias, y si falta se usa el rol. **El lab no declara vmids ni MACs, nunca**
   (la MAC es función del vmid, y las reservas DHCP se derivan de él: regla 14).
+- **El tipo de equipo manda sobre lo que el equipo puede declarar** (ADR 0026): un equipo hace
+  **una** cosa. Un `rt` enruta y sale (y no filtra), un `fw` filtra (y no traduce, ni reparte
+  direcciones, ni es la vía de acceso de nadie), un `sw` conmuta (y no enruta, ni filtra, ni
+  traduce, ni reparte). El validador lo caza con el motivo antes de tocar nada. Cuando un lab
+  necesita dos funciones, se levantan **dos equipos**.
 - El **motor deriva** el vmid (el menor libre **de todo el clúster**), el NOMBRE
   (`<tipo>-<alias>`: dice qué EQUIPO es, no de qué lab es — `rt-borde`, `srv-1`; dos labs
   pueden repetir `rt-nucleo`, y por eso el nombre no es una prueba de pertenencia), la MAC
@@ -190,6 +195,7 @@ Un fichero con dos escritores es el que envejece mal. `labs/<lab>/<lab>.md` tien
 | tocaste `VERSION`, el `CHANGELOG.md`, o vas a publicar | `./lab check version` |
 | antes de cualquier commit | `./lab check` (todo) + `ansible-lint` |
 | tocaste la propiedad de los bridges (`plan`, `destroy`, `estado`) | `python3 test/test_bridges.py` y `./lab check` |
+| tocaste `tools/plan.py` (lo que el plan da por bueno) | `python3 test/test_plan.py` y `python3 test/test_regresion_planes.py` |
 | tocaste un driver del interior (`routeros`/`linux`) | `./lab check access` + `python3 test/test_interior.py` y `test/test_routeros.py` |
 | vas a decir "hecho" | `./lab check` verde y la evidencia pegada en la respuesta |
 | vas a subir a GitHub | ciclo `destroy → apply → verify` verde + `./lab check` (ver §Commits y subida a GitHub) |
@@ -245,6 +251,24 @@ evidencia, y se mezcla con *squash*: un cambio, un commit en `main`.
   qué. Un commit que no ha pasado el ciclo es una promesa sin respaldo.
 - Una entrega de partida es la excepción, y se dice: `0.1.0` marca el estado que YA
   estaba verificado, para tener de dónde comparar.
+
+### Nada se mezcla con Greptile por debajo de 5/5
+
+Greptile puntúa cada PR de 0 a 5. Un PR **no se da por bueno** mientras su confianza sea menor
+que 5/5: se leen sus hallazgos (los **P1** primero), se arreglan de verdad —no se silencian con
+un comentario—, se empuja y se **re-dispara el bucle** hasta que dé 5/5. No es un extra: es el
+último paso de cualquier PR, como `./lab check`.
+
+- Confianza < 5/5 casi siempre señala un caso que **ninguna prueba cubría**. El arreglo entra
+  **con su prueba**, y si el hallazgo era un falso positivo se dice **por qué** con evidencia.
+- Se re-dispara comentando `@greptileai review` (y `@coderabbitai review` para el otro revisor).
+  La puntuación y los hallazgos inline se leen con `gh`, nunca se adivinan; y se leen **del
+  cuerpo del resumen**, que Greptile EDITA en su sitio: mirar `created_at` en vez de lo que dice
+  el cuerpo ahora mismo es leer una puntuación vieja.
+- Un hallazgo del bot **no se acepta por fe** ni se rechaza por fe: se **reproduce** (con una
+  prueba, o contra el nodo real) antes de tocar nada. En `labs/08` un P1 describía un fallo que
+  el bot no podía ejecutar y que sí era real: el estado compartido no guardaba más que la
+  primera interfaz, así que un `plan --api` tumbaba un lab desplegado y correcto.
 
 ## Cabecera obligatoria de cada fichero
 

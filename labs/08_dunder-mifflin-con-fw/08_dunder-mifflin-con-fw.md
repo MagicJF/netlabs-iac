@@ -240,15 +240,24 @@ Otras dos cosas que aparecieron por el camino, y se arreglaron:
 **Lo que da salida real, y es la prueba que vale:**
 
 - `apply` → **rc=0**, `failed=0`, y su verificación final:
-  `esperados=10 encontrados_en_el_pool=10`, **`EL INTERIOR (5/5 invitado(s) leído(s) por dentro
-  y coincidente(s) con lo declarado)`**, `CONFORMES (10)`.
+  `esperados=11 encontrados_en_el_pool=11`, **`EL INTERIOR (6/6 invitado(s) leído(s) por dentro
+  y coincidente(s) con lo declarado)`**, `CONFORMES (11)`.
 - `verify` independiente → **rc=0**, **0 escrituras** (es de sólo lectura), 0 respuestas no-2xx,
-  66 llamadas en 66 s. Relee `/ip/firewall/filter` de los cuatro CHR.
+  76 llamadas en 81 s. Relee `/ip/firewall/filter` de **los cuatro `fw`** — y de `rt-nucleo`
+  **no**, porque no tiene tabla: eso es la separación de responsabilidades leída del equipo.
 
-Es decir: **las cuatro tablas de filtrado están puestas de verdad en los cuatro equipos y la
-relectura las encuentra iguales a lo declarado** (8 reglas en `rt-nucleo` y `fw-servidores`,
-7 en `fw-oficina` y `fw-almacen`), con los nombres de interfaz (`ether2`, `ether3`) y los
-nombres de campo de RouterOS (`connection-state`, `src-address`) tal como los traduce el motor.
+Es decir: **las cuatro tablas de filtrado están puestas de verdad y la relectura las encuentra
+iguales a lo declarado** (8 reglas en `fw-servidores` y 7 en `fw-borde`, `fw-oficina` y
+`fw-almacen`), con los nombres de interfaz (`ether2`, `ether3`) y los nombres de campo de
+RouterOS (`connection-state`, `src-address`) tal como los traduce el motor. Y el router no
+tiene ninguna: la política que llevaba hasta el ADR 0026 vive ahora en `fw-borde`, que es el
+equipo al que le toca.
+
+**Cómo se destapó el `rt-nucleo` que filtraba.** No con una lectura, con una relectura: el
+diario del lab guardaba ocho reglas de filtrado leídas de `nucleo` de pasadas anteriores, y en
+la pasada del ADR 0026 ese `guest` desaparece de la lista de lecturas de firewall. Lo que el
+equipo tiene y lo que la declaración pide vuelven a ser lo mismo, y la diferencia se ve en el
+diario sin creerle la palabra a nadie.
 
 **Lo que NO está verificado, dicho en claro:**
 
@@ -280,11 +289,14 @@ segundo intento convergió en el mismo lab a medio construir.
   ni filtrar, así que `bridges` no podrá caer en un `rt` ni en un `fw` (ADR 0026).
 - **Aquí no hay aplicaciones dentro de los invitados.** El motor despliega y verifica
   máquinas, no servicios: no se instala ni se comprueba un servidor web en `srv-2`.
-- **La red de gestión es una vía fuera de banda.** El bastión tiene su pata en el bridge de
-  gestión y en ninguno más (mirar DENTRO de una zona pide darle una pata ahí, y entonces sí
-  llegaría a esa zona sin pasar por su cortafuegos). Es lo normal en una red de gestión, y
-  conviene decirlo: las reglas de este lab protegen el tráfico **de servicio**, no blindan al
-  motor contra sí mismo.
+- **La red de gestión es una vía fuera de banda, y el bastión está en todas las patas.** El
+  motor le da al bastión **una pata por cada bridge del lab** —se lee en el plan: `net0` en
+  `vmb_fw_gestion`, y una por zona—, porque entrar DENTRO de un invitado por su dirección de
+  gestión pide estar en su bridge. Consecuencia que conviene decir en voz alta: **el bastión
+  llega a cualquier zona sin pasar por su cortafuegos.** Es lo normal en una red de gestión, y
+  no es una grieta de este lab: las reglas de aquí protegen el tráfico **de servicio**, no
+  blindan al motor contra sí mismo. (`la red de gestión entra` es la primera regla `input` de
+  las cuatro tablas, y es literal: sin ella el propio motor se queda fuera del equipo.)
 - **El filtrado no se comprueba desde fuera todavía.** Las tablas convergen y se releen (está
   en «Qué está verificado»), pero el motor no lanza tráfico de prueba *a través* de un
   cortafuegos: hoy la prueba de que filtra es leer la tabla.

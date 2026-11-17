@@ -13,7 +13,7 @@
     "citados": {
       "deployment_engine/filter_plugins/estado.py": "53b22c6747df568ccaff6d91a8534fffaed38d4a3a0a76556b39d5a6e72c3e31",
       "deployment_engine/filter_plugins/identidad.py": "8d00bddc83100774ff8f3343f33f12dbcf3328ed09e4964cc8e9442052b06367",
-      "deployment_engine/filter_plugins/interior.py": "11380bdab8d9ee726d2f00ed0307d388ea909389be2c9a436c8d09f3affcf113",
+      "deployment_engine/filter_plugins/interior.py": "969e143e0e1bc81e8b656a8acea8b1dde2febf038eb0bc54501a5cd44e2eb7f3",
       "deployment_engine/playbooks/plan.yml": "1a11a151d2e4691ab4611a43f39319503e8153b67145fe450e8f31df70baca24",
       "deployment_engine/tasks/pve_api.yml": "42b30c7d2a79a68b54ea68ef0aadf90b9d3eaa6800aeb89378c7c50d551e2817",
       "deployment_engine/tasks/pve_api_y_esperar.yml": "6226f0c9e87cac7ff936dd4ead8c4f318bea3c5afc1dfaefaf1bf0ec09cd23dc",
@@ -173,6 +173,14 @@
     "citados": {
       "deployment_engine/filter_plugins/declaracion.py": "546771f503f3d27116fd70a9717608f9f540c3183c35e29149ff7bf75ddc3c45",
       "deployment_engine/filter_plugins/interior.py": "11380bdab8d9ee726d2f00ed0307d388ea909389be2c9a436c8d09f3affcf113"
+    }
+  },
+  "docs/decisiones/0027-el-area-servicio-de-un-linux.md": {
+    "citados": {
+      "deployment_engine/filter_plugins/declaracion.py": "6ed819b2251531e0f2edd131ce6f857b500aab0250976545c253a738d9c5891b",
+      "deployment_engine/filter_plugins/interior.py": "80c560bf6af49571549d9c2c15aa47add1c94309a09ccdd19fd98a2600ca6a48",
+      "deployment_engine/tasks/configurar_linux.yml": "04e25f4f674be8fb6890b92021aa5cc6dc02063bccce2a0dcb8aa37220bb04af",
+      "deployment_engine/tasks/interior_ssh.yml": "82bee4b7201604d0accf34c38ca9aaf297319b858a125811d0bd3ea0063a96ca"
     }
   },
   "docs/encargo-capa-de-configuracion.md": {

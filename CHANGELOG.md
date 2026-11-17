@@ -37,9 +37,40 @@ aquí está su entrada; los tres tienen que contar lo mismo, y eso es lo que vig
   resto de la región: no hay prosa que mantener.
 - **`test/test_documentos.py`**, que no existía: la región generada (la que ningún humano
   escribe, y cuyos fallos son silenciosos) tenía cero pruebas.
+- **El candao del Greptile es mecánico (`.github/workflows/greptile-gate.yml`).** Lee la
+  puntuación del CUERPO del resumen de Greptile —no de su fecha, que es leer una puntuación
+  vieja— y publica el *status check* `greptile-5-de-5` sobre el SHA de la cabecera del PR:
+  sólo pasa con 5/5, y `pending` (sin puntuación legible) no es aprobar. Por debajo de 5/5
+  re-dispara la revisión hasta `MAX_REINTENTOS` veces por cabecera, sin reaccionar a sus
+  propios comentarios. Bloquea el merge el día que se exija en la protección de rama (el
+  comando está en el README); sin eso es un aviso que se ve, y así se dice.
+- **Un Linux puede declarar un `servicio`, y el motor lo instala y lo deja SIRVIENDO (ADR 0027).**
+  El área `servicio` de `config.linux` toma el NOMBRE de un servicio de un vocabulario **cerrado**
+  (hoy sólo `caddy`): el motor instala el paquete, escribe su configuración y su página, habilita
+  y arranca la unidad, y lo comprueba **sirviéndolo** (un `curl` a 127.0.0.1 desde dentro). Un
+  invitado ya convergido no produce **ninguna** operación, y un nombre que no esté en el
+  vocabulario —o una clave presente pero vacía— se **rechaza** con su motivo, no se ignora. La
+  convergencia se decide comparando el **contenido entero** de los dos ficheros que el área
+  gobierna (la marca sola no prueba que estén bien) y mirando `is-active` **y** `is-enabled`.
+- **`09_lxc-caddy`**: el lab más simple que enseña el YAML declarativo —un contenedor Linux
+  con Caddy dentro, en su propio bridge, sin un solo RouterOS— y a la vez el que destapó el
+  gemelo de abajo. Su `tipo: ctl` lo hace el bastión de su propio lab: es el único invitado y su
+  túnel es la vía por la que el motor entra a configurarlo (el paquete sale a internet por su
+  pata de gestión, no por el túnel).
 
 ### Corregido
 
+- **El motor creaba un GEMELO de un invitado al aplicarlo por primera vez.** Medido en un
+  `apply` en frío real: el paso de creación se ejecutaba más de una vez, el segundo POST
+  chocaba con el vmid que el primero acababa de crear (`CT 114 already exists`), el
+  clasificador lo tomaba por un choque con otro lab —no podía saber que el vmid era suyo— y
+  el reintento de `converger` re-derivaba el mundo y creaba un segundo invitado con el vmid
+  siguiente (dos CT para un rol, `esperados=1 encontrados_en_el_pool=2`). Ahora el paso de
+  creación **se pregunta antes de crear**: `es_guest_del_lab` mira la descripción del vmid que
+  va a ocupar y, si la marca `lab=… rol=…` es NUESTRA, el paso ya está dado y no se crea; un
+  invitado ajeno (o sin marca) sigue siendo una colisión de verdad y el reintento es el
+  correcto. La comparación es por palabra completa, para que `lab=01` no case dentro de
+  `lab=011`. Verificado con el ciclo real: **una sola creación** donde antes había tres.
 - **El estado compartido no guardaba más que la primera interfaz.** `estado_desde_api` se
   quedaba con `bridge` y `mac` —los de `net0`— y tiraba las demás `netN`, así que la
   comprobación que compara las interfaces declaradas con las que hay veía TODAS las patas «en

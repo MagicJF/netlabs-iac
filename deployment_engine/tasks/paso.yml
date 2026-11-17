@@ -15,6 +15,35 @@
 
 # `item` es el paso del plan que el verbo está recorriendo (lo pasa el bucle).
 
+# Antes de CREAR, se PREGUNTA si ese vmid ya lo ocupa un invitado NUESTRO. La creación es
+# la única escritura que un reintento no perdona: reintentarla crea un GEMELO con el vmid
+# siguiente (medido en un `apply` en frío real: dos CT para un rol). Si la respuesta dice
+# que el vmid ya es de este lab y de este rol, el paso está dado y se salta; si está libre
+# --o lo ocupa un invitado ajeno, sin nuestra marca-- se crea, y un choque ajeno lo
+# resuelve el reintento de `converger` como siempre.
+- name: "PASO {{ item.orden }} · ¿el vmid {{ item.parametros.vmid | default(0) }} ya es nuestro invitado?"
+  ansible.builtin.include_tasks: ../tasks/pve_api.yml
+  vars:
+    pve_api_metodo: GET
+    pve_api_ruta: "{{ item.ruta }}/{{ item.parametros.vmid }}/config"
+    # 404/500 = «ese invitado no está»: es la respuesta ESPERADA cuando toca crear, no un
+    # error del que haya que avisar. Se tolera y se decide con ella (es_guest_del_lab).
+    pve_api_tolerar_error: true
+    pve_api_etiqueta: "guarda antes de crear: ¿el vmid {{ item.parametros.vmid | default(0) }} ya es nuestro?"
+  when:
+    - (item.via | default('api')) == 'api'
+    - item.accion == 'crear_guest'
+
+- name: "PASO {{ item.orden }} · anotar si el vmid ya es nuestro invitado"
+  ansible.builtin.set_fact:
+    pve_vmid_ya_es_nuestro: >-
+      {{ (pve_api_ultimo_status | int == 200)
+         and ((pve_api_ultimo_datos.get('description', '') | default('', true))
+              | es_guest_del_lab(pve_lab, item.rol)) }}
+  when:
+    - (item.via | default('api')) == 'api'
+    - item.accion == 'crear_guest'
+
 - name: "PASO {{ item.orden }} · por la API de Proxmox: {{ item.metodo }} {{ item.ruta }}"
   ansible.builtin.include_tasks: ../tasks/pve_api_y_esperar.yml
   vars:
@@ -22,7 +51,10 @@
     pve_api_ruta: "{{ item.ruta }}"
     pve_api_cuerpo: "{{ item.parametros }}"
     pve_api_etiqueta: "paso {{ item.orden }}: {{ item.accion }} -- {{ item.porque }}"
-  when: (item.via | default('api')) == 'api'
+  when:
+    - (item.via | default('api')) == 'api'
+    # Y la guarda: crear no se da si el vmid ya es nuestro (el paso está dado).
+    - not (item.accion == 'crear_guest' and (pve_vmid_ya_es_nuestro | default(false) | bool))
 
 - name: "PASO {{ item.orden }} · por el TÚNEL del lab: {{ item.accion }}"
   ansible.builtin.include_tasks: ../tasks/tunnel.yml

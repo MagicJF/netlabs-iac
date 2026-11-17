@@ -55,7 +55,7 @@ AREAS = {
     # `address` -- las interfaces extra del invitado, una por bridge del lab. Está aquí
     # porque el vocabulario es cerrado y hay que nombrarla, y `areas_de` la funde en
     # `address` para que la convergencia tenga un solo túnel.
-    "linux": ("tunnel", "address", "addresses", "ip_forward", "dhcp_server"),
+    "linux": ("tunnel", "address", "addresses", "ip_forward", "dhcp_server", "servicio"),
     "routeros": (
         "identity", "addresses", "ip_services", "dhcp_client", "routes", "dhcp_server", "uplink",
         "firewall",
@@ -1381,6 +1381,10 @@ def pasos_de_convergencia(guest, identidad, declaracion, leido, parametros):
                 )
         elif area == "tunnel":
             operaciones = _tunnel_canonico(declaradas[area], actual)
+        elif area == "servicio":
+            # El área del servicio declarado: instalar, configurar, arrancar y comprobar que
+            # SIRVE. El valor declarado es el NOMBRE del servicio (vocabulario cerrado).
+            operaciones = _servicio_canonico(declaradas[area], actual)
         else:  # pragma: no cover - el validador ya rechaza lo que no está en AREAS
             raise ErrorMotor(f"el área '{area}' no tiene driver: añadirla es un ADR")
 
@@ -1823,6 +1827,23 @@ LECTURAS_LINUX = {
         "comando": "cat /root/.ssh/authorized_keys 2>/dev/null | wc -l",
         "descripcion": "cuántas claves autorizadas tiene (la del motor se deja al crear)",
     },
+    "servicio": {
+        # SEIS cosas en un viaje, como en `dhcp_server`:
+        #   1) qué herramientas hay -- el paquete del servicio y `curl`, que la relectura
+        #      necesita para comprobar que sirve,
+        #   2) si la unidad de systemd está VIVA (`is-active`),
+        #   3) si además está HABILITADA (`is-enabled`): son DOS hechos distintos, y un
+        #      servicio vivo pero deshabilitado no arranca al reiniciar el invitado,
+        #   4) el CONTENIDO de la configuración que escribe el motor,
+        #   5) el CONTENIDO de la página: los dos ficheros se comparan ENTEROS, porque la
+        #      marca sola no prueba nada -- una configuración editada a mano conserva la
+        #      marca, y una página borrada no se repondría nunca,
+        #   6) si de verdad SIRVE la página (curl a 127.0.0.1). Sin la 6 no se puede afirmar
+        #      que el servicio hace lo que promete, y `reload` se pediría en CADA pasada -- que
+        #      es romper la idempotencia (regla 6).
+        "comando": "for h in caddy curl; do printf '%s=%s\\n' \"$h\" \"$(command -v $h || echo NO)\"; done; echo ---NETLABS---; systemctl is-active caddy 2>/dev/null || echo inactive; echo ---NETLABS---; systemctl is-enabled caddy 2>/dev/null || echo disabled; echo ---NETLABS---; cat /etc/caddy/Caddyfile 2>/dev/null; echo ---NETLABS---; cat /var/www/html/index.html 2>/dev/null; echo ---NETLABS---; curl -fsS -m 5 http://127.0.0.1/ 2>/dev/null || echo NO-SIRVE",
+        "descripcion": "si el servicio declarado está instalado, su unidad viva, su configuración puesta y sirviendo la página",
+    },
 }
 
 SEPARADOR = "---NETLABS---"
@@ -1941,6 +1962,36 @@ def leido_linux(lecturas):
                 "herramientas": tiene,
                 "conf": (bloques[0].strip() if bloques else ""),
             }
+
+        elif area == "servicio":
+            bloques = str(texto).split(SEPARADOR)
+            herramientas = _lineas(bloques[0] if bloques else "")
+            activa = _lineas(bloques[1] if len(bloques) > 1 else "")
+            habilitada = _lineas(bloques[2] if len(bloques) > 2 else "")
+            configuracion = bloques[3] if len(bloques) > 3 else ""
+            pagina = bloques[4] if len(bloques) > 4 else ""
+            servido = bloques[5] if len(bloques) > 5 else ""
+            # Las herramientas tal y como las lee el motor: el paquete del servicio y `curl`.
+            # Un `command -v` sin resultado (la línea no está) se toma por PRESENTE -- igual
+            # que en `dhcp_server` -- porque la ausencia de la línea es una lectura incompleta,
+            # no una prueba de que falte; sólo un `NO` explícito pide instalarlo.
+            tiene = {herramienta: (_valor(herramientas, herramienta) != "NO")
+                     for herramienta in SERVICIOS_LINUX_OPCIONES["caddy"]["paquetes"]}
+            leido["servicio"] = {
+                "herramientas": tiene,
+                # DOS hechos distintos, no uno: estar VIVO (`is-active`) y estar HABILITADO
+                # (`is-enabled`). Un servicio vivo pero deshabilitado no arranca al reiniciar,
+                # y mirar sólo `is-active` lo daba por bueno para siempre.
+                "activo": bool(activa) and activa[0] == "active",
+                "habilitado": bool(habilitada) and habilitada[0] == "enabled",
+                # Los ficheros se leen ENTEROS, crudos: quien decide si están bien es el
+                # canónico, que es quien sabe qué se escribiría. La marca sola no prueba nada
+                # -- una configuración editada a mano la conserva, y la página puede no estar.
+                "config_leida": (configuracion if isinstance(configuracion, str) else ""),
+                "pagina_leida": (pagina if isinstance(pagina, str) else ""),
+                # Sirve si curl sacó algo que NO sea la marca de fallo: un 200 con cuerpo.
+                "sirve": bool(str(servido).strip()) and "NO-SIRVE" not in str(servido),
+            }
     return leido
 
 
@@ -1987,6 +2038,127 @@ def configuracion_dnsmasq(declarado, reservas):
 # La ruta del fichero del servidor DHCP, en un solo sitio: la usan el que lo escribe y
 # el que comprueba si ya se escribió (dos literales separados se desincronizan).
 RUTA_DNSMASQ = "/etc/dnsmasq.d/netlabs.conf"
+
+
+# ---------------------------------------------------------------------------
+# El área `servicio`: un servicio instalado, configurado y SIRVIENDO
+# ---------------------------------------------------------------------------
+# El vocabulario CERRADO de servicios que un Linux puede declarar en el área `servicio`.
+# Hoy su ÚNICO miembro es `caddy` (un servidor web mínimo): el área instala su paquete,
+# escribe la configuración y la página que el motor sirve, deja la unidad de systemd
+# habilitada y en marcha, y lo comprueba SIRVIÉNDOLA. Un nombre que no esté aquí se
+# RECHAZA en el validador (`declaracion.py`) con su motivo: el lab no inventa primitivas
+# (regla 15). Añadir un miembro es una primitiva nueva, con su ADR.
+SERVICIOS_LINUX = ("caddy",)
+
+# Lo que el motor sabe hacer con cada servicio, en un solo sitio: los paquetes que instala
+# (incluido `curl`, que la RELECTURA necesita para comprobar que sirve), el nombre de su
+# unidad de systemd, la ruta de su configuración y dónde deja la página. Nada de esto es un
+# valor de ningún lab: es vocabulario del MOTOR (regla 7).
+SERVICIOS_LINUX_OPCIONES = {
+    "caddy": {
+        "paquetes": ("caddy", "curl"),
+        "unidad": "caddy",
+        "config": "/etc/caddy/Caddyfile",
+        "config_dir": "/etc/caddy",
+        "web": "/var/www/html",
+        "pagina": "/var/www/html/index.html",
+    },
+}
+
+# La marca que el motor escribe en la configuración del servicio: es lo que distingue «el
+# motor pasó por aquí» de «el paquete trae la suya». Sin ella, la relectura daría por buena
+# una configuración ajena y el área no gobernaría el fichero que dice gobernar.
+MARCA_SERVICIO = "# netlabs-servicio"
+
+
+def configuracion_servicio(nombre):
+    """El fichero de configuración del servicio `nombre`, tal cual se escribe en el invitado.
+
+    Es la configuración MÍNIMA que sirve una página: `caddy` escucha en el 80 y sirve como
+    ficheros lo que hay bajo `/var/www/html`. La ruta y el contenido son del MOTOR -- el lab
+    sólo declara el NOMBRE del servicio -- porque un servidor web que no sirve nada no
+    cumple nada. Lleva la MARCA que la relectura busca.
+    """
+    opciones = SERVICIOS_LINUX_OPCIONES.get(str(nombre))
+    if not opciones or str(nombre) != "caddy":
+        return ""
+    return "\n".join([
+        "# PROPÓSITO: sirve una página de laboratorio; lo escribe el motor (netlabs).",
+        "# No se edita a mano: el motor lo reescribe desde la declaración.",
+        MARCA_SERVICIO,
+        ":80 {",
+        f"\troot * {opciones['web']}",
+        "\tfile_server",
+        "}",
+    ]) + "\n"
+
+
+def pagina_servicio():
+    """La página de relleno que el servicio sirve.
+
+    Es del MOTOR, no del lab: el lab sólo pide que HAYA un servicio, y para comprobar que
+    de verdad sirve hace falta algo que servir (un `file_server` sin `index.html` contesta
+    404, y la relectura lo leería como «no sirve» para siempre).
+    """
+    return (
+        "<!doctype html>\n<title>netlabs</title>\n"
+        "<p>netlabs: servicio declarado y sirviendo.</p>\n"
+    )
+
+
+def _servicio_canonico(declarado, leido):
+    """Diferencia del área `servicio`: qué hay que hacer para que el servicio sirva.
+
+    El valor DECLARADO es el NOMBRE del servicio (`servicio: caddy`), tal cual: la
+    declaración no envuelve en un mapa lo que ya es un dato. El resto -- paquetes, ruta de
+    la configuración, contenido de la página -- es del motor.
+
+    Va en DOS sentidos, como el resto del interior: si falta el paquete se instala, si falta
+    la configuración se escribe, si la unidad no está viva se arranca y si no sirve se
+    recarga. Un invitado ya convergido no produce NINGUNA operación -- que es lo que hace
+    verdadera la promesa de la regla 6.
+    """
+    nombre = str(declarado or "")
+    opciones = SERVICIOS_LINUX_OPCIONES.get(nombre)
+    if not opciones:
+        # El validador ya rechaza un nombre fuera del vocabulario; aquí sólo se es honesto:
+        # sin opciones no se sabe qué escribir, así que no se decide nada (y el `else` de
+        # `pasos_de_convergencia` no llegaría a dispararse porque el área sí existe).
+        return []
+    actual = leido if isinstance(leido, dict) else {}
+    operaciones = []
+
+    herramientas = actual.get("herramientas") or {}
+    faltan = [p for p in opciones["paquetes"] if not herramientas.get(p, True)]
+    if faltan:
+        operaciones.append({"op": "install_service", "servicio": nombre, "paquetes": faltan})
+
+    # Los DOS ficheros que el motor gobierna se comparan por su CONTENIDO ENTERO contra lo
+    # que el motor escribiría -- no por su marca: una configuración editada a mano conserva
+    # la marca, y una página borrada no tiene ninguna, así que la marca sola daba el área por
+    # buena con los ficheros mal (medido por el revisor).
+    config_ok = (str(actual.get("config_leida") or "").strip()
+                 == configuracion_servicio(nombre).strip())
+    pagina_ok = (str(actual.get("pagina_leida") or "").strip() == pagina_servicio().strip())
+    ficheros_cambiados = not (config_ok and pagina_ok)
+    if ficheros_cambiados:
+        operaciones.append({"op": "write_service_config", "servicio": nombre})
+
+    # `is-active` no es `is-enabled`: un servicio VIVO pero DESHABILITADO no arranca al
+    # reiniciar el invitado, y mirar sólo si está vivo lo daba por bueno para siempre.
+    if not actual.get("activo") or not actual.get("habilitado"):
+        operaciones.append({"op": "enable_service", "servicio": nombre})
+
+    # Si la configuración se acaba de escribir, el servicio ya vivo seguiría sirviendo la
+    # vieja hasta recargarlo; por eso «recargar» también se pide cuando los ficheros cambian.
+    # Y si simplemente no sirve (config inválida, unidad a medias), recargar es lo que lo
+    # levanta.
+    if not actual.get("sirve") or ficheros_cambiados:
+        operaciones.append({"op": "reload_service", "servicio": nombre})
+
+    return operaciones
+
 
 
 def escrituras_linux(operaciones, guest, declaracion, identidad, parametros):
@@ -2055,6 +2227,58 @@ def escrituras_linux(operaciones, guest, declaracion, identidad, parametros):
                 "comando": "systemctl enable --now dnsmasq >/dev/null 2>&1; systemctl restart dnsmasq",
             })
 
+        elif op in ("enable_service", "reload_service"):
+            nombre = str(operacion.get("servicio") or "")
+            opciones = SERVICIOS_LINUX_OPCIONES.get(nombre) or {}
+            unidad = opciones.get("unidad") or nombre
+            if op == "enable_service":
+                comando = f"systemctl enable --now {unidad} >/dev/null 2>&1; sleep 2"
+                descripcion = f"poner en marcha (y habilitar) el servicio '{nombre}'"
+            else:
+                # `restart` y no `reload`: la recarga de un Caddyfile admite formas distintas y
+                # un restart es idempotente y no depende de que el proceso ya esté sano. El
+                # `sleep` da un respiro para que la unidad vuelva a escuchar antes de RELEER
+                # (la relectura corre en el siguiente paso, y curl no reintenta).
+                comando = (f"systemctl enable --now {unidad} >/dev/null 2>&1; "
+                           f"systemctl restart {unidad}; sleep 2")
+                descripcion = f"recargar el servicio '{nombre}' y dejarlo sirviendo"
+            comandos.append({
+                "area": "servicio", "accion": "escribir", "declarado": "activo",
+                "descripcion": descripcion,
+                "comando": comando,
+            })
+
+        elif op == "install_service":
+            paquetes = " ".join(operacion.get("paquetes") or [])
+            comandos.append({
+                "area": "servicio", "accion": "escribir", "declarado": paquetes,
+                "descripcion": f"instalar el servicio declarado y lo que la comprobación necesita: {paquetes}",
+                # `apt-get update` DELANTE, no por gusto: la imagen base trae las listas
+                # ENVEJECIDAS y apuntan a versiones que el espejo ya no tiene (404, MEDIDO),
+                # así que un `install` a secas sale con rc=100 sin instalar nada. Refrescar
+                # las listas primero es barato y sólo ocurre cuando falta algo.
+                "comando": ("DEBIAN_FRONTEND=noninteractive apt-get update -qq && "
+                            f"DEBIAN_FRONTEND=noninteractive apt-get install -y -qq {paquetes}"),
+            })
+
+        elif op == "write_service_config":
+            nombre = str(operacion.get("servicio") or "")
+            opciones = SERVICIOS_LINUX_OPCIONES.get(nombre) or {}
+            configuracion = configuracion_servicio(nombre)
+            # La página de relleno y la configuración se escriben en UN solo paso: el servicio
+            # no sirve nada sin las dos, y separarlas sólo daría un estado intermedio que no
+            # cumple. Se crean los DOS directorios con `-p` porque pueden no existir: el de la
+            # página en la imagen base, y el de la configuración si el paquete aún no la trajo.
+            web = opciones.get("web") or ""
+            directorio_config = opciones.get("config_dir") or ""
+            comandos.append({
+                "area": "servicio", "accion": "escribir", "declarado": nombre,
+                "descripcion": f"escribir la configuración del servicio '{nombre}' y su página",
+                "comando": (f"mkdir -p {web} {directorio_config} && "
+                            f"echo {_b64(pagina_servicio())} | base64 -d > {opciones.get('pagina')} && "
+                            f"echo {_b64(configuracion)} | base64 -d > {opciones.get('config')}"),
+            })
+
     return comandos
 
 
@@ -2068,6 +2292,7 @@ def pendiente_de_driver(operacion):
         "add_address", "enable_ip_forward", "install_packages", "install_tools",
         "write_dnsmasq", "add_static_lease", "remove_static_lease",
         "disable_offload", "reload_dnsmasq",
+        "install_service", "write_service_config", "enable_service", "reload_service",
     }
     op = (operacion or {}).get("op")
     if op in conocidas:

@@ -233,7 +233,7 @@
     - not (tunnel_solo_clave | default(false) | bool)
     - tunnel_puerto_estado is failed or not (tunnel_puerto_estado.state | default('') == 'started')
 
-- name: "TÚNEL · el túnel del rol '{{ tunnel_rol }}' está en pie"
+- name: "TÚNEL · el túnel del rol '{{ tunnel_rol | default('?') }}' está en pie"
   ansible.builtin.debug:
     msg: >-
       túnel del lab '{{ pve_lab }}': el puerto {{ tunnel_puerto }} del nodo de control

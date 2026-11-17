@@ -25,7 +25,7 @@
   },
   "docs/crear-un-lab.md": {
     "citados": {
-      "deployment_engine/filter_plugins/declaracion.py": "75ddd57c1361b83c5881a10c06190110448adcb5ff6a2047da7ea06246a844be"
+      "deployment_engine/filter_plugins/declaracion.py": "728e9ec6fcac20c09d3b06ac4cc11b17e21d739584bb00578d1bbfe258954876"
     }
   },
   "docs/decisiones/0001-solo-api-de-proxmox.md": {
@@ -98,14 +98,14 @@
   },
   "docs/decisiones/0012-la-salida-del-lab.md": {
     "citados": {
-      "deployment_engine/filter_plugins/declaracion.py": "75ddd57c1361b83c5881a10c06190110448adcb5ff6a2047da7ea06246a844be",
+      "deployment_engine/filter_plugins/declaracion.py": "728e9ec6fcac20c09d3b06ac4cc11b17e21d739584bb00578d1bbfe258954876",
       "deployment_engine/filter_plugins/interior.py": "a4a16171829ba044df03b8bb63fd1ec22f1923dfeea406919282f60ea8e40bd2",
       "deployment_engine/tools/plan.py": "38e61f37ee4c1065985a3c5ccc9e62349ca76d076a259f6ca43bf69aa20f6314"
     }
   },
   "docs/decisiones/0013-una-estacion-pregunta-un-servidor-dice.md": {
     "citados": {
-      "deployment_engine/filter_plugins/declaracion.py": "75ddd57c1361b83c5881a10c06190110448adcb5ff6a2047da7ea06246a844be",
+      "deployment_engine/filter_plugins/declaracion.py": "728e9ec6fcac20c09d3b06ac4cc11b17e21d739584bb00578d1bbfe258954876",
       "deployment_engine/tools/plan.py": "38e61f37ee4c1065985a3c5ccc9e62349ca76d076a259f6ca43bf69aa20f6314"
     }
   },
@@ -129,7 +129,7 @@
   },
   "docs/decisiones/0019-el-area-firewall-de-routeros.md": {
     "citados": {
-      "deployment_engine/filter_plugins/declaracion.py": "75ddd57c1361b83c5881a10c06190110448adcb5ff6a2047da7ea06246a844be",
+      "deployment_engine/filter_plugins/declaracion.py": "728e9ec6fcac20c09d3b06ac4cc11b17e21d739584bb00578d1bbfe258954876",
       "deployment_engine/filter_plugins/interior.py": "a4a16171829ba044df03b8bb63fd1ec22f1923dfeea406919282f60ea8e40bd2",
       "deployment_engine/tasks/configurar_routeros.yml": "0d0f0aeca19108470c9b7213e916ac65ccae2ec17b8e162c49455ac5a2c93201",
       "deployment_engine/tasks/ros_api.yml": "4c046afb65edc202ec05535611f9b5069914ded3aabf572c6534ab579090d309"
@@ -137,13 +137,13 @@
   },
   "docs/decisiones/0020-las-direcciones-se-derivan.md": {
     "citados": {
-      "deployment_engine/filter_plugins/declaracion.py": "75ddd57c1361b83c5881a10c06190110448adcb5ff6a2047da7ea06246a844be",
+      "deployment_engine/filter_plugins/declaracion.py": "728e9ec6fcac20c09d3b06ac4cc11b17e21d739584bb00578d1bbfe258954876",
       "deployment_engine/filter_plugins/identidad.py": "8d00bddc83100774ff8f3343f33f12dbcf3328ed09e4964cc8e9442052b06367"
     }
   },
   "docs/decisiones/0021-la-barrera-se-declara.md": {
     "citados": {
-      "deployment_engine/filter_plugins/declaracion.py": "75ddd57c1361b83c5881a10c06190110448adcb5ff6a2047da7ea06246a844be",
+      "deployment_engine/filter_plugins/declaracion.py": "728e9ec6fcac20c09d3b06ac4cc11b17e21d739584bb00578d1bbfe258954876",
       "deployment_engine/filter_plugins/interior.py": "a4a16171829ba044df03b8bb63fd1ec22f1923dfeea406919282f60ea8e40bd2",
       "deployment_engine/tasks/paso.yml": "d764398d8227eef43ccc9083ac886df354ec1446021b690ed0ab1aa9b3d9120a",
       "deployment_engine/tasks/sonda.yml": "d72c5755c4efa884d70a8e052bd94525b4b9d748770f21ad6cf87ade4e2b80fd"
@@ -167,6 +167,12 @@
   "docs/decisiones/0024-lo-que-abre-el-host-no-se-versiona.md": {
     "citados": {
       "deployment_engine/tools/framework_check.py": "630692aa772f3db8155cd57fed9281bcbe395f86ba1d0fc79b1a16144a2013a7"
+    }
+  },
+  "docs/decisiones/0026-el-tipo-de-equipo-manda-sobre-las-areas.md": {
+    "citados": {
+      "deployment_engine/filter_plugins/declaracion.py": "728e9ec6fcac20c09d3b06ac4cc11b17e21d739584bb00578d1bbfe258954876",
+      "deployment_engine/filter_plugins/interior.py": "a4a16171829ba044df03b8bb63fd1ec22f1923dfeea406919282f60ea8e40bd2"
     }
   },
   "docs/encargo-capa-de-configuracion.md": {

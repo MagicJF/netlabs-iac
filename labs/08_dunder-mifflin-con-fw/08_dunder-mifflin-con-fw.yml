@@ -4,7 +4,7 @@
 #              pero con la red partida en ZONAS y cada zona protegida por su propio
 #              CORTAFUEGOS. Es la versión que enseña lo que el 07 no podía: filtrado de
 #              verdad (`/ip/firewall/filter`), y una máquina por responsabilidad -- un
-#              router que enruta y sale, tres cortafuegos que filtran, ninguna que haga
+#              router que enruta y sale, CUATRO cortafuegos que filtran, ninguna que haga
 #              las dos cosas.
 #
 #              ESTA ES LA VERSIÓN POST de la comparación A/B del informe §6 sobre el LAB
@@ -20,6 +20,9 @@
 #              El nombre tiene que coincidir con el de la carpeta (el pool de Proxmox se
 #              llama como la carpeta y es la frontera de propiedad), y todo lo declarado
 #              cae dentro de `lab.espacio de direcciones`.
+#              El TIPO de cada equipo manda sobre lo que puede declarar (ADR 0026): un
+#              `rt` no filtra, un `fw` no traduce ni reparte, un `sw` no enruta. Lo caza
+#              el validador antes de tocar nada.
 # LÍMITES:     el interior que este lab declara está en el vocabulario CERRADO del motor:
 #              para RouterOS, identidad, servicios, cliente del DHCP de fábrica,
 #              direcciones, rutas, servidor DHCP, exterior y CORTAFUEGOS; para Linux, el
@@ -31,54 +34,63 @@
 #              dentro de los invitados.
 # VER:         labs/08_dunder-mifflin-con-fw/08_dunder-mifflin-con-fw.md (por qué así);
 #              docs/decisiones/0019-el-area-firewall-de-routeros.md (el área nueva);
+#              docs/decisiones/0026-el-tipo-de-equipo-manda-sobre-las-areas.md (la regla);
 #              docs/decisiones/0012-la-salida-del-lab.md (qué compra `uplink`);
 #              docs/crear-un-lab.md (las decisiones, en orden)
 #
 # LA EMPRESA, EN UNA LÍNEA: una sede con UNA salida a internet, un router que enruta y
-# sale, y TRES zonas (oficina, almacén y servidores) con un cortafuegos delante de cada
-# una. El troncal --la red por la que el router habla con los tres cortafuegos-- es el
-# eje: por él pasa todo lo que va de una zona a otra o hacia fuera, y ninguna zona habla
-# con otra si su cortafuegos no lo permite.
+# sale, un CORTAFUEGOS DE PERÍMETRO por el que pasa todo lo que entra o sale, y TRES zonas
+# (oficina, almacén y servidores) con un cortafuegos delante de cada una. El troncal --la
+# red por la que el borde habla con los tres cortafuegos de zona-- es el eje: por él
+# pasa todo lo que va de una zona a otra o hacia fuera, y ninguna zona habla con otra si su
+# cortafuegos no lo permite.
 #
-# UNA MÁQUINA, UNA RESPONSABILIDAD (regla del encargo): `rt-nucleo` enruta y traduce
-# (y sale); `fw-oficina`, `fw-almacen` y `fw-servidores` filtran, y nada más. Por eso los
-# puestos y los servidores llevan su dirección puesta a mano (`address:` + `gateway:`) en
-# vez de pedirla: repartir direcciones sería una TERCERA responsabilidad, y para que un
+# UNA MÁQUINA, UNA RESPONSABILIDAD (regla del encargo, y desde ADR 0026 también una regla
+# del VALIDADOR): `rt-nucleo` enruta y sale (y nada más: no tiene tabla de filtrado);
+# `fw-borde`, `fw-oficina`, `fw-almacen` y `fw-servidores` filtran, y nada más. Por eso
+# los puestos y los servidores llevan su dirección puesta a mano (`address:` + `gateway:`)
+# en vez de pedirla: repartir direcciones sería una TERCERA responsabilidad, y para que un
 # cortafuegos la tuviera habría que meterle un servidor DHCP que no le toca.
 
 lab:
   nombre: 08_dunder-mifflin-con-fw
 
-  # Dos etapas. La primera es la INFRAESTRUCTURA (el bastión con su túnel, el router y los
-  # tres cortafuegos): hasta que el router no está convergido y sirviendo, nadie de dentro
-  # puede salir. La segunda son los hosts, que ya saben por dónde (llevan su pasarela).
+  # Dos etapas. La primera es la INFRAESTRUCTURA (el bastión con su túnel, el router, el
+  # borde y los tres cortafuegos de zona): hasta que el router no está convergido y
+  # sirviendo, nadie de dentro puede salir. La segunda son los hosts, que ya saben por
+  # dónde (llevan su pasarela).
   stages: [1, 2]
 
   # Espacio propio y libre: los cuatro labs con interior usan 10.40, 10.41, 10.42 y 10.43.
   # Lo vigila `./lab check address-space`.
   address_space: 10.44.0.0/16
 
-  # Cinco bridges: el de gestión (por donde entra el motor) y uno por red del lab. El
+  # Seis bridges: el de gestión (por donde entra el motor) y uno por red del lab. El
   # `address:` de un bridge es la PASARELA de esa red (no se le pone al nodo: el nodo sólo
   # presta la interfaz), y es lo que usan los checks para saber quién es quién.
   #
   # EL CONMUTADOR SIGUE SIN SER UN INVITADO: un bridge de Linux conmuta (aprende MACs y
   # reenvía), así que una caja que "conmuta" sería una caja que no hace nada. El
-  # vocabulario del interior no tiene `puentes` y el validador lo rechaza.
+  # vocabulario del interior no tiene `puentes` y el validador lo rechaza. Y el día que lo
+  # tenga, no podrá caer en un `rt` ni en un `fw`: conmutar no es enrutar ni filtrar
+  # (ADR 0026), y eso ya lo caza el validador.
   #
   # 6.1 · AQUÍ `derived` NO SE DECLARA, y es una decisión medida, no una omisión: el
-  # direccionamiento de este lab es un PLAN (el troncal en 10.44.10.x, la DMZ en .3.x, los
-  # cortafuegos en .12/.13/.14) y las rutas del router apuntan a direcciones concretas de
-  # ese plan (10.44.10.10/.11/.12). El IPAM reparte subredes /24 EN ORDEN desde el espacio
-  # del lab, así que el troncal --que hoy es la SEGUNDA subred-- pasaría a ser la quinta,
-  # y las rutas (que sí se quedan escritas, porque el motor no puede adivinar a quién
-  # apuntan) apuntarían a direcciones que ya no existen. En un lab con plan de
-  # direccionamiento, `derived` no es «menos YAML»: es renumerar el plan.
+  # direccionamiento de este lab es un PLAN (el borde en 10.44.20.x, el troncal en
+  # 10.44.10.x, la DMZ en .3.x, los cortafuegos en .12/.13/.14/.15) y las rutas apuntan a
+  # direcciones concretas de ese plan (10.44.10.10/.11/.12, 10.44.20.2). El IPAM reparte
+  # subredes /24 EN ORDEN desde el espacio del lab, así que el troncal --que hoy es la
+  # SEGUNDA subred-- pasaría a ser la sexta, y las rutas (que sí se quedan escritas,
+  # porque el motor no puede adivinar a quién apuntan) apuntarían a direcciones que ya no
+  # existen. En un lab con plan de direccionamiento, `derived` no es «menos YAML»: es
+  # renumerar el plan.
   bridges:
     - nombre: vmb_fw_gestion
       address: 10.44.0.1/24
+    - nombre: vmb_fw_borde
+      address: 10.44.20.1/24
     - nombre: vmb_fw_troncal
-      address: 10.44.10.1/24
+      address: 10.44.10.254/24
     - nombre: vmb_fw_oficina
       address: 10.44.1.1/24
     - nombre: vmb_fw_almacen
@@ -93,9 +105,14 @@ lab:
 vms:
   # EL ROUTER: su única responsabilidad es ENRUTAR y SALIR. Tiene la vía de acceso
   # (`uplink`: cliente DHCP en la interfaz de fuera, MASQUERADE por ella y el resolutor
-  # encendido) y las rutas hacia las tres zonas, que están DETRÁS de los cortafuegos.
+  # encendido) y las rutas hacia dentro, que está DETRÁS del cortafuegos de borde.
   #
-  # Dos interfaces declaradas (gestión y troncal); la tercera la tiende el motor al nacer
+  # NO TIENE TABLA DE FILTRADO, y eso es el cambio: hasta ADR 0026 llevaba una («no es su
+  # trabajo, pero un equipo con una pata en internet no se queda abierto»), y era
+  # exactamente el router con dos trabajos que el encargo prohíbe. El filtrado del borde
+  # vive ahora en `fw-borde`, que es un equipo cuya RESPONSABILIDAD es filtrar.
+  #
+  # Dos interfaces declaradas (gestión y borde); la tercera la tiende el motor al nacer
   # sobre el bridge del nodo que tiene salida (valor de ENTORNO, `pve_bridge_gestion`).
   - rol: nucleo
     tipo: rt          # un router CHR -> 'rt-nucleo'
@@ -105,8 +122,8 @@ vms:
     disk: 1
     image: chr-7.25.1.raw
     # TRES interfaces, y el orden ES la numeración: vmb_fw_gestion -> ether1 (gestión),
-    # vmb_fw_troncal -> ether2, y la de fuera (que añade el motor) -> ether3.
-    bridges: [vmb_fw_gestion, vmb_fw_troncal]
+    # vmb_fw_borde -> ether2, y la de fuera (que añade el motor) -> ether3.
+    bridges: [vmb_fw_gestion, vmb_fw_borde]
     address: 10.44.0.11/24
     # 6.3 · La barrera DECLARADA: un CHR tarda en arrancar, y esto dice cuánto se le
     # espera en SEGUNDOS (antes era un número del motor, metido en `engine.yml`).
@@ -117,34 +134,64 @@ vms:
         ip_services: {deshabilitar: [telnet, ftp, api, api-ssl]}
         dhcp_client: {deshabilitar: true}
         addresses:
-          - {interface: ether2, address: 10.44.10.1/24}
-        # Una ruta por zona, y cada una apunta al troncal de SU cortafuegos: el router no
-        # habla con las zonas, habla con los cortafuegos que las guardan.
+          - {interface: ether2, address: 10.44.20.1/24}
+        # Una ruta por red de dentro, y todas apuntan al PERÍMETRO: el router no habla con
+        # las zonas ni con el troncal, habla con el cortafuegos que guarda la puerta.
         routes:
+          - {dst_address: 10.44.10.0/24, gateway: 10.44.20.2}
+          - {dst_address: 10.44.1.0/24, gateway: 10.44.20.2}
+          - {dst_address: 10.44.2.0/24, gateway: 10.44.20.2}
+          - {dst_address: 10.44.3.0/24, gateway: 10.44.20.2}
+        uplink: {}
+
+  # EL CORTAFUEGOS DE PERÍMETRO: el que decide qué entra de internet al lab y qué sale.
+  # Filtra y nada más: no traduce, no reparte direcciones y no es la vía de acceso de nadie
+  # (la de acceso es el router). Está EN LÍNEA entre el router y el troncal, así que todo
+  # lo que va de fuera hacia dentro -- y al revés -- pasa por su tabla `forward`.
+  #
+  # Tiene una dirección por pata y una ruta por defecto hacia el router: eso es lo mínimo
+  # para estar en línea, no una segunda función (igual que los tres cortafuegos de zona).
+  - rol: borde
+    tipo: fw          # cortafuegos: un CHR -> 'fw-borde'
+    stage: 1
+    cores: 2
+    memory: 512
+    disk: 1
+    image: chr-7.25.1.raw
+    bridges: [vmb_fw_gestion, vmb_fw_borde, vmb_fw_troncal]
+    address: 10.44.0.15/24
+    ready: {tipo: routeros_rest, espera: 240}
+    config:
+      routeros:
+        identity: fw-borde
+        ip_services: {deshabilitar: [telnet, ftp, api, api-ssl]}
+        dhcp_client: {deshabilitar: true}
+        addresses:
+          - {interface: ether2, address: 10.44.20.2/24}
+          - {interface: ether3, address: 10.44.10.254/24}
+        routes:
+          - {dst_address: 0.0.0.0/0, gateway: 10.44.20.1}
           - {dst_address: 10.44.1.0/24, gateway: 10.44.10.10}
           - {dst_address: 10.44.2.0/24, gateway: 10.44.10.11}
           - {dst_address: 10.44.3.0/24, gateway: 10.44.10.12}
-        uplink: {}
-        # El filtrado del router: no es su trabajo (ése es de los cortafuegos), pero un
-        # equipo con una pata en internet NO se queda abierto. Entrada sólo desde la red
-        # de gestión (el túnel del motor) y el propio cliente de la vía de acceso; salida
-        # desde el troncal; y de fuera hacia dentro, nada.
+        # LA POLÍTICA DEL BORDE, entera y en orden: al borde no se le entra (salvo
+        # desde gestión, que es por donde vive el túnel del motor); lo que sale del lab,
+        # sale; y lo que viene de fuera hacia dentro, no pasa.
         firewall:
           - {chain: input, action: accept, src_address: 10.44.0.0/24,
              comment: "la red de gestion entra: por ahi vive el tunel del motor"}
           - {chain: input, action: accept, protocol: icmp, comment: "ping, para diagnostico"}
-          - {chain: input, action: accept, protocol: udp, src_port: 68, dst_port: 67,
-             comment: "el cliente de la via de acceso: sin esto, al renovar se queda sin direccion"}
           - {chain: input, action: accept, connection_state: "established,related"}
-          - {chain: input, action: drop, comment: "al router, por lo demas, no se le entra"}
+          - {chain: input, action: drop, comment: "al borde, por lo demas, no se le entra"}
           - {chain: forward, action: accept, connection_state: "established,related"}
-          - {chain: forward, action: accept, in_interface: ether2,
-             comment: "lo que viene de dentro sale"}
-          - {chain: forward, action: drop, comment: "y lo que viene de fuera no entra"}
+          - {chain: forward, action: accept, in_interface: ether3,
+             comment: "lo que viene del troncal sale a internet"}
+          - {chain: forward, action: drop, comment: "y lo que viene de internet no entra"}
 
   # EL CORTAFUEGOS DE LA OFICINA: no enruta nada que no sea pasar a la oficina, no traduce,
   # no reparte direcciones. Filtra. Su pata de gestión (ether1) NO es una vía de servicio:
-  # está para que el motor lo configure, y su tabla de entrada lo dice.
+  # está para que el motor lo configure, y su tabla de entrada lo dice. Su salida ya no es
+  # el router: es el PERÍMETRO, que es quien guarda la puerta de la empresa.
   - rol: oficina
     tipo: fw          # cortafuegos: un CHR -> 'fw-oficina'
     stage: 1
@@ -164,7 +211,7 @@ vms:
           - {interface: ether2, address: 10.44.10.10/24}
           - {interface: ether3, address: 10.44.1.1/24}
         routes:
-          - {dst_address: 0.0.0.0/0, gateway: 10.44.10.1}
+          - {dst_address: 0.0.0.0/0, gateway: 10.44.10.254}
         firewall:
           - {chain: input, action: accept, src_address: 10.44.0.0/24,
              comment: "la red de gestion entra: por ahi vive el tunel del motor"}
@@ -173,7 +220,7 @@ vms:
           - {chain: input, action: drop, comment: "al cortafuegos no se le entra por su cara de dentro"}
           - {chain: forward, action: accept, connection_state: "established,related"}
           - {chain: forward, action: accept, in_interface: ether3,
-             comment: "la oficina sale por el troncal (y de ahi, el router la saca)"}
+             comment: "la oficina sale por el troncal (y de ahi, el borde la saca)"}
           - {chain: forward, action: drop, comment: "de fuera hacia la oficina, nada: cada zona se pide"}
 
   # EL CORTAFUEGOS DEL ALMACÉN: misma forma, otra zona.
@@ -196,7 +243,7 @@ vms:
           - {interface: ether2, address: 10.44.10.11/24}
           - {interface: ether3, address: 10.44.2.1/24}
         routes:
-          - {dst_address: 0.0.0.0/0, gateway: 10.44.10.1}
+          - {dst_address: 0.0.0.0/0, gateway: 10.44.10.254}
         firewall:
           - {chain: input, action: accept, src_address: 10.44.0.0/24,
              comment: "la red de gestion entra: por ahi vive el tunel del motor"}
@@ -230,7 +277,7 @@ vms:
           - {interface: ether2, address: 10.44.10.12/24}
           - {interface: ether3, address: 10.44.3.1/24}
         routes:
-          - {dst_address: 0.0.0.0/0, gateway: 10.44.10.1}
+          - {dst_address: 0.0.0.0/0, gateway: 10.44.10.254}
         firewall:
           - {chain: input, action: accept, src_address: 10.44.0.0/24,
              comment: "la red de gestion entra: por ahi vive el tunel del motor"}
@@ -246,7 +293,7 @@ vms:
 
 containers:
   # El bastión: la única puerta que el motor necesita para ENTRAR. Vive en el bridge de
-  # gestión, da la PRIMERA dirección (reservas derivadas de las MAC de los cuatro CHR) y
+  # gestión, da la PRIMERA dirección (reservas derivadas de las MAC de los CINCO CHR) y
   # reenvía. NO es un router de la empresa: no traduce y no sale.
   - rol: control
     tipo: ctl         # un bastión -> 'ctl-1'
@@ -266,7 +313,7 @@ containers:
           rango: 10.44.0.50-10.44.0.99
           static_leases: derived
           # La ÚNICA red que se reparte sola es la de gestión (sus clientes de fábrica son
-          # los cuatro CHR, hasta que el motor les pone su dirección). Y anuncia el
+          # los cinco CHR, hasta que el motor les pone su dirección). Y anuncia el
           # resolutor del router -- `rt-nucleo` resuelve por la vía de acceso-- para que
           # nadie del lab tenga que hablar con un DNS de fuera.
           network: {address: 10.44.0.0/24, gateway: 10.44.0.10, dns: [10.44.0.11]}
@@ -354,7 +401,7 @@ containers:
 # es si el filtrado DEJA PASAR lo que tiene que dejar pasar -- y eso es lo que se prueba.
 #
 # Todas se lanzan desde el BASTIÓN (el único invitado al que el motor llega: tiene túnel),
-# y todas van al PLANO DE GESTIÓN de los cuatro CHR, que es lo que sus tablas `input`
+# y todas van al PLANO DE GESTIÓN de los cinco CHR, que es lo que sus tablas `input`
 # permiten a la red de gestión. Un cortafuegos que filtrara de más y se dejara fuera al
 # motor se vería aquí, y no en `verify`.
 #
@@ -369,6 +416,10 @@ tests:
     desde: control
     tipo: ping
     hacia: 10.44.0.11
+  - nombre: el cortafuegos de borde contesta en gestion
+    desde: control
+    tipo: ping
+    hacia: 10.44.0.15
   - nombre: el cortafuegos de la oficina contesta en gestión
     desde: control
     tipo: ping

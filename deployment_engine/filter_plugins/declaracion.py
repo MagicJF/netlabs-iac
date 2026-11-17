@@ -110,11 +110,43 @@ CLAVES_TUNNEL = ("salida", "host", "puerto")
 # equipo que no quepa en ninguno pide su tipo al motor, con su ADR -- no se inventa aquí.
 TIPOS_DE_EQUIPO = {
     "rt": "router (un CHR: la vía de acceso de una red)",
-    "fw": "cortafuegos (un CHR que sólo filtra: no enruta, no traduce, no reparte)",
+    "fw": "cortafuegos (un CHR que sólo filtra: no traduce, no reparte direcciones y no es la vía de acceso de nadie)",
     "srv": "servidor (nace con su dirección fija y su pasarela)",
     "ws": "puesto de trabajo (pide su dirección por DHCP)",
     "sw": "conmutador (un equipo que conmuta, o uno sin dirección)",
     "ctl": "bastión (el bastión por el que se entra al lab)",
+}
+
+# El tipo de equipo MANDA sobre las áreas: un equipo hace UNA cosa. Es la regla que el
+# encargo pidió desde el principio («1 equipo = 1 responsabilidad») y que hasta ahora sólo
+# estaba escrita en la prosa de los labs -- y por eso un `rt` pudo declarar una tabla de
+# filtrado sin que nada lo parara. Aquí se vuelve mecánica.
+#
+# Se declara en NEGATIVO (lo que un tipo NO puede pedir) y con el motivo: la lista de lo
+# permitido ya está en `AREAS`, y una regla en positivo se queda corta el día que el motor
+# gane un área -- con lo que este trinquete dejaría de morder en silencio.
+#
+# El criterio, palabra por palabra el de `TIPOS_DE_EQUIPO`:
+#   * filtrar no es enrutar  -> `firewall` es de un `fw`, y de nadie más.
+#   * salir no es filtrar    -> `uplink` (cliente DHCP + NAT + resolutor) es de un `rt`.
+#   * repartir no es filtrar -> `dhcp_server` no vive en un `fw`.
+#   * conmutar no es enrutar -> un `sw` no enruta, no filtra, no traduce y no reparte.
+AREAS_QUE_NO_LE_TOCAN = {
+    "rt": {
+        "firewall": "filtrar es la responsabilidad de un equipo `fw` (ADR 0019 y ADR 0026); "
+        "un router que además filtra es un router con dos trabajos",
+    },
+    "fw": {
+        "uplink": "traducir y repartir no es filtrar: la vía de acceso es un `rt` (ADR 0012)",
+        "dhcp_server": "repartir direcciones no es filtrar: un `fw` no sirve DHCP (ADR 0026)",
+    },
+    "sw": {
+        "firewall": "un conmutador no filtra: eso es un `fw` (ADR 0026)",
+        "routes": "un conmutador no enruta: eso es un `rt` (ADR 0026)",
+        "uplink": "un conmutador no traduce ni sale: eso es un `rt` (ADR 0026)",
+        "dhcp_server": "un conmutador no reparte direcciones (ADR 0026)",
+        "dhcp_client": "un conmutador no pide dirección por DHCP de la vía de acceso (ADR 0026)",
+    },
 }
 
 
@@ -497,6 +529,19 @@ def _validar_interior(guest, etiqueta, rol, errores):
             f"interior `{tipo}` (las que hay: {', '.join(sorted(conocidas))}). El "
             "vocabulario es cerrado: una primitiva nueva se añade al motor, con ADR."
         )
+
+    # Y el TIPO manda sobre las áreas (ADR 0026): un equipo hace UNA cosa. Va DESPUÉS del
+    # vocabulario a propósito -- primero se dice si el área existe, y sólo si existe se
+    # discute si le toca a este equipo. Un motivo por área, no un «no puedes».
+    tipo_de_equipo = guest.get("tipo")
+    prohibidas = AREAS_QUE_NO_LE_TOCAN.get(tipo_de_equipo, {})
+    for area in declarado:
+        if area in prohibidas:
+            errores.append(
+                f"`{etiqueta}` ({rol}) es un `{tipo_de_equipo}` y declara el área "
+                f"'{area}': {prohibidas[area]}. Un equipo, una responsabilidad: lo que "
+                "haga falta de más se declara en OTRO equipo."
+            )
 
     # Las interfaces que el interior nombra TIENEN que existir en el invitado. Un CHR que
     # declara configurar `ether2` necesita dos interfaces, y sin la segunda RouterOS contesta

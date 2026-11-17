@@ -24,7 +24,8 @@ si los editas a mano, `./lab check docs` falla._
 ```mermaid
 graph TD
     b_vmb_fw_gestion(["vmb_fw_gestion<br/>10.44.0.1/24"])
-    b_vmb_fw_troncal(["vmb_fw_troncal<br/>10.44.10.1/24"])
+    b_vmb_fw_borde(["vmb_fw_borde<br/>10.44.20.1/24"])
+    b_vmb_fw_troncal(["vmb_fw_troncal<br/>10.44.10.254/24"])
     b_vmb_fw_oficina(["vmb_fw_oficina<br/>10.44.1.1/24"])
     b_vmb_fw_almacen(["vmb_fw_almacen<br/>10.44.2.1/24"])
     b_vmb_fw_dmz(["vmb_fw_dmz<br/>10.44.3.1/24"])
@@ -32,11 +33,15 @@ graph TD
     i_almacen --- b_vmb_fw_gestion
     i_almacen --- b_vmb_fw_troncal
     i_almacen --- b_vmb_fw_almacen
+    i_borde["borde<br/>VM (qemu) · etapa 1"]
+    i_borde --- b_vmb_fw_gestion
+    i_borde --- b_vmb_fw_borde
+    i_borde --- b_vmb_fw_troncal
     i_control["control<br/>LXC · etapa 1"]
     i_control --- b_vmb_fw_gestion
     i_nucleo["nucleo<br/>VM (qemu) · etapa 1"]
     i_nucleo --- b_vmb_fw_gestion
-    i_nucleo --- b_vmb_fw_troncal
+    i_nucleo --- b_vmb_fw_borde
     i_oficina["oficina<br/>VM (qemu) · etapa 1"]
     i_oficina --- b_vmb_fw_gestion
     i_oficina --- b_vmb_fw_troncal
@@ -62,8 +67,9 @@ graph TD
 | rol | tipo | stage | cores | memory (MB) | disk (GB) | bridge | address |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | almacen | VM (qemu) | 1 | 2 | 512 | 1 | vmb_fw_gestion + vmb_fw_troncal + vmb_fw_almacen | 10.44.0.13/24 |
+| borde | VM (qemu) | 1 | 2 | 512 | 1 | vmb_fw_gestion + vmb_fw_borde + vmb_fw_troncal | 10.44.0.15/24 |
 | control | LXC | 1 | 1 | 512 | 4 | vmb_fw_gestion | 10.44.0.10/24 |
-| nucleo | VM (qemu) | 1 | 2 | 512 | 1 | vmb_fw_gestion + vmb_fw_troncal | 10.44.0.11/24 |
+| nucleo | VM (qemu) | 1 | 2 | 512 | 1 | vmb_fw_gestion + vmb_fw_borde | 10.44.0.11/24 |
 | oficina | VM (qemu) | 1 | 2 | 512 | 1 | vmb_fw_gestion + vmb_fw_troncal + vmb_fw_oficina | 10.44.0.12/24 |
 | servidores | VM (qemu) | 1 | 2 | 512 | 1 | vmb_fw_gestion + vmb_fw_troncal + vmb_fw_dmz | 10.44.0.14/24 |
 | ficheros | LXC | 2 | 1 | 512 | 8 | vmb_fw_oficina | 10.44.1.10/24 |
@@ -77,7 +83,8 @@ graph TD
 | bridge | dirección del bridge |
 | --- | --- |
 | vmb_fw_gestion | 10.44.0.1/24 |
-| vmb_fw_troncal | 10.44.10.1/24 |
+| vmb_fw_borde | 10.44.20.1/24 |
+| vmb_fw_troncal | 10.44.10.254/24 |
 | vmb_fw_oficina | 10.44.1.1/24 |
 | vmb_fw_almacen | 10.44.2.1/24 |
 | vmb_fw_dmz | 10.44.3.1/24 |
@@ -86,7 +93,7 @@ graph TD
 
 | stage | roles |
 | --- | --- |
-| 1 | almacen, control, nucleo, oficina, servidores |
+| 1 | almacen, borde, control, nucleo, oficina, servidores |
 | 2 | ficheros, puesto-1, puesto-2, puesto-3, web |
 
 ## Identidad: la deriva el motor, no la declara el lab
@@ -94,6 +101,7 @@ graph TD
 | rol | tipo | nombre canónico | vmid | MAC |
 | --- | --- | --- | --- | --- |
 | almacen | VM (qemu) | {equipo}-{alias} | — | — |
+| borde | VM (qemu) | {equipo}-{alias} | — | — |
 | control | LXC | {equipo}-{alias} | — | — |
 | nucleo | VM (qemu) | {equipo}-{alias} | — | — |
 | oficina | VM (qemu) | {equipo}-{alias} | — | — |
@@ -114,6 +122,7 @@ guion hasta que exista un despliegue real.
 | rol | tipo | usuario | credencial | forma de acceso |
 | --- | --- | --- | --- | --- |
 | almacen | VM (qemu) | admin | `admin` / la de `secrets.yml` → `routeros_clave` (HTTP Basic) | REST por el túnel del bastión (`21000`+vmid); su consola, por la serial del nodo |
+| borde | VM (qemu) | admin | `admin` / la de `secrets.yml` → `routeros_clave` (HTTP Basic) | REST por el túnel del bastión (`21000`+vmid); su consola, por la serial del nodo |
 | control | LXC | root | clave del lab (`~/.ssh/netlabs_tunnel_08_dunder-mifflin-con-fw_ed25519`), sin contraseña | SSH a `127.0.0.1`:(`20000`+vmid): él ES el bastión, se entra directo por su túnel |
 | nucleo | VM (qemu) | admin | `admin` / la de `secrets.yml` → `routeros_clave` (HTTP Basic) | REST por el túnel del bastión (`21000`+vmid); su consola, por la serial del nodo |
 | oficina | VM (qemu) | admin | `admin` / la de `secrets.yml` → `routeros_clave` (HTTP Basic) | REST por el túnel del bastión (`21000`+vmid); su consola, por la serial del nodo |
@@ -136,41 +145,63 @@ es el **fichero** de la clave del lab, y por eso se enseña su ruta, no un valor
 
 ## Por qué así
 
-**El troncal es el eje, y las zonas cuelgan de él.** Hay una red por la que el router habla
-con los tres cortafuegos (`vmb_fw_troncal`) y una red por zona detrás de cada cortafuegos.
-Ninguna zona ve a otra: para ir de la oficina a los servidores hay que salir por
-`fw-oficina`, llegar al troncal, que el router lo mande a `fw-servidores` — y que éste lo
-deje pasar. Eso es lo que hace que la tabla de filtrado *signifique* algo: sin una zona
-detrás, un cortafuegos es un router con reglas de adorno.
+**El borde es la puerta, el troncal es el eje, y las zonas cuelgan de él.** Hay una red por
+la que el router habla con el cortafuegos de borde (`vmb_fw_borde`), otra por la que ese
+cortafuegos habla con los tres de zona (`vmb_fw_troncal`) y una red por zona detrás de cada
+cortafuegos. Ninguna zona ve a otra: para ir de la oficina a los servidores hay que salir por
+`fw-oficina`, llegar al troncal, que el borde lo mande a `fw-servidores` — y que éste lo deje
+pasar. Eso es lo que hace que la tabla de filtrado *signifique* algo: sin una zona detrás, un
+cortafuegos es un router con reglas de adorno.
 
 **Una máquina, una responsabilidad.** El encargo era explícito: nada de un CHR que enrute,
 traduzca, filtre y reparta direcciones. Aquí:
 
 - `rt-nucleo` **enruta y sale** (vía de acceso: cliente DHCP en la pata de fuera, MASQUERADE
-  y el resolutor encendido). Su tabla de filtrado es defensiva, no es su trabajo.
-- `fw-oficina`, `fw-almacen` y `fw-servidores` **filtran**. No traducen, no reparten, no
-  sirven nada. Tienen una dirección por pata y una ruta por defecto hacia el troncal: eso es
-  lo mínimo para estar en línea, no una segunda función.
+  y el resolutor encendido). Y **no tiene tabla de filtrado**: la tuvo hasta el ADR 0026, con
+  el argumento de que «un equipo con una pata en internet no se queda abierto», y era
+  exactamente el router con dos trabajos que la regla prohíbe. Un `rt` que filtra ya no pasa
+  el validador.
+- `fw-borde` **filtra el borde**: qué entra de internet al lab y qué sale. No traduce, no
+  reparte direcciones y no es la vía de acceso de nadie — la de acceso es el router.
+- `fw-oficina`, `fw-almacen` y `fw-servidores` **filtran su zona**. No traducen, no reparten,
+  no sirven nada.
+- Los cuatro cortafuegos tienen una dirección por pata y una ruta por defecto hacia quien les
+  da salida: eso es lo mínimo para estar **en línea**, no una segunda función. Un cortafuegos
+  *en línea* reenvía el paquete que deja pasar — si no lo reenviara no sería un cortafuegos,
+  sería un adorno. Lo que no hace ninguno es decidir el camino de la red, ni traducir, ni
+  repartir.
 - Los hosts **no piden dirección**: llevan `address:` y `gateway:` en la declaración. Es la
   consecuencia directa de lo anterior — para repartir direcciones a una zona haría falta un
   servidor DHCP en el cortafuegos, que es una tercera responsabilidad.
 
+**Por qué el cortafuegos de borde va POR DENTRO del router, y no delante.** Ponerlo delante
+(entre internet y el router) sería lo natural, y hoy **no se puede**: la vía de acceso es una
+primitiva CERRADA que trae tres cosas juntas —el cliente DHCP de la pata de fuera, la
+traducción y el resolutor— y el motor no sabe partirla. Si el borde tomara el cliente DHCP,
+tendría que traducir para que la casa supiera volver, y traducir es justo lo que un `fw` no
+hace (ADR 0012 y ADR 0026). Así que la vía de acceso se queda donde tiene que estar —en el
+router, que es el equipo que enruta y sale— y el borde se pone **en línea** por dentro, que es
+donde puede hacer su trabajo sin robarle a nadie el suyo. El precio está medido y escrito en
+«Qué queda fuera».
+
 **Por qué un tipo de equipo nuevo (`tipo: fw`).** El nombre de un invitado dice qué EQUIPO es
 (ADR 0015), y `rt-oficina` habría sido mentira: no es un router, es un cortafuegos. `fw` es
-vocabulario nuevo del motor, y se pide aquí, no se inventa en un YAML (regla 15).
+vocabulario nuevo del motor, y se pide aquí, no se inventa en un YAML (regla 15). Desde el
+ADR 0026 el tipo no es sólo el nombre: **manda sobre lo que ese equipo puede declarar**.
 
 **Por qué el cortafuegos converge el último (y por qué una guarda lo protege).** El motor
 escribe las áreas en un orden — y el cortafuegos va **después de todo, incluida la
 credencial**: es la única área capaz de dejar al motor **fuera de su propio equipo**, porque
-su túnel de vuelta es una conexión de ENTRADA. Por eso las tres tablas abren `input` con un
+su túnel de vuelta es una conexión de ENTRADA. Por eso las cuatro tablas abren `input` con un
 `accept` para la red de gestión **antes** de cerrar, y por eso el validador **rechaza** un
 `input`+`drop` que llegue sin ese `accept` antes: sin él el equipo deja de obedecer y hay que
 recuperarlo por consola.
 
 **La DMZ es la estrecha, a propósito.** `fw-servidores` no deja que la DMZ inicie nada hacia
 fuera: sólo se le entra por 80 y 443 al servidor web, y todo lo demás cae. Las otras dos
-zonas sí salen (es una oficina y un almacén: su tráfico es hacia fuera). La diferencia entre
-las tres tablas es el lab.
+zonas sí salen (es una oficina y un almacén: su tráfico es hacia fuera). El borde, en cambio,
+deja salir **todo** lo que viene del troncal y no deja entrar nada de internet: es la política
+del borde, y la diferencia entre las cuatro tablas es el lab.
 
 ## Qué se rompió (y cómo se arregló)
 
@@ -235,17 +266,25 @@ segundo intento convergió en el mismo lab a medio construir.
 
 ## Qué queda fuera
 
+- **La pata de fuera del router no la filtra nadie, y hoy no se puede.** Es el precio de que
+  el borde vaya por dentro: el router toma su dirección en la red de casa y esa cara queda
+  expuesta a esa red. Blindarla pediría un cortafuegos **delante** del router, y para eso el
+  motor tendría que saber partir la vía de acceso en dos —quien pide la dirección, quien
+  traduce y quien filtra—, que es una primitiva nueva y otro ADR. Se dice aquí en vez de
+  disimularlo con una tabla de filtrado en un `rt`, que es lo que había antes.
 - **La máquina que CONMUTA sigue sin existir, y es a propósito.** Un bridge de Linux ya
   conmuta: una caja que "conmuta" sería una caja que no hace nada. El vocabulario del
   interior no tiene `puentes` y el validador lo rechaza en vez de aceptarlo y no hacer nada.
   El día que un lab necesite un RouterOS conmutando (con VLAN, o con un espejo), será otra
-  área y otro ADR.
+  área y otro ADR — y ese día el validador ya tiene la regla puesta: conmutar no es enrutar
+  ni filtrar, así que `bridges` no podrá caer en un `rt` ni en un `fw` (ADR 0026).
 - **Aquí no hay aplicaciones dentro de los invitados.** El motor despliega y verifica
   máquinas, no servicios: no se instala ni se comprueba un servidor web en `srv-2`.
-- **La red de gestión es una vía fuera de banda.** El bastión tiene una pata en cada red del
-  lab (es por donde el motor entra y mira), así que técnicamente puede llegar a una zona sin
-  pasar por su cortafuegos. Es lo normal en una red de gestión, y conviene decirlo: las
-  reglas de este lab protegen el tráfico **de servicio**, no blindan al motor contra sí mismo.
+- **La red de gestión es una vía fuera de banda.** El bastión tiene su pata en el bridge de
+  gestión y en ninguno más (mirar DENTRO de una zona pide darle una pata ahí, y entonces sí
+  llegaría a esa zona sin pasar por su cortafuegos). Es lo normal en una red de gestión, y
+  conviene decirlo: las reglas de este lab protegen el tráfico **de servicio**, no blindan al
+  motor contra sí mismo.
 - **El filtrado no se comprueba desde fuera todavía.** Las tablas convergen y se releen (está
   en «Qué está verificado»), pero el motor no lanza tráfico de prueba *a través* de un
   cortafuegos: hoy la prueba de que filtra es leer la tabla.

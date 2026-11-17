@@ -131,6 +131,11 @@ falla una tarea— existe una vía de depuración por SSH **para quien diagnosti
   **qué configurar dentro** (`config:`, `image:`). Un `nombre:` corto por invitado es
   opcional: es su alias, y si falta se usa el rol. **El lab no declara vmids ni MACs, nunca**
   (la MAC es función del vmid, y las reservas DHCP se derivan de él: regla 14).
+- **El tipo de equipo manda sobre lo que el equipo puede declarar** (ADR 0026): un equipo hace
+  **una** cosa. Un `rt` enruta y sale (y no filtra), un `fw` filtra (y no traduce, ni reparte
+  direcciones, ni es la vía de acceso de nadie), un `sw` conmuta (y no enruta, ni filtra, ni
+  traduce, ni reparte). El validador lo caza con el motivo antes de tocar nada. Cuando un lab
+  necesita dos funciones, se levantan **dos equipos**.
 - El **motor deriva** el vmid (el menor libre **de todo el clúster**), el NOMBRE
   (`<tipo>-<alias>`: dice qué EQUIPO es, no de qué lab es — `rt-borde`, `srv-1`; dos labs
   pueden repetir `rt-nucleo`, y por eso el nombre no es una prueba de pertenencia), la MAC

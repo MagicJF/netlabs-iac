@@ -16,6 +16,31 @@ aquí está su entrada; los tres tienen que contar lo mismo, y eso es lo que vig
 `./lab check version`. Lo que entra en `main` sin publicarse se apunta bajo
 `[No publicado]`, y se convierte en una versión el día que se publica.
 
+## [No publicado]
+
+### Añadido
+
+- **El tipo de equipo manda sobre las áreas: un equipo, una responsabilidad (ADR 0026).** El
+  validador caza un área declarada en el tipo al que no le toca, con el motivo y con el equipo
+  que sí puede — «un `rt` que filtra es un router con dos trabajos: eso es un `fw`». Cubre los
+  dos ejes que el encargo pidió separar: filtrar no es enrutar (`firewall` es de un `fw`, y
+  `uplink`/`dhcp_server` no) y **conmutar no es enrutar** (un `sw` no enruta, no filtra, no
+  traduce y no reparte), así que el día que llegue el área `bridges` ya tiene dónde caer.
+- **`08_dunder-mifflin-con-fw` gana un cortafuegos de borde (`fw-borde`)** y su router pierde la
+  tabla de filtrado: `rt-nucleo` enruta y sale, y el borde filtra. Seis bridges y once invitados.
+
+### Corregido
+
+- **`rt-nucleo` (lab 08) filtraba.** Era el router con dos trabajos que la regla prohíbe, y
+  estaba justificado en su propio comentario. La política del borde (lo que sale, sale; lo que
+  entra de internet, no pasa) vive ahora en `fw-borde`, que es un equipo cuya responsabilidad es
+  filtrar. El precio queda medido y escrito en el documento del lab: la pata de fuera del router
+  no la filtra nadie, porque la vía de acceso es una primitiva cerrada y un `fw` no puede
+  traducir.
+- La definición de `fw` decía «no enruta», y un cortafuegos **en línea** reenvía el paquete que
+  deja pasar. Se corrige el vocabulario: no traduce, no reparte direcciones y no es la vía de
+  acceso de nadie.
+
 ## [0.3.0] - 2026-11-17
 
 ### Añadido

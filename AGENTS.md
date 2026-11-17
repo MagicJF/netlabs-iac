@@ -252,6 +252,24 @@ evidencia, y se mezcla con *squash*: un cambio, un commit en `main`.
 - Una entrega de partida es la excepción, y se dice: `0.1.0` marca el estado que YA
   estaba verificado, para tener de dónde comparar.
 
+### Nada se mezcla con Greptile por debajo de 5/5
+
+Greptile puntúa cada PR de 0 a 5. Un PR **no se da por bueno** mientras su confianza sea menor
+que 5/5: se leen sus hallazgos (los **P1** primero), se arreglan de verdad —no se silencian con
+un comentario—, se empuja y se **re-dispara el bucle** hasta que dé 5/5. No es un extra: es el
+último paso de cualquier PR, como `./lab check`.
+
+- Confianza < 5/5 casi siempre señala un caso que **ninguna prueba cubría**. El arreglo entra
+  **con su prueba**, y si el hallazgo era un falso positivo se dice **por qué** con evidencia.
+- Se re-dispara comentando `@greptileai review` (y `@coderabbitai review` para el otro revisor).
+  La puntuación y los hallazgos inline se leen con `gh`, nunca se adivinan; y se leen **del
+  cuerpo del resumen**, que Greptile EDITA en su sitio: mirar `created_at` en vez de lo que dice
+  el cuerpo ahora mismo es leer una puntuación vieja.
+- Un hallazgo del bot **no se acepta por fe** ni se rechaza por fe: se **reproduce** (con una
+  prueba, o contra el nodo real) antes de tocar nada. En `labs/08` un P1 describía un fallo que
+  el bot no podía ejecutar y que sí era real: el estado compartido no guardaba más que la
+  primera interfaz, así que un `plan --api` tumbaba un lab desplegado y correcto.
+
 ## Cabecera obligatoria de cada fichero
 
 Playbooks, tareas, filtros, plantillas, herramientas y declaraciones empiezan con:

@@ -2458,11 +2458,11 @@ SERVICIOS_LINUX_OPCIONES = {
         "extra": f"sh {RUTA_PREPARADOR_NETXMS} estado 2>/dev/null || echo no",
         "extra_esperado": "si",
         "preparar": (f"sh {RUTA_PREPARADOR_NETXMS} preparar",),
-        # La VIGILANCIA (área `monitorizacion`): `sembrar` es lo que le dice al servidor
-        # quién hay que vigilar, de UNA vez, recorriendo la red por la que el invitado ve a
-        # los equipos (él mismo la deriva de su interfaz: no es un valor de lab). Deja una
-        # marca, y esa marca es lo que hace la operación idempotente (regla 6): la segunda
-        # pasada lee `si` y no pide nada.
+        # La VIGILANCIA (área `monitorizacion`): `sembrar` marca que el servidor ya vigila,
+        # de UNA vez. El rango lo dejó escrito `preparar` -- las redes que este invitado
+        # alcanza, derivadas de su interfaz y de sus rutas, que él mismo lee: no son un valor
+        # de lab. Deja una marca, y esa marca es lo que hace la operación idempotente (regla
+        # 6): la segunda pasada lee `si` y no pide nada.
         "monitorizacion": {
             "comando": f"sh {RUTA_PREPARADOR_NETXMS} sembrado 2>/dev/null || echo no",
             "esperado": "si",
@@ -2571,8 +2571,8 @@ PLANTILLA_PREPARADOR_NETXMS = r'''#!/bin/sh
 # USO:       netlabs-servicio-netxms preparar|estado|sembrar|sembrado
 #            `preparar` es idempotente; `estado` imprime `si` cuando la base ya tiene el
 #            esquema de NetXMS Y el WAR de la web está desplegado (es lo que el motor lee
-#            para decidir si hay que preparar); `sembrar` le dice al servidor a QUIÉN tiene
-#            que vigilar (ronda la red del propio invitado por SNMP) y deja su marca;
+#            para decidir si hay que preparar); `sembrar` comprueba que el servidor YA ha
+#            empezado a vigilar (el rango queda declarado en `preparar`) y deja su marca;
 #            `sembrado` imprime `si` si esa marca está.
 set -u
 
@@ -2688,23 +2688,25 @@ sembrar)
         fi
         exit 1
     fi
-    # La red por la que ESTE invitado ve a los equipos vigilados: la suya. No es un valor de
-    # lab -- se deriva de su propia interfaz, y el banco de pruebas declara sus redes /24.
+    # Las redes que el vigilante ALCANZA -- la suya (derivada de su interfaz) y las de sus rutas
+    # estáticas --: el `preparar` ya las dejó escritas como objetivos del descubrimiento activo.
+    # No es un valor de lab; el `preparar` las leyó del propio equipo.
     base=$(ip -4 -o addr show eth0 2>/dev/null | awk '{print $4}' | head -1 | cut -d/ -f1 | cut -d. -f1-3)
     if [ -z "$base" ]; then
         echo "sin dirección en eth0: no se sabe a quién vigilar" >&2
         exit 1
     fi
     # El descubrimiento NO se dispara desde aquí: lo hace el SERVIDOR solo -- el `preparar` le
-    # deja declarada la red a vigilar y el descubrimiento activo encendido --, y aquí sólo se
-    # ESPERA a que sus hallazgos estén en la base. La consola (`nxadm -c "scan"`) era lo que
-    # rompía la clave del administrador (medido), así que se fue de aquí.
+    # deja declaradas las redes a vigilar (en la tabla `address_lists`, que es de donde las toma)
+    # y el descubrimiento activo encendido --, y aquí sólo se ESPERA a que sus hallazgos estén en
+    # la base. La consola (`nxadm -c "scan"`) era lo que rompía la clave del administrador
+    # (medido), así que se fue de aquí.
     i=0
     while [ "$i" -lt 40 ] && [ "$(vigilados)" = "0" ]; do
         i=$((i + 1)); sleep 3
     done
     if [ "$(vigilados)" = "0" ]; then
-        echo "el servidor de vigilancia no ha añadido un solo equipo todavía: tiene declarada la red $base.0/24 con descubrimiento activo, y la ronda tarda (se le da otra pasada)" >&2
+        echo "el servidor de vigilancia no ha añadido un solo equipo todavía: tiene declaradas las redes que este invitado alcanza (la suya y las de sus rutas) con descubrimiento activo, y la ronda tarda (se le da otra pasada)" >&2
         exit 1
     fi
     mkdir -p "$(dirname "$MARCA")"
@@ -2780,12 +2782,13 @@ preparar)
         # base no dice nada (regla 6: la marca vale porque describe lo que hay).
         rm -f "$MARCA"
     fi
-    # Y la VIGILANCIA: que el servidor PREGUNTE -- descubrimiento activo, con sonda SNMP, sobre
-    # la red que ESTE invitado ve (derivada de su propia interfaz: jamás un valor de lab) -- y
-    # con qué comunidad: la MISMA que los equipos declaran con el área `snmp` (una constante del
-    # motor, no un valor de lab, para que no haya dos sitios que se descoordinen). La ronda la
-    # hace el SERVIDOR solo, cada `Interval` horas y al arrancar: no la dispara la consola, que
-    # dejaba la clave del administrador rota para la web (medido).
+    # Y la VIGILANCIA: que el servidor PREGUNTE -- descubrimiento activo, con sonda SNMP -- sobre
+    # LAS REDES QUE ESTE INVITADO ALCANZA: la suya (derivada de su interfaz) y las que sus rutas
+    # estáticas declaran (el motor las LEE del propio equipo, jamás son un valor de lab), y con
+    # qué comunidad: la MISMA que los equipos declaran con el área `snmp` (una constante del
+    # motor, para que no haya dos sitios que se descoordinen). La ronda la hace el SERVIDOR solo,
+    # al arrancar y cada `Interval` SEGUNDOS: no la dispara la consola, que dejaba la clave del
+    # administrador rota para la web (medido).
     base=$(ip -4 -o addr show eth0 2>/dev/null | awk '{print $4}' | head -1 | cut -d/ -f1 | cut -d. -f1-3)
     if [ -z "$base" ]; then
         echo "sin dirección en eth0: no se sabe qué red vigilar" >&2
@@ -2793,15 +2796,35 @@ preparar)
     fi
     # `nxdbmgr set` deja el valor que se le da; repetirlo no cambia nada. Si no se pudiera
     # escribir, se PARA: un servidor que no pregunta no vigila, y darlo por bueno sería una
-    # promesa sin respaldo.
+    # promesa sin respaldo. Van por aquí SÓLO las variables que NetXMS 7.0 de verdad LEE (medido
+    # sobre su fuente): la comunidad, el tipo de descubrimiento, la sonda SNMP y el intervalo
+    # (en SEGUNDOS; 3600 = una hora).
     for ajuste in "DefaultCommunityString $COMUNIDAD" \
                   "NetworkDiscovery.Type 3" \
                   "NetworkDiscovery.ActiveDiscovery.EnableSNMPProbing 1" \
-                  "NetworkDiscovery.ActiveDiscovery.AddressRange $base.0/24" \
-                  "NetworkDiscovery.ActiveDiscovery.Interval 1" \
-                  "NetworkDiscovery.ActiveDiscovery.Enabled 1"; do
+                  "NetworkDiscovery.ActiveDiscovery.Interval 3600"; do
         nxdbmgr -c /etc/netxmsd.conf set $ajuste >/dev/null 2>&1 || {
             echo "no se pudo dejar el ajuste '$ajuste' en el servidor de vigilancia" >&2
+            exit 1
+        }
+    done
+    # El RANGO de descubrimiento activo NO va en la variable
+    # `NetworkDiscovery.ActiveDiscovery.AddressRange`: medido sobre la fuente de NetXMS 7.0, esa
+    # variable NO se lee -- los objetivos del descubrimiento activo salen de la tabla
+    # `address_lists` (list_type=1). Por eso el rango se ESCRIBE ahí. Son VARIAS redes, y varias
+    # caben porque cada una es una FILA: la suya (derivada de la interfaz) más cada destino que el
+    # equipo tiene enrutado (`proto static`, lo que puso el área `routes`). Se quitan las que el
+    # motor no declara (regla 17) y se ponen las declaradas: repetirlo deja el mismo estado.
+    redes="$base.0/24 $(ip -4 route show 2>/dev/null | grep ' via ' | grep -vE '^(default|169\.254)' | grep -v ' proto dhcp ' | awk '{print $1}' | sort -u)"
+    como_postgres "psql -q -d %(bd)s -c \"delete from address_lists where list_type = 1\"" >/dev/null 2>&1 || {
+        echo "no se pudo fijar las redes a vigilar en la base del servidor" >&2
+        exit 1
+    }
+    for red in $redes; do
+        net=$(echo "$red" | cut -d/ -f1)
+        mascara=$(echo "$red" | cut -d/ -f2)
+        como_postgres "psql -q -d %(bd)s -c \"insert into address_lists (list_type, community_id, zone_uin, proxy_id, addr_type, addr1, addr2, comments) values (1, 0, 0, 0, 0, '$net', '$mascara', 'netlabs: red a vigilar')\"" >/dev/null 2>&1 || {
+            echo "no se pudo declarar la red '$red' a vigilar en el servidor" >&2
             exit 1
         }
     done

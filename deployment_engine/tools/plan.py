@@ -101,7 +101,7 @@ def _esperado_del_guest(guest):
     `tty` de fábrica se corrige con un `PUT .../config`, sin recrearlo.
     """
     esperado = dict(guest)
-    if modulo_interior.tiene_tunnel(guest):
+    if modulo_interior.necesita_pata_de_gestion(guest):
         esperado["cmode"] = "shell"
     return esperado
 
@@ -273,24 +273,35 @@ def construir_plan(declaracion, estado, identidad, parametros):
 
     # Fase 1 — crear o actualizar cada invitado, en orden de arranque. El orden lo
     # pone la declaración (etapa, rol); el plan no lo reinventa.
+    #
+    # La dirección de la PATA DE GESTIÓN se DERIVA de las que ya usa el nodo, así que una
+    # pasada que crea DOS invitados con pata (el bastión y un publicador) le daría la MISMA
+    # dirección a los dos si cada uno mirase sólo el mundo de fuera: el del segundo no ve
+    # todavía al primero. Y en el bridge del nodo eso no es un detalle: son dos máquinas
+    # contestando por una dirección que además es la del propio nodo. Lo que esta pasada
+    # reparte cuenta como usado para el siguiente invitado.
+    usadas_en_la_pasada = list(estado.get("direcciones_usadas") or [])
+    estado = {**estado, "direcciones_usadas": usadas_en_la_pasada}
     for guest in identidad["guests"]:
         actual = (estado.get("guests") or {}).get(str(guest["vmid"]))
         ruta_crear = f"/nodes/{nodo}/{guest['tipo']}"
         ruta_config = f"/nodes/{nodo}/{guest['tipo']}/{guest['vmid']}/config"
 
         if actual is None:
+            parametros_del_guest = _parametros_creacion(guest, lab, declaracion, estado, parametros)
             pasos.append(
                 _paso(
                     ACCION_CREAR,
                     "POST",
                     ruta_crear,
-                    _parametros_creacion(guest, lab, declaracion, estado, parametros),
+                    parametros_del_guest,
                     f"el rol '{guest['rol']}' no está desplegado: se crea con el vmid "
                     f"{guest['vmid']} (el menor libre del clúster)",
                     stage=guest["stage"],
                     rol=guest["rol"],
                 )
             )
+            usadas_en_la_pasada.extend(_direcciones_del_bloque_de_red(parametros_del_guest))
             continue
 
         diferencias = campos_que_difieren(_esperado_del_guest(guest), actual)
@@ -460,6 +471,36 @@ def _red_del_guest(guest, declaracion, estado, parametros):
     return red
 
 
+def _red_del_publicador(guest, declaracion, estado, parametros):
+    """TODAS las interfaces de un invitado que PUBLICA un servicio, como claves `net<índice>`.
+
+    Las suyas (las que el lab declara) MÁS la pata de gestión del nodo, la última -- la misma
+    regla que el bastión, pero sin las patas por cada bridge del lab: un invitado que publica
+    un servicio no está en todas las redes, está en la suya y sale por donde sale el nodo.
+    Nace completo por la misma razón que el bastión: cambiarle las interfaces a un invitado en
+    marcha obliga a reiniciarlo, y aquí no se reinicia lo que está trabajando (§5).
+
+    **Cada interfaz lleva su MAC derivada** (`mac_de_la_interfaz`), como en el bastión: la 0
+    es la de siempre y las demás salen del mismo sitio.
+    """
+    red = {}
+    for indice, interface in enumerate(
+        modulo_interior.interfaces_del_publicador(guest, declaracion, estado, parametros)
+    ):
+        mac = modulo_identidad.identidad_mac_de_interface(
+            guest["vmid"], indice, _prefijo_mac(parametros)
+        )
+        if guest["tipo"] == "lxc":
+            red[f"net{indice}"] = (
+                f"name=eth{indice},bridge={interface['bridge']},hwaddr={mac}"
+                + (f",ip={interface['address']}" if interface.get("address") else "")
+                + (f",gw={interface['gateway']}" if interface.get("gateway") else "")
+            )
+        else:
+            red[f"net{indice}"] = f"virtio={mac},bridge={interface['bridge']}"
+    return red
+
+
 def _redes_del_guest(guest, declaracion, estado, parametros):
     """El bloque de red del invitado: `net0`, `net1`... una por PATA DECLARADA.
 
@@ -475,6 +516,8 @@ def _redes_del_guest(guest, declaracion, estado, parametros):
     """
     if modulo_interior.tiene_tunnel(guest):
         return _red_del_guest(guest, declaracion, estado, parametros)
+    if modulo_interior.publica_servicio(guest):
+        return _red_del_publicador(guest, declaracion, estado, parametros)
     interfaces = guest.get("bridges") or []
     if len(interfaces) <= 1:
         red = {"net0": _net0(guest)}
@@ -491,6 +534,25 @@ def _redes_del_guest(guest, declaracion, estado, parametros):
             red[f"net{indice}"] = f"virtio={mac},bridge={bridge}"
     red.update(_interface_de_fuera(guest, parametros))
     return red
+
+
+def _direcciones_del_bloque_de_red(parametros_del_guest):
+    """Las direcciones FIJAS que acaba de repartir el plan, leídas de las cadenas `net<n>`.
+
+    Se leen del MISMO sitio que recibe la API (`ip=...`), no de una copia: si el plan dijera
+    una cosa y repartiera otra, el invariante no valdría nada. Una interfaz que pide la
+    dirección por DHCP (`ip=dhcp`) no reparte nada y no cuenta; la que no lleva `ip=` tampoco.
+    """
+    direcciones = []
+    for clave, valor in (parametros_del_guest or {}).items():
+        if not str(clave).startswith("net"):
+            continue
+        for trozo in str(valor).split(","):
+            if trozo.startswith("ip="):
+                direccion = trozo[len("ip="):].strip()
+                if direccion and direccion.lower() != "dhcp":
+                    direcciones.append(direccion)
+    return direcciones
 
 
 def _interface_de_fuera(guest, parametros):
@@ -595,7 +657,9 @@ def _parametros_creacion(guest, lab, declaracion, estado, parametros):
         # (`ssh-public-keys`): Proxmox la escribe en el rootfs, sin `snippets` ni
         # cloud-init. Es la otra mitad del tunnel: sin clave no hay por dónde entrar
         # aunque el túnel esté en pie.
-        if modulo_interior.tiene_tunnel(guest) and parametros.get("tunnel_clave_publica"):
+        if parametros.get("tunnel_clave_publica") and (
+                modulo_interior.necesita_pata_de_gestion(guest)
+                or modulo_interior.el_motor_entra(guest)):
             creado["ssh-public-keys"] = parametros["tunnel_clave_publica"]
         # Y su consola tiene que dar una SHELL, no un `login`. Es por donde el motor le
         # pone el arranque del túnel, UNA vez (§5): con el `cmode` de fábrica (`tty`)
@@ -678,7 +742,7 @@ def _parametros_actualizacion(guest, diferencias):
             # La consola, en la clave literal de la API.
             parametros["cmode"] = valor["cmode"]
         elif campo in ("bridge", "mac"):
-            if modulo_interior.tiene_tunnel(guest):
+            if modulo_interior.necesita_pata_de_gestion(guest):
                 # Las interfaces se decidieron al nacer y una interfaz nueva sólo existe tras
                 # arrancar el invitado: aquí no se finge una convergencia que no se
                 # puede hacer. Se dice el remedio y se para.
@@ -688,8 +752,8 @@ def _parametros_actualizacion(guest, diferencias):
                     "y `apply`), que es como lo crea el motor: entero"
                 )
             # La red no es un campo suelto: se reescriben las interfaces ENTERAS (`net0`, `net1`...).
-            # Sin declaración ni estado: por aquí NO puede pasar un invitado del túnel (el
-            # guardián de arriba lo impide), y es el único que necesitaría leer el mundo.
+            # Sin declaración ni estado: por aquí NO puede pasar un invitado con pata de
+            # gestión (el guardián de arriba lo impide), y es el único que necesitaría leer el mundo.
             parametros.update(_redes_del_guest(guest, None, None, parametros))
     return parametros
 

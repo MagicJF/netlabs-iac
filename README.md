@@ -174,10 +174,25 @@ configurar dentro** de cada equipo, y el motor lo converge como una fase más de
 - **`config:`**, con **exactamente una clave de tipo** (`linux` o `routeros`), que elige el
   driver. Dentro van las **áreas** (los campos que el motor sabe tocar y de los que
   responde): `identity`, `ip_services`, `addresses`, `routes`, `dhcp_server`, `uplink`,
-  `firewall` (la tabla de filtrado entera, en orden: ADR 0019), `ip_forward`, `tunnel`…
+  `firewall` (la tabla de filtrado entera, en orden: ADR 0019), `ip_forward`, `snmp` (que el
+  equipo se deje preguntar por SNMP: el motor enciende su agente y le pone **una** comunidad de
+  lectura, la constante del motor; ADR 0029), `tunnel`…
   En un Linux, además, **`servicio:`** — el NOMBRE de un servicio de un **vocabulario
   cerrado** (hoy `caddy` y `netxms`) que el motor instala, configura y **comprueba sirviéndolo**
-  (ADR 0027 y 0028): el lab declara el nombre, nunca el paquete, su base ni su configuración.
+  (ADR 0027 y 0028): el lab declara el nombre, nunca el paquete, su base ni su configuración —
+  y **`monitorizacion:`**, que hace que ese servicio **vigile**: el motor le declara la red por la
+  que el invitado ve a los equipos (derivada de su interfaz) y el descubrimiento activo, y el
+  servidor **ronda solo**; el sembrado espera a que sus hallazgos estén en la base. La
+  comprobación de que el servicio SIRVE se hace **autenticando por el API web** (la puerta de la
+  interfaz), nunca por la consola del servidor.
+  Sólo vale junto a un servicio que sepa vigilar (hoy `netxms`; ADR 0029).
+- **`latido:`** en un Linux: una **marca** (`latido: {}`, o con su cadencia `latido: {cada: 5min}`)
+  que promete una sola cosa — que ese equipo **se vea** en la topología del vigilante **sin** que
+  el vigilante tenga que preguntarle a él. El motor le pone un temporizador que da un toque **a su
+  propia pasarela** cada `cada` (2 minutos por defecto): no configura nada suyo ni de la red —ni
+  interfaz, ni ruta, ni regla— y lo único que hace es mantener su MAC en la tabla ARP de su router,
+  que es lo que el sondeo del vigilante **lee** para encolarlo como nodo. Aparecer así no necesita
+  agente SNMP, ni camino hasta el invitado, ni un solo boquete nuevo (ADR 0031).
 - **`image:`** en una VM QEMU: el disco de fábrica que se importa al crearla (un CHR).
 - **`address:`** admite cuatro formas: `<ip>/<prefijo>` (estática), **`dhcp`** (dinámica: el
   invitado no la declara; se lee del host y, si hay túnel, de la concesión del router),

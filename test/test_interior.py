@@ -1644,9 +1644,11 @@ comprobar(
 )
 comprobar(
     all(pieza in _FICHEROS_NETXMS[2]
-        for pieza in ("nxdbmgr -c /etc/netxmsd.conf init pgsql", "createdb", "nxmc.war", "pg_isready")),
+        for pieza in ('nxdbmgr -c /etc/netxmsd.conf -p "$ADMIN_CLAVE" init pgsql',
+                      "createdb", "nxmc.war", "pg_isready")),
     "el preparador inicializa el ESQUEMA (el paquete no lo trae, y sin `-c` no encuentra la "
-    "configuración), crea la base y despliega la web",
+    "configuración) dejando puesta la clave del administrador EN EL `init` (`-p`: sin ella la "
+    "genera al azar y la web no se podría entrar), crea la base y despliega la web",
 )
 comprobar(
     "ExecStart=/usr/bin/netxmsd -S -c /etc/netxmsd.conf" in _FICHEROS_NETXMS[1]
@@ -1742,6 +1744,280 @@ igual(
     motor.leido_linux([{"area": "servicio", "rc": 0, "encontrado": "a=1"}]),
     {},
     "una lectura a medias (sin sus bloques) NO se convierte en un estado inventado",
+)
+
+# ---------------------------------------------------------------------------
+# LA VIGILANCIA: el área `monitorizacion`, y la pata de gestión que la publica
+# ---------------------------------------------------------------------------
+# Un servidor de vigilancia tiene que SABER a quién mira: si no, su árbol de nodos queda
+# vacío y la web no enseña nada. El área `monitorizacion` es lo que se lo dice, y es una
+# MARCA (como `uplink`): el lab declara QUE ese servidor vigila, y el CÓMO -- ronda la red
+# por la que ve a los equipos -- es del motor. Y un invitado que publica un servicio (que se
+# ENTRA en él) necesita la misma pata de gestión que el bastión, aunque no sea el bastión.
+print("\nLA VIGILANCIA: el servidor sabe a quién mira, y sale por donde sale el nodo\n")
+
+EQUIPO_VIGILANTE = dict(
+    EQUIPO_NETXMS,
+    config={"linux": {"tunnel": {}, "servicio": "netxms", "monitorizacion": {}}},
+)
+igual(
+    motor.areas_de(EQUIPO_VIGILANTE)["monitorizacion"], {},
+    "el área `monitorizacion` es una MARCA (`{}`), no lleva opciones: el cómo es del motor",
+)
+comprobar(
+    "monitorizacion" in motor.areas_a_leer(EQUIPO_VIGILANTE)
+    and "monitorizacion" in motor.areas_que_piden_visita(EQUIPO_VIGILANTE),
+    "y pide ENTRAR al invitado: hay que leerlo para decidir si ya está sembrado",
+)
+_LECTURA_VIGILANCIA = [
+    l for l in motor.lecturas_linux(EQUIPO_VIGILANTE) if l["area"] == "monitorizacion"
+]
+igual(
+    len(_LECTURA_VIGILANCIA), 1,
+    "un vigilante se pregunta UNA cosa: si ya sabe a quién mirar",
+)
+igual(
+    _LECTURA_VIGILANCIA[0]["comando"],
+    motor.SERVICIOS_LINUX_OPCIONES["netxms"]["monitorizacion"]["comando"],
+    "y se pregunta por el comando del SERVICIO declarado, no por uno genérico",
+)
+igual(
+    motor.leido_linux([{"area": "monitorizacion", "rc": 0, "encontrado": "si"}]),
+    {"monitorizacion": {"sembrado": True}},
+    "`si` es que ya está sembrado; cualquier otra cosa (o nada) es que no",
+)
+igual(
+    motor.leido_linux([{"area": "monitorizacion", "rc": 0, "encontrado": "no"}]),
+    {"monitorizacion": {"sembrado": False}},
+    "y `no` es que todavía no",
+)
+igual(
+    [o["op"] for o in motor._monitorizacion_canonica({}, {"sembrado": False}, "netxms")],
+    ["sembrar_monitorizacion"],
+    "un vigilante sin sembrar pide sembrar",
+)
+igual(
+    motor._monitorizacion_canonica({}, {"sembrado": True}, "netxms"), [],
+    "y un vigilante ya sembrado NO produce operación: es idempotente (regla 6)",
+)
+igual(
+    motor._monitorizacion_canonica({}, {"sembrado": False}, "caddy"), [],
+    "un servicio que no sabe vigilar no dispara un sembrado que nadie traduciría",
+)
+_ESCRITURAS_VIGILANCIA = motor.escrituras_linux(
+    [{"op": "sembrar_monitorizacion", "servicio": "netxms"}],
+    EQUIPO_VIGILANTE, DECLARACION, IDENTIDAD, PARAMETROS,
+)
+igual(
+    [c["area"] for c in _ESCRITURAS_VIGILANCIA], ["monitorizacion"],
+    "el sembrado se marca con su área (para el diario y para el error)",
+)
+comprobar(
+    any("netlabs-servicio-netxms sembrar" in c["comando"] for c in _ESCRITURAS_VIGILANCIA),
+    "y ejecuta el sembrado del servicio, que es quien sabe a quién mirar",
+)
+
+# La pata de gestión: la pide el bastión Y el que publica un servicio -- pero sólo el
+# bastión se lleva, además, una pata por cada bridge del lab.
+EQUIPO_PUBLICA = dict(
+    EQUIPO_NETXMS, rol="monitor",
+    bridge="vmb_gen", address="10.60.0.20/24", tipo="lxc",
+    config={"linux": {"servicio": "netxms", "monitorizacion": {}}},
+)
+comprobar(
+    not motor.tiene_tunnel(EQUIPO_PUBLICA) and motor.publica_servicio(EQUIPO_PUBLICA)
+    and motor.necesita_pata_de_gestion(EQUIPO_PUBLICA),
+    "un invitado que publica un servicio NO es el bastión, pero TAMBIÉN necesita la pata de gestión",
+)
+_ESTADO_PATA = {
+    "bridges_direcciones": {"vmbr1": "10.10.10.1/24"},
+    "direcciones_usadas": ["10.10.10.1/24", "10.10.10.254/24"],
+}
+_INTERFACES_PUBLICA = motor.interfaces_del_publicador(
+    EQUIPO_PUBLICA, DECLARACION, _ESTADO_PATA, PARAMETROS,
+)
+igual(
+    [i["bridge"] for i in _INTERFACES_PUBLICA], ["vmb_gen", "vmbr1"],
+    "sus interfaces son LAS SUYAS más la salida: no se lleva una pata por cada bridge del lab",
+)
+igual(
+    _INTERFACES_PUBLICA[0]["address"], "10.60.0.20/24",
+    "la primera lleva la dirección que el lab declara",
+)
+igual(
+    (_INTERFACES_PUBLICA[1]["address"], _INTERFACES_PUBLICA[1]["gateway"]),
+    ("10.10.10.253/24", "10.10.10.1"),
+    "y la salida es la del nodo, con su vía de acceso: por ahí se ENTRA en su web y se "
+    "alcanza el repositorio para instalarla (la .254 ya estaba ocupada)",
+)
+
+# El preparador de NetXMS tiene que dejar una web ENTRABLE y saber sembrar. Sin las dos
+# cosas, «vigila la red» sería una promesa sin respaldo: una web sin clave no se entra, y
+# un servidor sin sembrar enseña un árbol vacío.
+_PREPARADOR_NETXMS = motor._preparador_netxms()
+comprobar(
+    f'ADMIN_CLAVE="{motor.NETXMS_ADMIN["clave"]}"' in _PREPARADOR_NETXMS
+    and '-p "$ADMIN_CLAVE" init' in _PREPARADOR_NETXMS,
+    "el preparador PONE la clave del administrador en el `init` (`-p`): sin ella `nxdbmgr` "
+    "genera una al azar y la web no se podría entrar",
+)
+comprobar(
+    'set-user-password "$ADMIN"' not in _PREPARADOR_NETXMS,
+    "y NO usa `set-user-password` para ponerla: pide la clave por el terminal y en un guion "
+    "contesta «Cannot read password» (medido); `-p` en el `init` es la única forma sin manos",
+)
+comprobar(
+    _PREPARADOR_NETXMS.index("systemctl stop netxms-server") < _PREPARADOR_NETXMS.index("-p \"$ADMIN_CLAVE\" init"),
+    "y para el servidor ANTES de tocar la base: el paquete lo arranca al instalarse, y con él "
+    "en marcha `nxdbmgr` contesta «Database is locked by server» y no aplica nada",
+)
+comprobar(
+    "v1/login" in _PREPARADOR_NETXMS
+    and "http_code" in _PREPARADOR_NETXMS
+    and not any(l.strip().startswith("nxadm") for l in _PREPARADOR_NETXMS.splitlines()),
+    "y `estado` no da el servicio por bueno si no se puede ENTRAR: la clave se comprueba "
+    "autenticando por el API WEB (la puerta de la interfaz), y la CONSOLA no aparece en el "
+    "servicio -- `nxadm` autentica bien y aun así deja la clave rota para la web (medido)",
+)
+_desde_preparar = _PREPARADOR_NETXMS[_PREPARADOR_NETXMS.rindex("systemctl daemon-reload"):]
+comprobar(
+    "se_entra" in _PREPARADOR_NETXMS
+    and "drop database if exists" in _PREPARADOR_NETXMS
+    and 0 <= _desde_preparar.index("systemctl start netxms-server")
+    < _desde_preparar.index("systemctl stop netxms-server"),
+    "y para preguntarle la clave a una web ya desplegada el motor ARRANCA el servidor (en un "
+    "invitado nuevo el paquete lo deja caído) y sólo después lo para si hay que tocar la base "
+    "-- con él en marcha la base está bloqueada --",
+)
+comprobar(
+    "systemctl is-active --quiet netxms-server || systemctl start netxms-server"
+    in _PREPARADOR_NETXMS,
+    "y el servidor se ARRANCA al final SÓLO si no está ya arrancado: un reinicio de más no es "
+    "inocuo (al arrancar, el paquete reescribe el hash del administrador y ese hash ya no "
+    "verifica: medido), y un `preparar` que sólo para deja el servicio caído",
+)
+comprobar(
+    'rm -f "$MARCA"' in _PREPARADOR_NETXMS,
+    "y al rehacer la base se borra la marca del sembrado: una marca que sobrevive a su base "
+    "diría «ya está sembrado» sobre una base sin un solo nodo",
+)
+comprobar(
+    f"COMUNIDAD=\"{motor.COMUNIDAD_SNMP}\"" in _PREPARADOR_NETXMS
+    and "DefaultCommunityString" in _PREPARADOR_NETXMS
+    and "NetworkDiscovery.ActiveDiscovery.EnableSNMPProbing" in _PREPARADOR_NETXMS,
+    "y le dice al servidor que PREGUNTE (descubrimiento activo) y con qué comunidad (la del motor)",
+)
+comprobar(
+    "reponer_clave" in _PREPARADOR_NETXMS
+    and "select password from users where id=1" in _PREPARADOR_NETXMS
+    and _PREPARADOR_NETXMS.index("reponer_clave && se_entra=si")
+    < _PREPARADOR_NETXMS.index("drop database if exists"),
+    "y un 'rechaza' se cura PRIMERO devolviendo el hash bueno que `init` dejó -- guardado aparte, "
+    "sin tocar un solo dato -- y sólo después, si eso no basta, rehaciendo la base: rehacerla de "
+    "entrada se llevaba por delante todo lo descubierto (medido: de 9 equipos a 3)",
+)
+comprobar(
+    'if [ "$(esquema)" != "si" ] || [ "$se_entra" = "rechaza" ]; then' in _PREPARADOR_NETXMS
+    and "no-contesta" in _PREPARADOR_NETXMS,
+    "y la sonda del API distingue TRES casos -- `si` / `rechaza` / `no-contesta` -- y sólo "
+    "`rechaza` rehace la base: rehacerla porque el API aún no contesta (servidor arrancando) "
+    "tiraba el descubrimiento entero (medido)",
+)
+comprobar(
+    "sembrar)" in _PREPARADOR_NETXMS
+    and "NetworkDiscovery.ActiveDiscovery.AddressRange $base.0/24" in _PREPARADOR_NETXMS
+    and "NetworkDiscovery.ActiveDiscovery.Enabled 1" in _PREPARADOR_NETXMS
+    and "vigilados" in _PREPARADOR_NETXMS
+    and f'MARCA="{motor.RUTA_MARCA_SEMBRADO}"' in _PREPARADOR_NETXMS,
+    "el servidor descubre SOLO (se le declara la red del propio invitado, derivada, con el "
+    "descubrimiento activo encendido) y el sembrado espera a que sus hallazgos estén en la base "
+    "y deja su marca -- sin consola de por medio",
+)
+
+# --- El área `latido`: aparecer sin que nadie te pregunte ------------------------------
+# Lo que promete el área es UNA cosa: que el equipo se VEA. No configura nada suyo ni abre
+# nada en la red -- da un toque a su pasarela, y con eso su MAC queda en la tabla ARP de su
+# router, que es lo que el sondeo de la vigilancia LEE para encolar el nodo. Por eso lo que
+# se prueba aquí es: que la MARCA (`{}`) basta como declaración, que armado no se toca, que
+# un cambio de cadencia se nota, que lo que se escribe es lo que luego se lee (ida y vuelta)
+# y que el toque NO sale del lab.
+comprobar(
+    [o["op"] for o in motor._latido_canonico({}, {})] == ["write_latido", "start_latido"],
+    "`latido: {}` es una MARCA y basta para declararla: con el equipo sin nada puesto, el plan "
+    "escribe el latido y lo arma. La marca es el diccionario VACÍO, así que tratar el vacío "
+    "como «no declarado» sería un fallo SILENCIOSO: el invitado no se vería y el motor diría "
+    "que ha convergido",
+)
+igual(
+    [o["op"] for o in motor._latido_canonico({}, {"marca": "# netlabs latido cada=2min",
+                                                  "activo": True, "habilitado": True})],
+    [],
+    "y con el latido ya armado (activo, habilitado y con su marca) no hay NADA que hacer: dos "
+    "pasadas seguidas dejan el mismo estado (regla 6)",
+)
+igual(
+    [o["op"] for o in motor._latido_canonico({"cada": "5min"},
+                                             {"marca": "# netlabs latido cada=2min",
+                                              "activo": True, "habilitado": True})],
+    ["write_latido", "start_latido"],
+    "pero si el lab cambia la cadencia, la marca del fichero ya no coincide y se reescribe: "
+    "mirando sólo que esté `active`, el motor diría «convergido» con la cadencia VIEJA puesta",
+)
+_ficheros_latido = motor.escrituras_latido("2min")
+comprobar(
+    set(_ficheros_latido) == {motor.RUTA_LATIDO,
+                              f"/etc/systemd/system/{motor.UNIDAD_LATIDO}",
+                              f"/etc/systemd/system/{motor.UNIDAD_LATIDO_SERVICIO}"},
+    "el latido son TRES ficheros y ninguno sobra: el guion que da el toque, la unidad que lo "
+    "ejecuta una vez y el temporizador que lo repite",
+)
+comprobar(
+    "# netlabs latido cada=2min" in _ficheros_latido[f"/etc/systemd/system/{motor.UNIDAD_LATIDO}"]
+    and motor._latido_canonico({}, {"marca": "# netlabs latido cada=2min",
+                                    "activo": True, "habilitado": True}) == [],
+    "y la marca que el motor ESCRIBE es exactamente la que luego LEE: es el ida y vuelta que "
+    "hace que la segunda pasada salga limpia (si divergieran, reescribiría siempre y el lab "
+    "nunca convergería)",
+)
+_guion = _ficheros_latido[motor.RUTA_LATIDO]
+comprobar(
+    "ping -c 1" in _guion and "$PUERTA" in _guion and "route show default" in _guion
+    and "8.8.8.8" not in _guion and "http" not in _guion,
+    "el toque va a la PASARELA (sacada de la ruta por defecto) y no a internet: el trabajo lo "
+    "hace la pregunta por la MAC, que ocurre igual -- y así el latido se queda dentro de la "
+    "red del lab y funciona con el cortafuegos en `drop` y sin salida",
+)
+
+# --- El área `routes` de un Linux: el camino, declarado por el lab ----------------------
+igual(
+    [o["op"] for o in motor._routes_canonicas(
+        [{"dst_address": "10.44.1.0/24", "gateway": "10.44.0.11"}], {"estaticas": []})],
+    ["add_route"],
+    "una ruta declarada que no está, se pone: es el camino a las zonas que el lab le da al "
+    "bastión -- sin él el motor no llega a los invitados que el lab pone detrás de un fw",
+)
+igual(
+    [o["op"] for o in motor._routes_canonicas(
+        [{"dst_address": "10.44.1.0/24", "gateway": "10.44.0.11"}],
+        {"estaticas": [{"dst_address": "10.44.1.0/24", "gateway": "10.44.0.11"}]})],
+    [],
+    "y puesta, no se toca: la lectura saca el mismo par (destino, pasarela) que se declaró, "
+    "así que la segunda pasada no hace nada (regla 6)",
+)
+igual(
+    [o["op"] for o in motor._routes_canonicas(
+        [], {"estaticas": [{"dst_address": "10.44.9.0/24", "gateway": "10.44.0.11"}]})],
+    ["remove_route"],
+    "y dentro de un área declarada, lo que no está en el YAML se quita (regla 17): una ruta "
+    "estática que sobra se va -- el área gobierna lo que declara, ni más ni menos",
+)
+comprobar(
+    bool(_validador.CADENCIA_PATRON.match("2min")) and bool(_validador.CADENCIA_PATRON.match("30s"))
+    and not _validador.CADENCIA_PATRON.match("cinco")
+    and not _validador.CADENCIA_PATRON.match("2 minutos"),
+    "y la cadencia del lab se valida con su patrón (número y unidad: `30s`, `2min`, `1h`): un "
+    "«cada: cinco» no llega nunca a systemd, que no armaría el temporizador y dejaría al "
+    "invitado fuera de la topología sin decir por qué",
 )
 
 if FALLOS:

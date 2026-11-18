@@ -1232,6 +1232,88 @@ comprobar(
     "y el guion del cortafuegos hereda esa credencial: el tramo entero va con la del motor",
 )
 
+# ---------------------------------------------------------------------------
+# 6. LA VIGILANCIA: el área `snmp` -- el equipo ACEPTA que se le pregunte
+# ---------------------------------------------------------------------------
+# Un equipo que declara `snmp` deja que un colector de la misma red le pregunte por sus
+# datos. Son dos hechos, y los dos se leen: el agente encendido (`/snmp` es un menú de
+# AJUSTES: contesta un OBJETO, no una lista) y una comunidad de LECTURA con el nombre del
+# motor entre las que el equipo tiene. La de fábrica (`public`) NO se toca: el área manda
+# dentro de lo que declara (regla 17).
+print("\nEL SNMP: encender el agente y poner la comunidad de LECTURA del motor\n")
+
+BORDE_SNMP = copy.deepcopy(BORDE)
+BORDE_SNMP["config"]["routeros"]["snmp"] = {}
+
+# Un CHR recién nacido: el agente APAGADO y sólo la comunidad de fábrica, con lectura.
+CRUDO_SNMP = dict(CRUDO_RECIEN_NACIDO)
+CRUDO_SNMP["/snmp"] = respuesta({"enabled": "false", "contact": "", "location": ""})
+CRUDO_SNMP["/snmp/community"] = respuesta([
+    {"name": "public", "read-access": "true", "write-access": "false"},
+])
+LEIDO_SNMP = motor.leido_routeros(CRUDO_SNMP, BORDE_SNMP, "admin", CLAVE_PUBLICA, "fabrica")
+
+igual(
+    LEIDO_SNMP["areas"]["snmp"],
+    {"habilitado": False, "comunidades": ["public"], "lectura": ["public"]},
+    "se leen los DOS hechos: el agente apagado y que la única comunidad es la de fábrica",
+)
+igual(
+    [l["ruta"] for l in motor.lecturas_routeros(BORDE_SNMP) if l["ruta"].startswith("/snmp")],
+    ["/snmp", "/snmp/community"],
+    "un equipo que declara `snmp` se pregunta por su agente y por sus comunidades",
+)
+
+OPS_SNMP = [
+    op for op in motor.operaciones_de_pasos(
+        motor.pasos_de_convergencia(BORDE_SNMP, IDENTIDAD, DECLARACION, LEIDO_SNMP, PARAMETROS)
+    ) if op["op"] in ("enable_snmp", "add_snmp_community")
+]
+igual(
+    [op["op"] for op in OPS_SNMP], ["enable_snmp", "add_snmp_community"],
+    "un equipo mudo al SNMP se enciende Y se le pone la comunidad del motor, en ese orden",
+)
+igual(
+    OPS_SNMP[1]["nombre"], motor.COMUNIDAD_SNMP,
+    "y la comunidad que se pone es la CONSTANTE del motor, la misma que usa el vigilante",
+)
+
+LLAMADAS_SNMP = motor.escrituras_routeros(
+    OPS_SNMP, BORDE_SNMP, DECLARACION, IDENTIDAD, PARAMETROS_ROUTEROS, LEIDO_SNMP
+)
+igual(
+    [(l["metodo"], l["ruta"]) for l in LLAMADAS_SNMP if "snmp" in l["ruta"]],
+    [("POST", "/snmp/set"), ("POST", "/snmp/community/add")],
+    "cada hecho es su llamada: encender el agente y añadir la comunidad",
+)
+igual(
+    LLAMADAS_SNMP[0]["cuerpo"], {"enabled": "yes"},
+    "encender el agente es `/snmp/set enabled=yes` (es `no` de fábrica)",
+)
+igual(
+    {k: v for k, v in LLAMADAS_SNMP[1]["cuerpo"].items() if k in ("name", "read-access", "write-access")},
+    {"name": motor.COMUNIDAD_SNMP, "read-access": "yes", "write-access": "no"},
+    "y la comunidad se añade de LECTURA y sin permiso de escritura",
+)
+
+# 2ª pasada: el agente ya está encendido y la comunidad del motor ya está -> CERO operaciones.
+LEIDO_SNMP_AL_DIA = copy.deepcopy(LEIDO_SNMP)
+LEIDO_SNMP_AL_DIA["areas"]["snmp"] = {
+    "habilitado": True, "comunidades": ["public", motor.COMUNIDAD_SNMP],
+    "lectura": ["public", motor.COMUNIDAD_SNMP],
+}
+igual(
+    [op for op in motor.operaciones_de_pasos(
+        motor.pasos_de_convergencia(BORDE_SNMP, IDENTIDAD, DECLARACION, LEIDO_SNMP_AL_DIA, PARAMETROS)
+    ) if op["op"] in ("enable_snmp", "add_snmp_community")],
+    [],
+    "con el equipo ya vigilable, la 2ª pasada NO produce operación: es idempotente",
+)
+comprobar(
+    "public" not in " ".join(op.get("nombre", "") for op in OPS_SNMP),
+    "la comunidad de fábrica NO se toca: el área manda dentro de lo que declara (regla 17)",
+)
+
 print("\n" + "=" * 62)
 if FALLOS:
     print(f"RESULTADO: {len(FALLOS)} fallo(s).")

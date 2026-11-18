@@ -20,6 +20,39 @@ aquí está su entrada; los tres tienen que contar lo mismo, y eso es lo que vig
 
 ### Añadido
 
+- **El `latido`: aparecer en la topología sin agente y sin abrir camino (ADR 0031).** Un
+  invitado Linux declara `latido: {}` (o `latido: {cada: 5min}`) y el motor le pone un
+  temporizador que da un toque **a su propia pasarela** —2 minutos por defecto—. No configura
+  nada del equipo ni de la red: lo que hace es mantener su MAC en la tabla ARP de su router,
+  que es lo que el sondeo del vigilante **lee** para encolarlo como nodo (medido en su código:
+  no exige que el invitado conteste). Los equipos de las zonas aparecen así **sin** agente
+  SNMP, **sin** rutas nuevas y **sin** una sola regla nueva en ningún cortafuegos.
+- **Un servidor de VIGILANCIA: el área `snmp` de RouterOS, el área `monitorizacion` de Linux y la
+  pata de gestión que publica un servicio (ADR 0029).** Un lab puede declarar `snmp: {}` en un
+  equipo de red —el motor enciende su agente y le pone **una** comunidad de LECTURA, la constante
+  del motor, la misma con la que el vigilante pregunta— y `monitorizacion: {}` en un `servicio`
+  que sepa vigilar (hoy `netxms`): el motor le **declara la red que tiene que rondar** —la del
+  propio invitado, derivada, nunca un valor declarado— **con el descubrimiento activo encendido**,
+  así que la ronda la hace el servidor **solo** y la topología aparece en la web según encuentra
+  los equipos; el sembrado espera a que sus hallazgos estén en la base y deja su marca. La pata de
+  gestión del plan deja de ser exclusiva del bastión: **quien publica un
+  servicio sale por donde sale el nodo**, con sus propias interfaces y sin una pata por cada
+  bridge del lab. Y el `estado` del `servicio` ya no se conforma con «esquema sí y WAR sí»:
+  **comprueba que se puede ENTRAR**, por el **API WEB** — la misma puerta por la que entra la
+  interfaz —, nunca por la consola de depuración: se midió que un `nxadm` que **autentica bien**
+  deja la clave rota para la web (`403 errorCode 61`, sin recuperación), así que el motor no usa
+  la consola para nada.
+- **`08_dunder-mifflin-con-fw` estrena `monitor` (`ctl-2`)**: un NetXMS en la red de gestión que
+  mira por SNMP a los cinco equipos de red del lab —el único sitio desde el que los ve a todos sin
+  abrir una sola regla— y publica su web como pieza de gestión del nodo.
+
+### Corregido
+
+- **El plan cuenta como usadas las direcciones que reparte la propia pasada.** Dos invitados con
+  pata de gestión creados en el MISMO plan derivaban la misma dirección del bridge del nodo (el
+  bastión y un publicador salían los dos por la `10.10.10.254`, que además es la del propio
+  nodo), y eso rompía a medias la conexión del motor con el segundo. Ahora el segundo mira lo que
+  el primero acaba de recibir. Lo blinda `test/test_plan.py`.
 - **El área `servicio` aprende un segundo miembro, y deja de tener la forma de `caddy`
   (ADR 0028).** Cada miembro del vocabulario cerrado declara sus PIEZAS —paquetes, ejecutables,
   unidad, ficheros, el comando que prueba que SIRVE, una lectura adicional opcional y los pasos

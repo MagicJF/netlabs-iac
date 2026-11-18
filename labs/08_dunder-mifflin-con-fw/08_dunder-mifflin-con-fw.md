@@ -62,6 +62,8 @@ graph LR
     i_servidores --- b_vmb_fw_dmz
     i_ficheros[("srv-1<br/>10.44.1.10/24<br/>etapa 2")]:::srv
     i_ficheros --- b_vmb_fw_oficina
+    i_monitor[["ctl-2<br/>10.44.0.20/24<br/>etapa 2"]]:::ctl
+    i_monitor --- b_vmb_fw_gestion
     i_puesto_1["ws-1<br/>10.44.1.11/24<br/>etapa 2"]:::ws
     i_puesto_1 --- b_vmb_fw_oficina
     i_puesto_2["ws-2<br/>10.44.1.12/24<br/>etapa 2"]:::ws
@@ -91,6 +93,7 @@ En el diagrama, la **forma** y el **color** de cada equipo dicen qué es (el tip
 | oficina | fw (filtra) | VM (qemu) | 1 | 2 | 512 | 1 | vmb_fw_gestion + vmb_fw_troncal + vmb_fw_oficina | 10.44.0.12/24 |
 | servidores | fw (filtra) | VM (qemu) | 1 | 2 | 512 | 1 | vmb_fw_gestion + vmb_fw_troncal + vmb_fw_dmz | 10.44.0.14/24 |
 | ficheros | srv (servidor) | LXC | 2 | 1 | 512 | 8 | vmb_fw_oficina | 10.44.1.10/24 |
+| monitor | ctl (control del lab) | LXC | 2 | 2 | 1536 | 6 | vmb_fw_gestion | 10.44.0.20/24 |
 | puesto-1 | ws (puesto de trabajo) | LXC | 2 | 1 | 512 | 4 | vmb_fw_oficina | 10.44.1.11/24 |
 | puesto-2 | ws (puesto de trabajo) | LXC | 2 | 1 | 512 | 4 | vmb_fw_oficina | 10.44.1.12/24 |
 | puesto-3 | ws (puesto de trabajo) | LXC | 2 | 1 | 512 | 4 | vmb_fw_almacen | 10.44.2.11/24 |
@@ -112,7 +115,7 @@ En el diagrama, la **forma** y el **color** de cada equipo dicen qué es (el tip
 | stage | roles |
 | --- | --- |
 | 1 | almacen, borde, control, nucleo, oficina, servidores |
-| 2 | ficheros, puesto-1, puesto-2, puesto-3, web |
+| 2 | ficheros, monitor, puesto-1, puesto-2, puesto-3, web |
 
 ## Identidad: la deriva el motor, no la declara el lab
 
@@ -125,6 +128,7 @@ En el diagrama, la **forma** y el **color** de cada equipo dicen qué es (el tip
 | oficina | fw (filtra) | fw-oficina | — | — |
 | servidores | fw (filtra) | fw-servidores | — | — |
 | ficheros | srv (servidor) | srv-1 | — | — |
+| monitor | ctl (control del lab) | ctl-2 | — | — |
 | puesto-1 | ws (puesto de trabajo) | ws-1 | — | — |
 | puesto-2 | ws (puesto de trabajo) | ws-2 | — | — |
 | puesto-3 | ws (puesto de trabajo) | ws-3 | — | — |
@@ -145,11 +149,12 @@ guion hasta que exista un despliegue real.
 | nucleo | rt (enruta y sale) | admin | `admin` / la de `secrets.yml` → `routeros_clave` (HTTP Basic) | REST por el túnel del bastión (`21000`+vmid); su consola, por la serial del nodo |
 | oficina | fw (filtra) | admin | `admin` / la de `secrets.yml` → `routeros_clave` (HTTP Basic) | REST por el túnel del bastión (`21000`+vmid); su consola, por la serial del nodo |
 | servidores | fw (filtra) | admin | `admin` / la de `secrets.yml` → `routeros_clave` (HTTP Basic) | REST por el túnel del bastión (`21000`+vmid); su consola, por la serial del nodo |
-| ficheros | srv (servidor) | — | — | no se entra: no declara `config:` |
-| puesto-1 | ws (puesto de trabajo) | — | — | no se entra: no declara `config:` |
-| puesto-2 | ws (puesto de trabajo) | — | — | no se entra: no declara `config:` |
-| puesto-3 | ws (puesto de trabajo) | — | — | no se entra: no declara `config:` |
-| web | srv (servidor) | — | — | no se entra: no declara `config:` |
+| ficheros | srv (servidor) | root | clave del lab (`~/.ssh/netlabs_tunnel_08_dunder-mifflin-con-fw_ed25519`), sin contraseña | SSH por el bastión (salta por su túnel), a su dirección en el lab |
+| monitor | ctl (control del lab) | root | clave del lab (`~/.ssh/netlabs_tunnel_08_dunder-mifflin-con-fw_ed25519`), sin contraseña | SSH por el bastión (salta por su túnel), a su dirección en el lab |
+| puesto-1 | ws (puesto de trabajo) | root | clave del lab (`~/.ssh/netlabs_tunnel_08_dunder-mifflin-con-fw_ed25519`), sin contraseña | SSH por el bastión (salta por su túnel), a su dirección en el lab |
+| puesto-2 | ws (puesto de trabajo) | root | clave del lab (`~/.ssh/netlabs_tunnel_08_dunder-mifflin-con-fw_ed25519`), sin contraseña | SSH por el bastión (salta por su túnel), a su dirección en el lab |
+| puesto-3 | ws (puesto de trabajo) | root | clave del lab (`~/.ssh/netlabs_tunnel_08_dunder-mifflin-con-fw_ed25519`), sin contraseña | SSH por el bastión (salta por su túnel), a su dirección en el lab |
+| web | srv (servidor) | root | clave del lab (`~/.ssh/netlabs_tunnel_08_dunder-mifflin-con-fw_ed25519`), sin contraseña | SSH por el bastión (salta por su túnel), a su dirección en el lab |
 
 El **usuario**, la **credencial** (de dónde sale Y cuánto vale) y la **forma de acceso** se
 derivan de la declaración, del motor y de `deployment_engine/secrets.yml`. **Este lab es de un
@@ -221,6 +226,86 @@ zonas sí salen (es una oficina y un almacén: su tráfico es hacia fuera). El b
 deja salir **todo** lo que viene del troncal y no deja entrar nada de internet: es la política
 del borde, y la diferencia entre las cuatro tablas es el lab.
 
+## La vigilancia: quién mira la red, y por qué desde ahí
+
+El lab se mira a sí mismo. **`monitor`** (`ctl-2`) corre un NetXMS que pregunta por SNMP a los
+cinco equipos de red — `rt-nucleo` y los cuatro `fw` — y dibuja la topología con lo que le
+contestan. Ni un dato de la topología está declarado: sale del **descubrimiento**.
+
+**Dónde vive, y por qué ese sitio.** El invitado va en **`vmb_fw_gestion`**, la red de gestión,
+no dentro de ninguna zona. Los cuatro sitios que se miraron, y por qué tres no valen:
+
+- **Dentro de una zona** (`oficina`, `almacén`, `servidores`): vería su zona y nadie más. Para
+  llegar a otra tendría que atravesar el cortafuegos que la protege, y esas tablas **no** dan
+  acceso desde dentro de una zona a las demás — es justo lo que este lab enseña a filtrar.
+  Habría que abrir un boquete por zona, y el vigilante acabaría siendo la excepción que deshace
+  el ejercicio.
+- **Detrás del router de borde, o en el troncal (entre cortafuegos)**: son redes de tránsito.
+  Ahí no vive un servidor; no es un sitio, es un cable.
+- **Fuera del lab**: no vería las direcciones de gestión (están en un bridge del lab) y tendría
+  que entrar por un router — el mismo problema que la zona, más un invitado que no es del lab.
+- **En la red de gestión: sí.** Es la **única red que los cinco equipos comparten** (cada uno
+  tiene ahí su `ether1`, la pata de gestión por la que el motor los configura) y es la red que
+  su tabla de entrada **ya da por buena**: la primera regla `input` de las cuatro tablas es
+  `accept src-address=10.44.0.0/24`. El vigilante ve a los cinco por SNMP **sin abrir ni una
+  regla nueva** y sin depender de ningún router del lab. Mirar no es un privilegio de una zona:
+  es una función de la operación, y va donde va el que despliega.
+
+**Por qué un invitado aparte, y no el puesto de control.** El `ctl-1` ya tiene la pata de
+gestión (red de gestión y salida por el puente del nodo) y podría haber alojado el servicio.
+No se hizo: el puesto de control es **la única pieza de la que cuelga todo el despliegue** —por
+él entra el motor (el túnel)— y meterle un PostgreSQL, un JVM y un Tomcat es poner un servidor
+de aplicaciones en el punto único de fallo. `monitor` es un `ctl` **aparte** que publica su
+servicio y **no toca el túnel**. El precio (una pata de gestión más en el nodo) ya lo paga el
+bastión, y el motor lo generalizó: **quien publica un servicio sale por donde sale el nodo**.
+
+**Cómo sale al exterior.** Por su pata de gestión (la misma que la del bastión: `vmbr1`, con la
+dirección del nodo como pasarela) alcanza, por un lado, los repositorios para instalarse y, por
+otro, el proxy del nodo que publica `https://netxms.matadepera.eu` → su `10.44.0.20:8080`. La
+entrada por HTTPS la da la pieza de gestión del anfitrión, **no** un invitado del lab: lo que
+abre el nodo no se versiona aquí.
+
+**Qué lee, y qué no.** NetXMS no inventa la topología: la saca de las **tablas de rutas y de
+ARP** que cada equipo le da por SNMP (descubrimiento pasivo) y de las direcciones que
+**contestan** a su sonda (activo). El vigilante vive en `10.44.0.0/24` y **no tiene rutas hacia
+las zonas** (`10.44.1.0/24`, `10.44.10.0/24`…): no las necesita para preguntar por SNMP, que va
+a la dirección de gestión de cada equipo.
+
+**La vigilancia es una marca, no un guion.** El lab declara `snmp: {}` en un equipo («que se le
+pueda preguntar») y `monitorizacion: {}` en el vigilante («este servidor mira»). El **cómo** es
+del motor: enciende el agente, pone **una** comunidad de lectura (la constante del motor, la
+misma con la que el vigilante pregunta), y le **declara al servidor la red que tiene que rondar**
+— la del propio invitado, derivada de su interfaz, nunca un valor declarado — **con el
+descubrimiento activo encendido**: la ronda la hace el servidor **solo**, cada hora y al arrancar,
+y la topología va apareciendo en la web según encuentra los equipos. Y no **toca** la
+comunidad de fábrica (`public`): el área manda dentro de lo que declara, y la segunda pasada no
+produce ninguna operación (regla 6). En el `rt-nucleo`, que no tiene tabla de filtrado, el
+agente queda alcanzable por quien pueda llegar a sus direcciones; en los cuatro `fw` es su
+propia tabla de entrada la que limita el acceso a la red de gestión. Es un banco de pruebas y
+se dice.
+
+**La primera pasada del sembrado depende del orden.** El vigilante va en la **última etapa**:
+cuando ronda la red, los cinco equipos ya tienen su agente encendido. Un vigilante que rondara
+antes de que los vigilados estén vivos encontraría la red vacía — y no por un fallo del
+sembrado, sino por haber preguntado demasiado pronto (regla 18).
+
+**Cómo se entra, y por qué la consola no se usa.** La web es **`https://netxms.matadepera.eu`**
+(redirige a `/nxmc/`) con `admin` y la clave `netlabs`, la que el motor deja aplicada al
+inicializar la base. Esa clave se comprueba **por el API web** (`POST /v1/login`), que es la
+misma puerta por la que entra la interfaz — y **nunca por la consola de depuración**: se midió
+que un `nxadm` que **autentica bien** deja la clave rota para la web (el login pasa a `403
+errorCode 61` y ya no se recupera). Por eso el motor no usa la consola para nada: ni para leer el
+estado del servicio, ni para disparar la ronda de descubrimiento.
+
+**Lo que este lab NO puede prometer** (medido, y se dice): el paquete reescribe el hash del
+administrador a `argon2id` —al entrar con un hash en formato viejo— y ese argon2id **no verifica**.
+Con la base recién inicializada el API contesta `201` durante ~90 s y a partir de ahí **todo login
+es `403`**, con cualquier clave. Es decir: **la web se entra bien en la ventana de ~1-2 minutos
+tras un `preparar`, y luego decae** hasta la siguiente pasada. No lo controla ninguna declaración:
+lo único que el motor puede hacer —y hace— es no confundir «aún no contesta» con «no acepta la
+clave» (esa confusión costaba la base entera, con su topología), curar un rechazo devolviendo el
+hash bueno **sin tocar un dato**, y no reiniciar el servidor «por si acaso».
+
 ## Qué se rompió (y cómo se arregló)
 
 **El `apply` paró con un 401 a media convergencia de `almacen`.** No era del lab: era del motor,
@@ -252,6 +337,25 @@ Otras dos cosas que aparecieron por el camino, y se arreglaron:
   la de nadie) y el plan offline vuelve a ser demostrable.
 - Un aviso de plantilla en `tasks/tunnel.yml`: una tarea hablaba de «el rol `tunnel_rol`»
   también cuando no había rol. Ahora sólo corre dentro de un paso.
+
+**La vigilancia destapó dos cosas más** (ADR 0029 §«Lo que se midió al desplegar»):
+
+- **Dos invitados con pata de gestión en la misma pasada salían por la MISMA dirección.** El
+  `monitor` nació con la `10.10.10.254` **del bastión**, y en `vmbr1` —el bridge del nodo, donde
+  vive el propio nodo— eso son dos máquinas contestando por una dirección. No era cosmético: el
+  SSH del motor al `monitor` se caía a medias (`Connection closed by UNKNOWN port 65535`) mientras
+  el bastión iba bien, y en el diario del interior se ve la firma exacta: las tres lecturas de
+  `monitor` pasan y **las seis escrituras siguientes fallan al instante** con `rc=255`. El plan
+  ahora cuenta como usadas las direcciones que **la propia pasada reparte**; `monitor` sale por la
+  `10.10.10.253` y converge a la primera. Lo blinda `test/test_plan.py`.
+- **La web de NetXMS quedaba en pie y SIN PODER ENTRAR.** El servidor arranca, Tomcat sirve el
+  WAR, `https://netxms.matadepera.eu/nxmc/` responde… y el administrador tiene la clave que
+  `nxdbmgr init` generó al azar. `set-user-password` **no se puede guionizar** (pide la clave por
+  el terminal: «Cannot read password») y además **el paquete arranca el servidor al instalarse**,
+  así que la base estaba bloqueada («Database is locked by server …») y el `|| true` del guion se
+  lo tragaba en silencio. La clave va ahora **en el `init`** (`-p`), el motor **para el servidor
+  antes de tocar la base**, y el `estado` del servicio **no se conforma con «esquema sí y WAR
+  sí»: autentica**. Un servicio al que no se puede entrar no está convergido.
 
 ## Qué está verificado, y qué no
 
@@ -326,3 +430,10 @@ segundo intento convergió en el mismo lab a medio construir.
 - **El filtrado no se comprueba desde fuera todavía.** Las tablas convergen y se releen (está
   en «Qué está verificado»), pero el motor no lanza tráfico de prueba *a través* de un
   cortafuegos: hoy la prueba de que filtra es leer la tabla.
+- **Y los equipos de las zonas se van a ver en la topología sin que la red cambie.** Declaran
+  `latido: {}`: el motor les deja un temporizador que da un toque a su **propia pasarela** cada
+  dos minutos, y con eso su MAC vive en la tabla ARP de su `fw` — que es lo que el sondeo del
+  vigilante **lee** para encolarlos como nodo. No lleva agente, no lleva ruta y no ha pedido una
+  sola regla nueva en ningún cortafuegos: el motor entra a instalarlo por la pata que el bastión
+  **ya** tiene en cada zona (la de arriba). Aparecerán en el mapa sin información, porque el
+  vigilante no tiene camino hasta ellos; «que aparezcan» es lo que se pidió (ADR 0031).

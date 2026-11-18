@@ -99,6 +99,8 @@ CLAVE_EN_TEXTO = re.compile(
 
 # Una dirección IPv4 con máscara, y un rango `a-b` de un pool DHCP.
 IP_PATRON = re.compile(r"^\d{1,3}(\.\d{1,3}){3}(/\d{1,2})?$")
+# La cadencia del latido: número y unidad, tal y como los lee systemd (`30s`, `2min`, `1h`).
+CADENCIA_PATRON = re.compile(r"^[0-9]+(s|min|h|d)$")
 
 # El área `tunnel` no declara credenciales ni direcciones de casa: eso es entorno
 # (secrets.yml). Lo único que puede traer son los dos valores que un lab de verdad
@@ -828,6 +830,58 @@ def _validar_linux(declarado, etiqueta, rol, errores):
                 "Un servicio que el motor no sabe instalar y servir se rechaza aquí, no se acepta "
                 "y se ignora. Añadirlo es una primitiva nueva, con su ADR."
             )
+    # `monitorizacion`: el área que hace que el servidor declarado SEPA a quién vigilar. Es
+    # una MARCA (`monitorizacion: {}`), como `uplink`: el lab dice QUÉ servidor vigila, y el
+    # motor decide CÓMO (ronda la red del propio invitado por SNMP). Dos reglas, las dos en
+    # positivo:
+    #   * no lleva opciones -- un valor aquí es una primitiva que el lab se estaría inventando
+    #     (regla 15);
+    #   * el `servicio` declarado tiene que SABER vigilar, o el área no tendría quién la haga:
+    #     se rechaza con el motivo en vez de aceptarla y no hacer nada con ella.
+    if "monitorizacion" in declarado:
+        vigilancia = declarado.get("monitorizacion")
+        if vigilancia not in ({}, None):
+            errores.append(
+                f"`{etiqueta}` ({rol}): el área 'monitorizacion' no lleva opciones y se declaró "
+                f"{vigilancia!r}. Es una marca (`monitorizacion: {{}}`): que el servidor "
+                "declarado vigile la red por la que ve a los equipos. El cómo es del motor."
+            )
+        servicio = declarado.get("servicio")
+        opciones = modulo_interior.SERVICIOS_LINUX_OPCIONES.get(str(servicio or "")) or {}
+        if not opciones.get("monitorizacion"):
+            errores.append(
+                f"`{etiqueta}` ({rol}): 'monitorizacion' necesita un `servicio` que sepa vigilar, "
+                f"y el declarado ({servicio!r}) no lo hace. Que un servicio sepa vigilar es una "
+                "primitiva nueva del motor, con su ADR."
+            )
+
+
+    # `latido` (Linux): una MARCA (`latido: {}`), como `monitorizacion`, con UN valor
+    # opcional: cada cuánto da el toque. La cadencia es un valor DEL LAB (el motor no la
+    # adivina, regla 7), así que se valida aquí y no se deja pasar: un temporizador con una
+    # cadencia que systemd no sabe leer no arma, y el invitado se caería de la topología sin
+    # que nadie dijera por qué. Los nombres de las claves se cierran también: una clave que
+    # el motor no conoce es una primitiva que el lab se estaría inventando (regla 15).
+    if "latido" in declarado:
+        latido = declarado.get("latido")
+        if latido is not None and not isinstance(latido, dict):
+            errores.append(
+                f"`{etiqueta}` ({rol}): el área 'latido' se declara como marca (`latido: {{}}`) "
+                f"o con su cadencia (`latido: {{cada: 2min}}`), y se declaró {latido!r}."
+            )
+        else:
+            cada = (latido or {}).get("cada")
+            if cada is not None and not CADENCIA_PATRON.match(str(cada)):
+                errores.append(
+                    f"`{etiqueta}` ({rol}): 'latido.cada' espera una cadencia "
+                    f"(número y unidad: `30s`, `2min`, `1h`), y se declaró {cada!r}."
+                )
+            sobran = sorted(set(latido or {}) - {"cada"})
+            if sobran:
+                errores.append(
+                    f"`{etiqueta}` ({rol}): 'latido' no lleva esas claves: {', '.join(sobran)}. "
+                    "Lleva sólo `cada` (y es opcional)."
+                )
 
 
 def _address_space_de(declaracion):

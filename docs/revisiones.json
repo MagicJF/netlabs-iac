@@ -13,19 +13,19 @@
     "citados": {
       "deployment_engine/filter_plugins/estado.py": "53b22c6747df568ccaff6d91a8534fffaed38d4a3a0a76556b39d5a6e72c3e31",
       "deployment_engine/filter_plugins/identidad.py": "8d00bddc83100774ff8f3343f33f12dbcf3328ed09e4964cc8e9442052b06367",
-      "deployment_engine/filter_plugins/interior.py": "969e143e0e1bc81e8b656a8acea8b1dde2febf038eb0bc54501a5cd44e2eb7f3",
+      "deployment_engine/filter_plugins/interior.py": "a297bd86096705a9240555b3d42d0bfd3979c78a7f7ce65808daf7533ce54e47",
       "deployment_engine/playbooks/plan.yml": "1a11a151d2e4691ab4611a43f39319503e8153b67145fe450e8f31df70baca24",
       "deployment_engine/tasks/pve_api.yml": "42b30c7d2a79a68b54ea68ef0aadf90b9d3eaa6800aeb89378c7c50d551e2817",
       "deployment_engine/tasks/pve_api_y_esperar.yml": "6226f0c9e87cac7ff936dd4ead8c4f318bea3c5afc1dfaefaf1bf0ec09cd23dc",
       "deployment_engine/tools/documentos.py": "fc63504b3aeecb567bfbb44f385c636c9747cbb2b7a060f8818792bceb645b2d",
       "deployment_engine/tools/framework_check.py": "630692aa772f3db8155cd57fed9281bcbe395f86ba1d0fc79b1a16144a2013a7",
-      "deployment_engine/tools/plan.py": "d51a9685f3c72cd3d19c1a192df2ab53d01daaa1f9301829550c7c769b461ae1",
+      "deployment_engine/tools/plan.py": "38ca01ebc4f1b68e0df4240801e30e53ace770f93c4eb47c9b08ed4896c838a2",
       "deployment_engine/vars/engine.yml": "a8f147b01f83db6ac821e69988a4b4e641dbff39155592b72910da71af710a7d"
     }
   },
   "docs/crear-un-lab.md": {
     "citados": {
-      "deployment_engine/filter_plugins/declaracion.py": "546771f503f3d27116fd70a9717608f9f540c3183c35e29149ff7bf75ddc3c45"
+      "deployment_engine/filter_plugins/declaracion.py": "8dab220e76f7573ae8601a6c2a4d087edefc1fa63face466edb12652502915cb"
     }
   },
   "docs/decisiones/0001-solo-api-de-proxmox.md": {
@@ -186,6 +186,11 @@
   "docs/decisiones/0028-el-area-servicio-aprende-netxms.md": {
     "citados": {
       "deployment_engine/filter_plugins/interior.py": "0bb2579869b8489aad6dfb354554d3039e45c1cc66730aefa100dfbfd451892d"
+    }
+  },
+  "docs/decisiones/0032-el-rango-de-vigilancia-se-deriva-de-las-rutas.md": {
+    "citados": {
+      "deployment_engine/filter_plugins/interior.py": "a297bd86096705a9240555b3d42d0bfd3979c78a7f7ce65808daf7533ce54e47"
     }
   },
   "docs/encargo-capa-de-configuracion.md": {

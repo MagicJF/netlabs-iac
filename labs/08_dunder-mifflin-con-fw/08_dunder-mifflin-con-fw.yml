@@ -233,6 +233,9 @@ vms:
           - {chain: forward, action: accept, connection_state: "established,related"}
           - {chain: forward, action: accept, in_interface: ether3,
              comment: "la oficina sale por el troncal (y de ahi, el borde la saca)"}
+          - {chain: forward, action: accept, protocol: icmp, src_address: 10.44.0.0/24,
+             dst_address: 10.44.1.0/24,
+             comment: "la vigilancia sondea la zona: se deja pasar su ICMP desde la red de gestion"}
           - {chain: forward, action: drop, comment: "de fuera hacia la oficina, nada: cada zona se pide"}
 
   # EL CORTAFUEGOS DEL ALMACÉN: misma forma, otra zona.
@@ -269,6 +272,9 @@ vms:
           - {chain: forward, action: accept, connection_state: "established,related"}
           - {chain: forward, action: accept, in_interface: ether3,
              comment: "el almacen sale por el troncal"}
+          - {chain: forward, action: accept, protocol: icmp, src_address: 10.44.0.0/24,
+             dst_address: 10.44.2.0/24,
+             comment: "la vigilancia sondea la zona: se deja pasar su ICMP desde la red de gestion"}
           - {chain: forward, action: drop}
 
   # EL CORTAFUEGOS DE LOS SERVIDORES: es el ESTRECHO -- y por eso es el que enseña lo que
@@ -309,6 +315,9 @@ vms:
              comment: "al servidor web, solo por https"}
           - {chain: forward, action: accept, protocol: tcp, dst_address: 10.44.3.10, dst_port: 80,
              comment: "y por http, para el redireccionamiento"}
+          - {chain: forward, action: accept, protocol: icmp, src_address: 10.44.0.0/24,
+             dst_address: 10.44.3.0/24,
+             comment: "la vigilancia sondea la zona: se deja pasar su ICMP desde la red de gestion"}
           - {chain: forward, action: drop, comment: "la DMZ no inicia nada: lo demas cae"}
 
 containers:
@@ -359,9 +368,19 @@ containers:
     config:
       linux:
         servicio: netxms
-        # Que el servidor SEPA a quién vigilar: ronda la red por la que ve a los equipos
-        # (la suya) y añade lo que responde por SNMP. El CÓMO es del motor; el lab sólo
-        # declara que este servidor vigila.
+        # EL CAMINO hacia las zonas: sin esto el vigilante solo alcanza su propia red (la de
+        # gestión) y los invitados de las zonas -- que cuelgan de los cortafuegos -- no se
+        # ven. Son rutas ESTÁTICAS (`dst_address` + `gateway`), el mismo vocabulario que un
+        # CHR: el motor las aplica y las lee, y con ellas el rango de descubrimiento (que el
+        # motor DERIVA de estas rutas, no de un valor escrito) cubre las tres zonas. Cada
+        # pasarela es la pata de gestión del cortafuegos de su zona.
+        routes:
+          - {dst_address: 10.44.1.0/24, gateway: 10.44.0.12}
+          - {dst_address: 10.44.2.0/24, gateway: 10.44.0.13}
+          - {dst_address: 10.44.3.0/24, gateway: 10.44.0.14}
+        # Que el servidor SEPA a quién vigilar: ronda por SNMP las redes que ALCANZA (la suya
+        # y las de sus rutas de arriba) y añade lo que responde. El CÓMO es del motor; el lab
+        # sólo declara que este servidor vigila.
         monitorizacion: {}
 
   # EL SERVIDOR DE FICHEROS DE LA OFICINA: dirección y pasarela a mano. Su pasarela es su

@@ -1925,13 +1925,41 @@ comprobar(
 )
 comprobar(
     "sembrar)" in _PREPARADOR_NETXMS
-    and "NetworkDiscovery.ActiveDiscovery.AddressRange $base.0/24" in _PREPARADOR_NETXMS
-    and "NetworkDiscovery.ActiveDiscovery.Enabled 1" in _PREPARADOR_NETXMS
     and "vigilados" in _PREPARADOR_NETXMS
     and f'MARCA="{motor.RUTA_MARCA_SEMBRADO}"' in _PREPARADOR_NETXMS,
-    "el servidor descubre SOLO (se le declara la red del propio invitado, derivada, con el "
-    "descubrimiento activo encendido) y el sembrado espera a que sus hallazgos estén en la base "
-    "y deja su marca -- sin consola de por medio",
+    "el sembrado espera a que los hallazgos del servidor estén en la base y deja su marca -- "
+    "sin consola de por medio",
+)
+comprobar(
+    "NetworkDiscovery.ActiveDiscovery.AddressRange $" not in _PREPARADOR_NETXMS
+    and "NetworkDiscovery.ActiveDiscovery.Enabled 1" not in _PREPARADOR_NETXMS,
+    "y el rango NO se declara con la variable `NetworkDiscovery.ActiveDiscovery.AddressRange` "
+    "(ni con `...Enabled`): medido sobre la fuente de NetXMS 7.0, esas variables NO se leen, así "
+    "que escribirla era una promesa sin respaldo -- los nodos que aparecían salían del "
+    "descubrimiento pasivo (ARP), no de la ronda",
+)
+comprobar(
+    "address_lists" in _PREPARADOR_NETXMS
+    and "list_type = 1" in _PREPARADOR_NETXMS
+    and "delete from address_lists where list_type = 1" in _PREPARADOR_NETXMS
+    and "insert into address_lists" in _PREPARADOR_NETXMS,
+    "el rango se ESCRIBE en la tabla `address_lists` (list_type=1, de donde NetXMS 7.0 SÍ toma "
+    "los objetivos del descubrimiento activo): se borran las que el motor no declara y se ponen "
+    "las declaradas (regla 17)",
+)
+comprobar(
+    "$base.0/24 $(ip -4 route show" in _PREPARADOR_NETXMS
+    and "grep ' via '" in _PREPARADOR_NETXMS
+    and "grep -v ' proto dhcp '" in _PREPARADOR_NETXMS
+    and "awk '{print $1}'" in _PREPARADOR_NETXMS,
+    "y las redes a vigilar son VARIAS y DERIVADAS: la propia (de la interfaz) y las de las rutas "
+    "estáticas del invitado (las que pone el área `routes`) -- ninguna es un valor de lab, y el "
+    "rango cubre las zonas a las que el vigilante tiene camino",
+)
+comprobar(
+    "NetworkDiscovery.ActiveDiscovery.Interval 3600" in _PREPARADOR_NETXMS,
+    "y el intervalo va en SEGUNDOS (3600 = una hora): el motor escribía «1» creyendo que eran "
+    "horas, y en NetXMS 7.0 eran 1 SEGUNDO -- una ronda por segundo sobre redes ya no vacías",
 )
 
 # --- El área `latido`: aparecer sin que nadie te pregunte ------------------------------
@@ -2010,6 +2038,13 @@ igual(
     ["remove_route"],
     "y dentro de un área declarada, lo que no está en el YAML se quita (regla 17): una ruta "
     "estática que sobra se va -- el área gobierna lo que declara, ni más ni menos",
+)
+comprobar(
+    "routes" in _validador.AREAS_QUE_NO_LE_TOCAN["ctl"].get("routeros", {})
+    and "routes" not in _validador.AREAS_QUE_NO_LE_TOCAN["ctl"].get("*", {}),
+    "y un `ctl` SÍ puede declarar `routes` con su LINUX (el vigilante necesita el camino a las "
+    "zonas detrás de los `fw`): la prohibición de enrutar está acotada a su interior RouterOS, "
+    "igual que la de repartir direcciones",
 )
 comprobar(
     bool(_validador.CADENCIA_PATRON.match("2min")) and bool(_validador.CADENCIA_PATRON.match("30s"))

@@ -1,0 +1,121 @@
+---
+# PROPÓSITO:   el lab de INVESTIGACIÓN de los mapas L2: medir si un equipo que
+#              CONMUTA de verdad (un CHR con un bridge de RouterOS) publica por
+#              SNMP su tabla de conmutación (FDB) y sus vecinos LLDP, y si NetXMS
+#              puede dibujar con eso un mapa L2. Es desechable: se destruye al
+#              terminar y no se mezcla con el lab de aceptación.
+# INVARIANTES: la declaración NO declara el bridge de RouterOS: el motor todavía no
+#              tiene la primitiva `bridges` de RouterOS (está en AREAS_PENDIENTES y
+#              el validador la rechaza). El bridge se configura A MANO por la REST
+#              del CHR, como DIAGNÓSTICO, y se tira con el lab. Ningún vmid ni
+#              ninguna MAC (regla 11): los deriva el motor del estado real.
+# LÍMITES:     el CHR sólo declara las áreas mínimas para ser alcanzable y vigilado
+#              por SNMP. El bridge de conmutación no se declara; se crea después por
+#              REST. Los dos Linux no declaran `config:`: no se entra en ellos, sólo
+#              se les hace ping para que el bridge aprenda sus MACs.
+# VER:         docs/informe-mapas-l2.md (el experimento y las medidas)
+
+lab:
+  nombre: 11_l2-research
+
+  # Una etapa: el bastión/monitor, el CHR y los dos Linux caben juntos. El CHR pide
+  # DHCP sin parar hasta que le contestan, así que no hay carrera que perder.
+  stages: [1]
+
+  # Espacio propio y libre: los labs con interior usan 10.40 a 10.46. Éste usa 10.51.
+  address_space: 10.51.0.0/16
+
+  # Tres bridges: la red de gestión (monitor + CHR ether1), y una por pata del
+  # bridge de RouterOS. El `address:` de un bridge es la PASARELA de esa red (no se
+  # le pone al nodo: el nodo sólo presta la interfaz).
+  bridges:
+    - nombre: vmb_l2res
+      address: 10.51.1.1/24
+    - nombre: vmb_l2a
+      address: 10.51.0.1/24
+    - nombre: vmb_l2b
+      address: 10.51.0.1/24
+
+  # El túnel lo construye el motor: el invitado con `config.linux.túnel` sale hacia
+  # casa y hace de bastión. Por dónde sale es ENTORNO (vive en secrets.yml).
+  tunnel: {tipo: bastion}
+
+vms:
+  # EL CHR QUE CONMUTA. Se declara como router porque de ahí salen dos decisiones de
+  # NACIMIENTO que no se pueden cambiar: el bus del disco (`sata0`) y la consola de
+  # serie. Tres interfaces: ether1 a la red de gestión (por donde se le configura y
+  # se le vigila), ether2 y ether3 a las dos patas del bridge que se creará a mano.
+  - rol: conmutador
+    tipo: rt          # un CHR -> 'rt-conmutador'
+    nombre: l2
+    stage: 1
+    cores: 1
+    memory: 512
+    disk: 1
+    image: chr-7.25.1.raw
+    bridges: [vmb_l2res, vmb_l2a, vmb_l2b]
+    address: 10.51.1.11/24
+    ready: {tipo: routeros_rest, espera: 240}
+    config:
+      routeros:
+        identity: rt-l2
+        # El área `snmp` enciende el agente y le pone la comunidad de lectura del
+        # motor. Sin esto el CHR es mudo y no hay nada que medir.
+        snmp: {}
+        ip_services: {deshabilitar: [telnet, ftp, api, api-ssl]}
+        dhcp_client: {deshabilitar: true}
+
+containers:
+  # EL BASTIÓN Y VIGILANTE. Es el único invitado con túnel: por él se entra a todo el
+  # lab. Y es el servidor NetXMS: el motor le instala el servicio y le deja la
+  # monitorización preparada. Su dirección de gestión está en 10.51.1.0/24; la ruta
+  # a 10.51.0.0/24 va por el CHR, que es quien tiene el bridge.
+  - rol: monitor
+    tipo: ctl         # el bastión del lab -> 'ctl-monitor'
+    nombre: 1
+    stage: 1
+    cores: 2
+    memory: 1024
+    disk: 6
+    bridge: vmb_l2res
+    address: 10.51.1.10/24
+    ready: {tipo: ssh, espera: 120}
+    config:
+      linux:
+        tunnel: {}
+        servicio: netxms
+        # El CHR arranca SIN dirección y la pide por DHCP a su cliente de fábrica
+        # (como en el lab 04). Sin este servidor no hay quien le conteste y el CHR
+        # se queda mudo: la sonda de la etapa 1 falla. La reserva se DERIVA de la
+        # dirección estática que el CHR declara (regla 14).
+        dhcp_server:
+          interface: eth0
+          rango: 10.51.1.50-10.51.1.99
+          static_leases: derived
+        ip_forward: true
+        routes:
+          - {dst_address: 10.51.0.0/24, gateway: 10.51.1.11}
+        monitorizacion: {}
+
+  # LOS DOS LINUX QUE HABLAN A TRAVÉS DEL BRIDGE. No declaran `config:`: no se entra
+  # en ellos. Su dirección la pone Proxmox en el `net0` al crear el contenedor. Están
+  # en bridges distintos, así que el único camino entre ellos es el bridge del CHR.
+  - rol: extremo-a
+    tipo: ws
+    nombre: 1
+    stage: 1
+    cores: 1
+    memory: 256
+    disk: 4
+    bridge: vmb_l2a
+    address: 10.51.0.21/24
+
+  - rol: extremo-b
+    tipo: ws
+    nombre: 2
+    stage: 1
+    cores: 1
+    memory: 256
+    disk: 4
+    bridge: vmb_l2b
+    address: 10.51.0.22/24

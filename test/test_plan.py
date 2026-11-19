@@ -178,8 +178,98 @@ igual(
 
 # ---------------------------------------------------------------------------
 
-print("\nLA MISMA FUNCIÓN QUE CREA ES LA QUE COMPARA\n")
+print("\nDOS INVITADOS CON PATA EN LA MISMA PASADA NO CHOCAN EN EL BRIDGE DEL NODO\n")
 
+# La dirección de la pata de gestión se DERIVA de las que ya usa el nodo. Una pasada que crea
+# al bastión Y a un publicador mira el MISMO mundo los dos: sin contar lo que la propia pasada
+# reparte, los dos derivarían la misma y el bridge del nodo acabaría con dos máquinas
+# contestando por una dirección (medido en el lab 08: el monitor salió con la .254 del bastión).
+DECLARACION_PATA = {
+    "lab": "colision",
+    "bridges": [],
+    "guests": [
+        {"rol": "control", "bridge": "vmb_x", "address": "10.70.0.10/24"},
+        {"rol": "monitor", "bridge": "vmb_y", "address": "10.70.9.20/24"},
+    ],
+}
+BASTION = {
+    "rol": "control", "tipo": "lxc", "vmid": 401, "stage": 1,
+    "bridge": "vmb_x", "address": "10.70.0.10/24",
+    "config": {"linux": {"tunnel": {}}},
+}
+PUBLICADOR = {
+    "rol": "monitor", "tipo": "lxc", "vmid": 402, "stage": 2,
+    "bridge": "vmb_y", "address": "10.70.9.20/24",
+    "config": {"linux": {"servicio": "netxms"}},
+}
+PARAMETROS_PATA = {"mac_prefijo": "BC:24:11", "bridge_gestion": "vmbr1"}
+ESTADO_PATA = {"bridges_direcciones": {"vmbr1": "10.20.0.1/24"},
+               "direcciones_usadas": ["10.20.0.1/24"]}
+
+
+def salida_de(red):
+    """La dirección de la ÚLTIMA interfaz (la pata de gestión del nodo), leída del bloque `net<n>`."""
+    ultima = red[max(red, key=lambda clave: int(clave[3:]))]
+    for trozo in ultima.split(","):
+        if trozo.startswith("ip="):
+            return trozo[3:]
+    return ""
+
+
+# 1) El agujero tal cual era: los dos miran el MISMO mundo, que no incluye lo que la pasada
+#    reparte -> los dos derivan la misma dirección y el bridge del nodo se queda con dos
+#    máquinas contestando por ella.
+_choque_bastion = salida_de(
+    modulo._redes_del_guest(BASTION, DECLARACION_PATA, ESTADO_PATA, PARAMETROS_PATA)
+)
+_choque_publicador = salida_de(
+    modulo._redes_del_guest(PUBLICADOR, DECLARACION_PATA, ESTADO_PATA, PARAMETROS_PATA)
+)
+igual(
+    _choque_bastion, _choque_publicador,
+    "sin contar lo que reparte la pasada, el bastión y el publicador derivan la MISMA dirección: "
+    "es el choque que esto cierra",
+)
+
+# 2) Con el mecanismo del plan: lo repartido se suma a lo usado para el siguiente invitado.
+_usadas = list(ESTADO_PATA["direcciones_usadas"])
+_red_bastion = modulo._redes_del_guest(
+    BASTION, DECLARACION_PATA, {**ESTADO_PATA, "direcciones_usadas": _usadas}, PARAMETROS_PATA
+)
+_usadas.extend(modulo._direcciones_del_bloque_de_red(_red_bastion))
+_red_publicador = modulo._redes_del_guest(
+    PUBLICADOR, DECLARACION_PATA, {**ESTADO_PATA, "direcciones_usadas": _usadas}, PARAMETROS_PATA
+)
+comprobar(
+    salida_de(_red_bastion) != salida_de(_red_publicador),
+    "y contando lo que la pasada ya repartió, cada uno sale por su propia dirección",
+)
+comprobar(
+    salida_de(_red_publicador) not in ESTADO_PATA["direcciones_usadas"],
+    "ninguna de las dos cae sobre una dirección que ya estaba en uso",
+)
+
+# 3) Las direcciones se leen del MISMO sitio que recibe la API (`net<n>` con `ip=`), no de una
+#    copia: si esto se desincronizara, el invariante no valdría nada.
+igual(
+    sorted(modulo._direcciones_del_bloque_de_red(_red_bastion)),
+    [salida_de(_red_bastion), "10.70.0.10/24"],
+    "se leen TODAS las direcciones fijas de la red del invitado, la declarada y la derivada",
+)
+igual(
+    modulo._direcciones_del_bloque_de_red({"net0": "name=eth0,bridge=vmb_x,hwaddr=BC:24:11:00:00:01,ip=dhcp"}),
+    [],
+    "una interfaz que pide la dirección por DHCP no reparte nada: no cuenta como usada",
+)
+igual(
+    modulo._direcciones_del_bloque_de_red({"net0": "name=eth0,bridge=vmbr1,hwaddr=BC:24:11:00:00:02"}),
+    [],
+    "y la que no lleva `ip=` tampoco (el exterior sale por DHCP desde dentro)",
+)
+
+# ---------------------------------------------------------------------------
+
+print("\nLA MISMA FUNCIÓN QUE CREA ES LA QUE COMPARA\n")
 # El invariante que impide diferencias fantasma: lo que se compara es lo que escribiría
 # `_redes_del_guest`, no una copia que se pueda desincronizar. Si esto se rompiera, el plan
 # pediría rehacer invitados que están perfectos.

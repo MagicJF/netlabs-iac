@@ -79,3 +79,30 @@
 - name: "INTERIOR · dejar los resultados a mano del driver"
   ansible.builtin.set_fact:
     interior_resultados: "{{ interior_ejecutados.results | default([]) }}"
+
+# LA GUARDA DE LA LLAVE. Un invitado que YA existía cuando el motor todavía no le dejaba su
+# clave no se puede arreglar por la API: Proxmox admite `ssh-public-keys` **sólo al CREAR**
+# el contenedor (está en el endpoint de creación y NO en el esquema de su configuración,
+# comprobado en su código), así que no hay forma de añadírsela después. Y sin clave no se
+# entra: sshd contesta «Permission denied (publickey)», que no dice nada de lo que pasa de
+# verdad. Aquí se reconoce ese caso --rc 255 con esa firma, que es «llegué al sshd y me
+# rechazó la clave», no «no hay camino»-- y se PARA diciéndolo, con lo que hay que hacer.
+# Rodea esto la regla 1 (no se rodea la API), y la 16 (se para diciendo qué pieza falta y
+# cómo se arregla). Va DESPUÉS del diario: el intento queda escrito, que es la evidencia.
+- name: "INTERIOR · ¿se pudo ENTRAR a '{{ interior_rol }}'?"
+  ansible.builtin.fail:
+    msg: >-
+      No se pudo ENTRAR en '{{ interior_rol }}' ({{ pve_lab }}): sshd contestó
+      «Permission denied (publickey)», que es la firma de un invitado que EXISTÍA antes de
+      que el motor le dejara su clave. Proxmox admite `ssh-public-keys` SÓLO al crear un
+      contenedor, y no está en el esquema de su configuración: no hay forma de añadírsela
+      después por la API, y el motor no la rodea (regla 1). Para arreglarlo: destruye el
+      lab y vuelve a desplegarlo -- `./lab --lab {{ pve_lab }} destroy --yes` y después
+      `./lab --lab {{ pve_lab }} apply`. Se para aquí sin tocar nada más.
+  when: interior_sin_clave | bool
+  vars:
+    interior_sin_clave: >-
+      {{ (interior_ejecutados.results | default([])
+          | selectattr('rc', 'defined') | selectattr('rc', 'equalto', 255) | list
+          | selectattr('stderr', 'search', 'Permission denied') | list | length) > 0 }}
+  changed_when: false

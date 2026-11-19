@@ -1406,10 +1406,10 @@ comprobar(
 
 
 # ---------------------------------------------------------------------------
-# El área `servicio` (ADR 0027): un servicio instalado, configurado y SIRVIENDO.
+# El área `servicio` (ADR 0027 y 0028): un servicio instalado, configurado y SIRVIENDO.
 #
-# El valor declarado es el NOMBRE del servicio, de un vocabulario CERRADO (hoy sólo
-# `caddy`). El contrato es el MISMO que el del resto del interior: (declarado, leído)
+# El valor declarado es el NOMBRE del servicio, de un vocabulario CERRADO (`caddy` y
+# `netxms`). El contrato es el MISMO que el del resto del interior: (declarado, leído)
 # -> operaciones, y un invitado ya convergido no produce NINGUNA (regla 6).
 # ---------------------------------------------------------------------------
 
@@ -1422,6 +1422,11 @@ EQUIPO_SERVICIO = {
     "config": {"linux": {"tunnel": {}, "servicio": "caddy"}},
 }
 
+# El MISMO equipo, pero con el otro miembro del vocabulario: la declaración sólo cambia de
+# nombre, y es el motor el que sabe que NetXMS necesita una base y una web.
+EQUIPO_NETXMS = dict(EQUIPO_SERVICIO, rol="monitor",
+                     config={"linux": {"tunnel": {}, "servicio": "netxms"}})
+
 comprobar(
     "servicio" in motor.areas_de(EQUIPO_SERVICIO)
     and "servicio" in motor.areas_que_piden_visita(EQUIPO_SERVICIO),
@@ -1432,43 +1437,43 @@ igual(
     "el valor del área es el NOMBRE del servicio, tal cual (no se envuelve en un mapa)",
 )
 igual(
-    motor.SERVICIOS_LINUX, ("caddy",),
-    "el vocabulario de servicios es CERRADO y hoy tiene un solo miembro",
+    motor.SERVICIOS_LINUX, ("caddy", "netxms"),
+    "el vocabulario de servicios es CERRADO y hoy tiene dos miembros (ADR 0028)",
+)
+igual(
+    motor.areas_de(EQUIPO_NETXMS)["servicio"], "netxms",
+    "y el segundo miembro se declara igual: el nombre, sin más",
 )
 
 
-def _encontrado_servicio(caddy, curl, activa, habilitada, config, pagina, servido):
-    """El `encontrado` del área, tal y como lo deja la vía de acceso (SEIS bloques separados)."""
-    return "\n".join([
-        f"caddy={caddy}",
-        f"curl={curl}",
-        motor.SEPARADOR,
-        activa,
-        motor.SEPARADOR,
-        habilitada,
-        motor.SEPARADOR,
-        config,
-        motor.SEPARADOR,
-        pagina,
-        motor.SEPARADOR,
-        servido,
-    ])
+def _encontrado_servicio(herramientas, activa, habilitada, ficheros, servido, extra="na"):
+    """El `encontrado` del área, tal y como lo deja la vía de acceso (SIETE bloques).
+
+    `herramientas` es {ejecutable: valor de `command -v`}; `ficheros` es la lista de
+    contenidos EN ORDEN (uno por fichero gobernado); los dos últimos bloques van siempre.
+    """
+    bloques = ["\n".join(f"{h}={v}" for h, v in herramientas.items()), activa, habilitada]
+    bloques += [str(f) for f in ficheros]
+    bloques += [servido, extra]
+    return ("\n" + motor.SEPARADOR + "\n").join(bloques)
 
 
-def _leer_servicio(caddy, curl, activa, habilitada, config, pagina, servido):
+def _leer_servicio(herramientas, activa, habilitada, ficheros, servido, extra="na"):
     return motor.leido_linux([
         {"area": "servicio", "rc": 0,
-         "encontrado": _encontrado_servicio(caddy, curl, activa, habilitada, config, pagina, servido)}
+         "encontrado": _encontrado_servicio(herramientas, activa, habilitada, ficheros,
+                                            servido, extra)}
     ])["servicio"]
 
 
+_SIN_CADDY = {"caddy": "NO", "curl": "NO"}
+_CON_CADDY = {"caddy": "/usr/bin/caddy", "curl": "/usr/bin/curl"}
+_FICHEROS_CADDY = [motor.configuracion_servicio("caddy"), motor.pagina_servicio()]
+
 # Un invitado FRESCO: sin el paquete, sin habilitar y sin servir.
-_SERVICIO_FRESCO = _leer_servicio("NO", "NO", "inactive", "disabled", "", "", "NO-SIRVE")
+_SERVICIO_FRESCO = _leer_servicio(_SIN_CADDY, "inactive", "disabled", ["", ""], "NO-SIRVE")
 igual(
-    motor.leido_linux([{"area": "servicio", "rc": 0,
-                        "encontrado": _encontrado_servicio("NO", "NO", "inactive", "disabled",
-                                                           "", "", "NO-SIRVE")}])["servicio"]["herramientas"],
-    {"caddy": False, "curl": False},
+    _SERVICIO_FRESCO["herramientas"], {"caddy": False, "curl": False},
     "la relectura de un invitado fresco no encuentra NI el paquete NI `curl`",
 )
 comprobar(
@@ -1477,8 +1482,7 @@ comprobar(
     and _SERVICIO_FRESCO["sirve"] is False
     # Los dos ficheros llegan EN BLANCO (con el salto de línea que deja el propio comando): se
     # comparan por su contenido sin espacios de sobra, que es lo que hace el canónico.
-    and _SERVICIO_FRESCO["config_leida"].strip() == ""
-    and _SERVICIO_FRESCO["pagina_leida"].strip() == "",
+    and [f.strip() for f in _SERVICIO_FRESCO["ficheros_leidos"]] == ["", ""],
     "la relectura de un invitado fresco lo ve todo por poner: unidad, habilitación, los dos "
     "ficheros (en blanco) y el servicio sin servir",
 )
@@ -1491,8 +1495,7 @@ igual(
 # Un invitado CONVERGIDO: los DOS ficheros con el contenido EXACTO del motor, la unidad viva y
 # habilitada, y sirviendo.
 _SERVICIO_AL_DIA = _leer_servicio(
-    "/usr/bin/caddy", "/usr/bin/curl", "active", "enabled",
-    motor.configuracion_servicio("caddy"), motor.pagina_servicio(), motor.pagina_servicio(),
+    _CON_CADDY, "active", "enabled", _FICHEROS_CADDY, motor.pagina_servicio(),
 )
 igual(
     motor._servicio_canonico("caddy", _SERVICIO_AL_DIA), [],
@@ -1504,8 +1507,8 @@ igual(
 # escribe -- que es justo lo que promete. El contenido se compara entero.
 _CONFIG_TOCADA = motor.configuracion_servicio("caddy") + "\n# tocado a mano\n"
 _SERVICIO_TOCADO = _leer_servicio(
-    "/usr/bin/caddy", "/usr/bin/curl", "active", "enabled",
-    _CONFIG_TOCADA, motor.pagina_servicio(), motor.pagina_servicio(),
+    _CON_CADDY, "active", "enabled", [_CONFIG_TOCADA, motor.pagina_servicio()],
+    motor.pagina_servicio(),
 )
 comprobar(
     motor.MARCA_SERVICIO in _CONFIG_TOCADA
@@ -1518,8 +1521,8 @@ comprobar(
 # Y una PÁGINA BORRADA tampoco cuela (el otro fichero que el motor gobierna): antes sólo se
 # recargaba el servicio y la página no volvía nunca.
 _SIN_PAGINA = _leer_servicio(
-    "/usr/bin/caddy", "/usr/bin/curl", "active", "enabled",
-    motor.configuracion_servicio("caddy"), "", motor.pagina_servicio(),
+    _CON_CADDY, "active", "enabled",
+    [motor.configuracion_servicio("caddy"), ""], motor.pagina_servicio(),
 )
 igual(
     [o["op"] for o in motor._servicio_canonico("caddy", _SIN_PAGINA)],
@@ -1530,8 +1533,7 @@ igual(
 # VIVO PERO DESHABILITADO (hallazgo del revisor, reproducido): `is-active` no es `is-enabled`.
 # Un servicio vivo que no arranca al reiniciar el invitado no está gobernado.
 _SERVICIO_DESHABILITADO = _leer_servicio(
-    "/usr/bin/caddy", "/usr/bin/curl", "active", "disabled",
-    motor.configuracion_servicio("caddy"), motor.pagina_servicio(), motor.pagina_servicio(),
+    _CON_CADDY, "active", "disabled", _FICHEROS_CADDY, motor.pagina_servicio(),
 )
 igual(
     [o["op"] for o in motor._servicio_canonico("caddy", _SERVICIO_DESHABILITADO)],
@@ -1547,6 +1549,7 @@ igual(
     "un servicio fuera del vocabulario no se decide aquí: el validador lo rechaza antes",
 )
 igual(motor.configuracion_servicio("nginx"), "", "y no hay configuración de motor para él")
+igual(motor.lectura_servicio("nginx"), "", "ni lectura: no sabe qué preguntar de un desconocido")
 
 # Y el camino ENTERO por `pasos_de_convergencia`: del invitado declarado salen los pasos del
 # área, y `escrituras_linux` los traduce a comandos IDEMPOTENTES que la vía de acceso ejecuta.
@@ -1612,6 +1615,1108 @@ igual(
     "releído y al día, el invitado declarado con `servicio` no deja ningún paso (convergió)",
 )
 
+
+# ---------------------------------------------------------------------------
+# El SEGUNDO miembro del vocabulario: NetXMS (ADR 0028). Un servicio con DEPENDENCIAS -- base
+# de datos y contenedor de servlets -- no cabe en la forma de `caddy`, y el motor no finge:
+# si la base no está preparada, se prepara antes de arrancar (y si no, se pediría recargar
+# para siempre con un servidor que no arranca).
+# ---------------------------------------------------------------------------
+
+_NETXMS_DIA = {
+    "netxmsd": "/usr/bin/netxmsd",
+    "nxdbmgr": "/usr/bin/nxdbmgr",
+    "psql": "/usr/bin/psql",
+    "curl": "/usr/bin/curl",
+    "java": "/usr/bin/java",
+}
+_FICHEROS_NETXMS = list(motor._ficheros_servicio("netxms").values())
+igual(
+    list(motor._ficheros_servicio("netxms")),
+    ["/etc/netxmsd.conf", motor.RUTA_DROPIN_NETXMS, motor.RUTA_PREPARADOR_NETXMS],
+    "NetXMS gobierna TRES ficheros: su configuración, el `drop-in` que se la señala a systemd "
+    "y el preparador de la base (en ese orden)",
+)
+comprobar(
+    all(clave in _FICHEROS_NETXMS[0] for clave in ("DBDriver = pgsql", "DBLogin = netxms",
+                                                   "DBHost = 127.0.0.1")),
+    "su configuración dice DÓNDE está su base (driver, usuario y host): sin eso no hay servidor",
+)
+comprobar(
+    all(pieza in _FICHEROS_NETXMS[2]
+        for pieza in ('nxdbmgr -c /etc/netxmsd.conf -p "$ADMIN_CLAVE" init pgsql',
+                      "createdb", "nxmc.war", "pg_isready")),
+    "el preparador inicializa el ESQUEMA (el paquete no lo trae, y sin `-c` no encuentra la "
+    "configuración) dejando puesta la clave del administrador EN EL `init` (`-p`: sin ella la "
+    "genera al azar y la web no se podría entrar), crea la base y despliega la web",
+)
+comprobar(
+    "ExecStart=/usr/bin/netxmsd -S -c /etc/netxmsd.conf" in _FICHEROS_NETXMS[1]
+    and "\nExecStart=\n" in _FICHEROS_NETXMS[1],
+    "el `drop-in` le dice a systemd DÓNDE está la configuración, y vacía `ExecStart` antes de "
+    "redefinirlo (systemd acumula las líneas, y sin vaciar arrancaría dos veces el servidor)",
+)
+
+_SERVICIO_NETXMS_FRESCO = _leer_servicio(
+    {h: "NO" for h in _NETXMS_DIA}, "inactive", "disabled", ["", "", ""], "NO-SIRVE",
+    extra="no")
+igual(
+    [o["op"] for o in motor._servicio_canonico("netxms", _SERVICIO_NETXMS_FRESCO)],
+    ["install_service", "write_service_config", "prepare_service", "enable_service",
+     "reload_service"],
+    "un NetXMS fresco pide, EN ESTE ORDEN, instalar, escribir, preparar la base, arrancar y "
+    "dejarlo sirviendo (preparar va antes de arrancar: `nxdbmgr init` lee la configuración)",
+)
+
+_SERVICIO_NETXMS_AL_DIA = _leer_servicio(
+    _NETXMS_DIA, "active", "enabled", _FICHEROS_NETXMS, "<html>login</html>", extra="si")
+igual(
+    motor._servicio_canonico("netxms", _SERVICIO_NETXMS_AL_DIA), [],
+    "un NetXMS ya convergido NO produce operación: base inicializada, web sirviendo (regla 6)",
+)
+
+# La base se pierde (o nunca se inicializó) con el servidor VIVO y la web sirviendo: el motor
+# no puede mirar sólo `is-active`, tiene que preguntar por el esquema.
+igual(
+    [o["op"] for o in motor._servicio_canonico(
+        "netxms", dict(_SERVICIO_NETXMS_AL_DIA, extra="no"))],
+    ["prepare_service"],
+    "con la base sin esquema se pide PREPARAR aunque la unidad esté viva y la web conteste",
+)
+
+# Y la web que no contesta: se recarga el servicio (es lo que la levanta), sin tocar la base.
+igual(
+    [o["op"] for o in motor._servicio_canonico(
+        "netxms", dict(_SERVICIO_NETXMS_AL_DIA, sirve=False))],
+    ["reload_service"],
+    "si la web no contesta, se recarga; la base preparada no se vuelve a preparar",
+)
+
+# Los comandos del segundo miembro: repositorio APT ajeno, preparador y web en el 8080.
+_LEIDO_NETXMS = dict(_LEIDO_SERVICIO, areas=dict(_LEIDO_SERVICIO["areas"],
+                                                 servicio=_SERVICIO_NETXMS_FRESCO))
+_PASOS_NETXMS = motor.pasos_de_convergencia(
+    EQUIPO_NETXMS, IDENTIDAD, DECLARACION, _LEIDO_NETXMS, PARAMETROS
+)
+_ESCRITURAS_NETXMS = motor.escrituras_linux(
+    motor.operaciones_de_pasos(_PASOS_NETXMS), EQUIPO_NETXMS, DECLARACION, IDENTIDAD, PARAMETROS,
+)
+comprobar(
+    all(motor.pendiente_de_driver(o) is None
+        for o in motor.operaciones_de_pasos(_PASOS_NETXMS)),
+    "el driver SABE traducir también las cinco operaciones de NetXMS (preparar incluida)",
+)
+comprobar(
+    any("netxms-release" in c["comando"] and "apt-get update -qq" in c["comando"]
+        for c in _ESCRITURAS_NETXMS),
+    "instalar NetXMS añade su repositorio APT (no está en Debian) y refresca las listas después",
+)
+comprobar(
+    any("netlabs-servicio-netxms preparar" in c["comando"] for c in _ESCRITURAS_NETXMS),
+    "y la operación de preparar ejecuta el preparador que el motor dejó escrito",
+)
+comprobar(
+    "/nxmc/" in motor.SERVICIOS_LINUX_OPCIONES["netxms"]["sirve"]
+    and "8080" in motor.SERVICIOS_LINUX_OPCIONES["netxms"]["sirve"]
+    and "-fsSL" in motor.SERVICIOS_LINUX_OPCIONES["netxms"]["sirve"],
+    "NetXMS se comprueba SIRVIENDO la web (Tomcat en el 8080), no el puerto del servidor",
+)
+
+# La lectura de NetXMS, ya construida, pide lo suyo: sus herramientas, sus dos ficheros, la
+# web y el estado de la base. Y la de `caddy` sigue pidiendo lo suyo (no se generalizó de más).
+_ORDEN_NETXMS = motor.lectura_servicio("netxms")
+comprobar(
+    _ORDEN_NETXMS.count(motor.SEPARADOR) == 7
+    and "systemctl is-active netxms-server" in _ORDEN_NETXMS
+    and "cat /etc/netxmsd.conf" in _ORDEN_NETXMS
+    and "estado" in _ORDEN_NETXMS,
+    "la lectura de NetXMS lleva OCHO bloques: herramientas, vivo, habilitado, TRES "
+    "ficheros, la web y el estado de la base",
+)
+_ORDEN_CADDY = motor.lectura_servicio("caddy")
+comprobar(
+    _ORDEN_CADDY.count(motor.SEPARADOR) == 6
+    and "cat /etc/caddy/Caddyfile" in _ORDEN_CADDY
+    and "http://127.0.0.1/" in _ORDEN_CADDY,
+    "la de caddy sigue con SUS siete bloques: su configuración y su página, sin base ni web",
+)
+igual(
+    motor.leido_linux([{"area": "servicio", "rc": 0, "encontrado": "a=1"}]),
+    {},
+    "una lectura a medias (sin sus bloques) NO se convierte en un estado inventado",
+)
+
+# ---------------------------------------------------------------------------
+# LA VIGILANCIA: el área `monitorizacion`, y la pata de gestión que la publica
+# ---------------------------------------------------------------------------
+# Un servidor de vigilancia tiene que SABER a quién mira: si no, su árbol de nodos queda
+# vacío y la web no enseña nada. El área `monitorizacion` es lo que se lo dice, y es una
+# MARCA (como `uplink`): el lab declara QUE ese servidor vigila, y el CÓMO -- ronda la red
+# por la que ve a los equipos -- es del motor. Y un invitado que publica un servicio (que se
+# ENTRA en él) necesita la misma pata de gestión que el bastión, aunque no sea el bastión.
+print("\nLA VIGILANCIA: el servidor sabe a quién mira, y sale por donde sale el nodo\n")
+
+EQUIPO_VIGILANTE = dict(
+    EQUIPO_NETXMS,
+    config={"linux": {"tunnel": {}, "servicio": "netxms", "monitorizacion": {}}},
+)
+igual(
+    motor.areas_de(EQUIPO_VIGILANTE)["monitorizacion"], {},
+    "el área `monitorizacion` es una MARCA (`{}`), no lleva opciones: el cómo es del motor",
+)
+comprobar(
+    "monitorizacion" in motor.areas_a_leer(EQUIPO_VIGILANTE)
+    and "monitorizacion" in motor.areas_que_piden_visita(EQUIPO_VIGILANTE),
+    "y pide ENTRAR al invitado: hay que leerlo para decidir si ya está sembrado",
+)
+_LECTURA_VIGILANCIA = [
+    l for l in motor.lecturas_linux(EQUIPO_VIGILANTE) if l["area"] == "monitorizacion"
+]
+igual(
+    len(_LECTURA_VIGILANCIA), 1,
+    "un vigilante se pregunta UNA cosa: si ya sabe a quién mirar",
+)
+# El vigilante de verdad (el del lab 08) declara el área `routes` para llegar a las zonas: con
+# ella, la lectura se pregunta CON la lista declarada como argumento. Sin ella, el motor no
+# pasa lista ninguna y el guion cae a las rutas vivas -- eso lo prueba el caso de la relectura,
+# más abajo, ejecutando el guion de verdad.
+_VIGILANTE_CON_RUTAS = dict(
+    EQUIPO_VIGILANTE,
+    config={"linux": {
+        "tunnel": {}, "servicio": "netxms", "monitorizacion": {},
+        "routes": [{"dst_address": "10.44.1.0/24", "gateway": "10.44.0.12"}],
+    }},
+)
+igual(
+    [l for l in motor.lecturas_linux(_VIGILANTE_CON_RUTAS) if l["area"] == "monitorizacion"][0]["comando"],
+    motor.SERVICIOS_LINUX_OPCIONES["netxms"]["monitorizacion"]["comando_objetivos"].format(
+        objetivos=" ".join(motor.objetivos_declarados(motor.areas_de(_VIGILANTE_CON_RUTAS)))
+    ),
+    "con `routes` declaradas, se pregunta por el comando del SERVICIO con la lista DECLARADA de "
+    "objetivos como argumento: así la lectura decide en la MISMA pasada, aunque las rutas aún no "
+    "se hayan escrito (hallazgo P1, PR #14)",
+)
+igual(
+    motor.leido_linux([{"area": "monitorizacion", "rc": 0, "encontrado": "si"}]),
+    {"monitorizacion": {"sembrado": True}},
+    "`si` es que ya está sembrado; cualquier otra cosa (o nada) es que no",
+)
+igual(
+    motor.leido_linux([{"area": "monitorizacion", "rc": 0, "encontrado": "no"}]),
+    {"monitorizacion": {"sembrado": False}},
+    "y `no` es que todavía no",
+)
+igual(
+    [o["op"] for o in motor._monitorizacion_canonica({}, {"sembrado": False}, "netxms")],
+    ["sembrar_monitorizacion"],
+    "un vigilante sin sembrar pide sembrar",
+)
+igual(
+    motor._monitorizacion_canonica({}, {"sembrado": True}, "netxms"), [],
+    "y un vigilante ya sembrado NO produce operación: es idempotente (regla 6)",
+)
+igual(
+    motor._monitorizacion_canonica({}, {"sembrado": False}, "caddy"), [],
+    "un servicio que no sabe vigilar no dispara un sembrado que nadie traduciría",
+)
+_ESCRITURAS_VIGILANCIA = motor.escrituras_linux(
+    [{"op": "sembrar_monitorizacion", "servicio": "netxms"}],
+    EQUIPO_VIGILANTE, DECLARACION, IDENTIDAD, PARAMETROS,
+)
+igual(
+    [c["area"] for c in _ESCRITURAS_VIGILANCIA], ["monitorizacion"],
+    "el sembrado se marca con su área (para el diario y para el error)",
+)
+comprobar(
+    any("netlabs-servicio-netxms sembrar" in c["comando"] for c in _ESCRITURAS_VIGILANCIA),
+    "y ejecuta el sembrado del servicio, que es quien sabe a quién mirar",
+)
+
+# La pata de gestión: la pide el bastión Y el que publica un servicio -- pero sólo el
+# bastión se lleva, además, una pata por cada bridge del lab.
+EQUIPO_PUBLICA = dict(
+    EQUIPO_NETXMS, rol="monitor",
+    bridge="vmb_gen", address="10.60.0.20/24", tipo="lxc",
+    config={"linux": {"servicio": "netxms", "monitorizacion": {}}},
+)
+comprobar(
+    not motor.tiene_tunnel(EQUIPO_PUBLICA) and motor.publica_servicio(EQUIPO_PUBLICA)
+    and motor.necesita_pata_de_gestion(EQUIPO_PUBLICA),
+    "un invitado que publica un servicio NO es el bastión, pero TAMBIÉN necesita la pata de gestión",
+)
+_ESTADO_PATA = {
+    "bridges_direcciones": {"vmbr1": "10.10.10.1/24"},
+    "direcciones_usadas": ["10.10.10.1/24", "10.10.10.254/24"],
+}
+_INTERFACES_PUBLICA = motor.interfaces_del_publicador(
+    EQUIPO_PUBLICA, DECLARACION, _ESTADO_PATA, PARAMETROS,
+)
+igual(
+    [i["bridge"] for i in _INTERFACES_PUBLICA], ["vmb_gen", "vmbr1"],
+    "sus interfaces son LAS SUYAS más la salida: no se lleva una pata por cada bridge del lab",
+)
+igual(
+    _INTERFACES_PUBLICA[0]["address"], "10.60.0.20/24",
+    "la primera lleva la dirección que el lab declara",
+)
+igual(
+    (_INTERFACES_PUBLICA[1]["address"], _INTERFACES_PUBLICA[1]["gateway"]),
+    ("10.10.10.253/24", "10.10.10.1"),
+    "y la salida es la del nodo, con su vía de acceso: por ahí se ENTRA en su web y se "
+    "alcanza el repositorio para instalarla (la .254 ya estaba ocupada)",
+)
+
+# El preparador de NetXMS tiene que dejar una web ENTRABLE y saber sembrar. Sin las dos
+# cosas, «vigila la red» sería una promesa sin respaldo: una web sin clave no se entra, y
+# un servidor sin sembrar enseña un árbol vacío.
+_PREPARADOR_NETXMS = motor._preparador_netxms()
+comprobar(
+    f'ADMIN_CLAVE="{motor.NETXMS_ADMIN["clave"]}"' in _PREPARADOR_NETXMS
+    and '-p "$ADMIN_CLAVE" init' in _PREPARADOR_NETXMS,
+    "el preparador PONE la clave del administrador en el `init` (`-p`): sin ella `nxdbmgr` "
+    "genera una al azar y la web no se podría entrar",
+)
+comprobar(
+    'set-user-password "$ADMIN"' not in _PREPARADOR_NETXMS,
+    "y NO usa `set-user-password` para ponerla: pide la clave por el terminal y en un guion "
+    "contesta «Cannot read password» (medido); `-p` en el `init` es la única forma sin manos",
+)
+comprobar(
+    _PREPARADOR_NETXMS.index("systemctl stop netxms-server") < _PREPARADOR_NETXMS.index("-p \"$ADMIN_CLAVE\" init"),
+    "y para el servidor ANTES de tocar la base: el paquete lo arranca al instalarse, y con él "
+    "en marcha `nxdbmgr` contesta «Database is locked by server» y no aplica nada",
+)
+comprobar(
+    "v1/login" in _PREPARADOR_NETXMS
+    and "http_code" in _PREPARADOR_NETXMS
+    and not any(l.strip().startswith("nxadm") for l in _PREPARADOR_NETXMS.splitlines()),
+    "y `estado` no da el servicio por bueno si no se puede ENTRAR: la clave se comprueba "
+    "autenticando por el API WEB (la puerta de la interfaz), y la CONSOLA no aparece en el "
+    "servicio -- `nxadm` autentica bien y aun así deja la clave rota para la web (medido)",
+)
+_desde_preparar = _PREPARADOR_NETXMS[_PREPARADOR_NETXMS.rindex("systemctl daemon-reload"):]
+comprobar(
+    "se_entra" in _PREPARADOR_NETXMS
+    and "drop database if exists" in _PREPARADOR_NETXMS
+    and 0 <= _desde_preparar.index("systemctl start netxms-server")
+    < _desde_preparar.index("systemctl stop netxms-server"),
+    "y para preguntarle la clave a una web ya desplegada el motor ARRANCA el servidor (en un "
+    "invitado nuevo el paquete lo deja caído) y sólo después lo para si hay que tocar la base "
+    "-- con él en marcha la base está bloqueada --",
+)
+comprobar(
+    "systemctl is-active --quiet netxms-server || systemctl start netxms-server"
+    in _PREPARADOR_NETXMS,
+    "y el servidor se ARRANCA al final SÓLO si no está ya arrancado: un reinicio de más no es "
+    "inocuo (al arrancar, el paquete reescribe el hash del administrador y ese hash ya no "
+    "verifica: medido), y un `preparar` que sólo para deja el servicio caído",
+)
+comprobar(
+    'rm -f "$MARCA"' in _PREPARADOR_NETXMS,
+    "y al rehacer la base se borra la marca del sembrado: una marca que sobrevive a su base "
+    "diría «ya está sembrado» sobre una base sin un solo nodo",
+)
+comprobar(
+    f"COMUNIDAD=\"{motor.COMUNIDAD_SNMP}\"" in _PREPARADOR_NETXMS
+    and "DefaultCommunityString" in _PREPARADOR_NETXMS
+    and "NetworkDiscovery.ActiveDiscovery.EnableSNMPProbing" in _PREPARADOR_NETXMS,
+    "y le dice al servidor que PREGUNTE (descubrimiento activo) y con qué comunidad (la del motor)",
+)
+comprobar(
+    "reponer_clave" in _PREPARADOR_NETXMS
+    and "select password from users where id=1" in _PREPARADOR_NETXMS
+    and _PREPARADOR_NETXMS.index("reponer_clave")
+    < _PREPARADOR_NETXMS.index("drop database if exists")
+    and 'reponer_clave\n' in _PREPARADOR_NETXMS
+    and 'se_entra=$(entra)' in _PREPARADOR_NETXMS,
+    "y un 'rechaza' se cura PRIMERO devolviendo el hash bueno que `init` dejó -- guardado aparte, "
+    "sin tocar un solo dato -- y sólo después, si eso no basta, rehaciendo la base: rehacerla de "
+    "entrada se llevaba por delante todo lo descubierto (medido: de 9 equipos a 3). Y tras "
+    "reponer se VUELVE A PREGUNTAR: decidir con la respuesta vieja no vale (hallazgo P1, PR #13)",
+)
+comprobar(
+    'if [ "$esquema_actual" != "si" ] || [ "$se_entra" = "rechaza" ]; then' in _PREPARADOR_NETXMS
+    and "no-contesta" in _PREPARADOR_NETXMS,
+    "y la sonda del API distingue TRES casos -- `si` / `rechaza` / `no-contesta` -- y sólo "
+    "`rechaza` rehace la base: rehacerla porque el API aún no contesta (servidor arrancando) "
+    "tiraba el descubrimiento entero (medido)",
+)
+comprobar(
+    'case "$codigo" in\n            4*) echo rechaza' in _PREPARADOR_NETXMS
+    or '4*) echo rechaza' in _PREPARADOR_NETXMS,
+    "y una caída de conexión (000) o un 5xx NUNCA se toman por un rechazo de credenciales: sólo "
+    "un 4xx -- el servidor CONTESTA y no acepta la clave -- abre el camino de rehacer la base "
+    "(hallazgo P1, PR #13)",
+)
+comprobar(
+    'salida=$(curl' in _PREPARADOR_NETXMS
+    and '[ -n "$salida" ] || salida=000' in _PREPARADOR_NETXMS
+    and "2>/dev/null || echo 000" not in _PREPARADOR_NETXMS,
+    "y `respuesta_de_la_web` devuelve UN solo valor: el `|| echo 000` de antes añadía otro `000` "
+    "al que `curl -w` ya imprime en una caída, y el lector recibía `000000` y lo tomaba por un "
+    "rechazo (hallazgo P1, PR #13)",
+)
+comprobar(
+    'if [ "$esquema_actual" = "error" ]; then' in _PREPARADOR_NETXMS
+    and "salida=$(tablas) || { echo error; return 0; }" in _PREPARADOR_NETXMS
+    and 'case "$nodos" in' in _PREPARADOR_NETXMS
+    and '[ "$nodos" -gt 0 ]' in _PREPARADOR_NETXMS,
+    "y la consulta del esquema distingue `error` de «vacía» (se aborta SIN tocar la base si "
+    "falla), y el sembrado exige un entero > 0 antes de escribir su marca (hallazgos P1, PR #13)",
+)
+comprobar(
+    "sembrar)" in _PREPARADOR_NETXMS
+    and "vigilados" in _PREPARADOR_NETXMS
+    and f'MARCA="{motor.RUTA_MARCA_SEMBRADO}"' in _PREPARADOR_NETXMS,
+    "el sembrado espera a que los hallazgos del servidor estén en la base y deja su marca -- "
+    "sin consola de por medio",
+)
+comprobar(
+    "NetworkDiscovery.ActiveDiscovery.AddressRange $" not in _PREPARADOR_NETXMS
+    and "NetworkDiscovery.ActiveDiscovery.Enabled 1" not in _PREPARADOR_NETXMS,
+    "y el rango NO se declara con la variable `NetworkDiscovery.ActiveDiscovery.AddressRange` "
+    "(ni con `...Enabled`): medido sobre la fuente de NetXMS 7.0, esas variables NO se leen, así "
+    "que escribirla era una promesa sin respaldo -- los nodos que aparecían salían del "
+    "descubrimiento pasivo (ARP), no de la ronda",
+)
+comprobar(
+    "address_lists" in _PREPARADOR_NETXMS
+    and "list_type = 1" in _PREPARADOR_NETXMS
+    and "delete from address_lists where list_type = 1" in _PREPARADOR_NETXMS
+    and "insert into address_lists" in _PREPARADOR_NETXMS,
+    "el rango se ESCRIBE en la tabla `address_lists` (list_type=1, de donde NetXMS 7.0 SÍ toma "
+    "los objetivos del descubrimiento activo): se borran las que el motor no declara y se ponen "
+    "las declaradas (regla 17)",
+)
+comprobar(
+    "objetivos()" in _PREPARADOR_NETXMS
+    and "grep ' via '" in _PREPARADOR_NETXMS
+    and "grep -v ' proto dhcp '" in _PREPARADOR_NETXMS
+    and "awk '{print $1}'" in _PREPARADOR_NETXMS,
+    "y las redes a vigilar son VARIAS y DERIVADAS: la propia (de la interfaz) y las de las rutas "
+    "estáticas del invitado (las que pone el área `routes`) -- ninguna es un valor de lab, y el "
+    "rango cubre las zonas a las que el vigilante tiene camino",
+)
+comprobar(
+    "NetworkDiscovery.ActiveDiscovery.Interval 3600" in _PREPARADOR_NETXMS,
+    "y el intervalo va en SEGUNDOS (3600 = una hora): el motor escribía «1» creyendo que eran "
+    "horas, y en NetXMS 7.0 eran 1 SEGUNDO -- una ronda por segundo sobre redes ya no vacías",
+)
+
+# --- Los objetivos del descubrimiento: se EJECUTAN, no se leen como texto ----------------
+# Los dos hallazgos del PR #14 no se arreglan con un comentario: se prueban con los VALORES
+# que el guion de verdad produce. El banco de aquí abajo escribe el guion que el motor deja
+# en el invitado y lo ejecuta con `ip`/`psql` falsos que devuelven las salidas REALES de los
+# comandos. Así se comprueba la red Y la máscara que acaban en `address_lists`.
+import subprocess as _subprocess
+import tempfile as _tempfile
+
+
+def _banco_preparador(rutas, direccion="10.44.0.10/24", codigo_curl="201"):
+    """Un banco con `ip`/`psql`/`/su`/`curl` falsos; devuelve (guion, banco, marca).
+
+    `direccion` es la que devuelve `ip addr show` (para probar la derivación de red con
+    prefijos distintos de /24) y `codigo_curl` lo que contesta el API web (para probar una
+    caída, `000`). Los ficheros `nodos`/`falla_nodos`/`falla_esquema` dentro del banco permiten
+    fingir que la base contesta, que falla la consulta de equipos o la del esquema.
+    """
+    banco = _tempfile.mkdtemp(prefix="netlabs-preparador-")
+    binario = os.path.join(banco, "bin")
+    os.makedirs(binario)
+    webapps = os.path.join(banco, "webapps")
+    os.makedirs(webapps)
+    with open(os.path.join(webapps, "nxmc.war"), "w", encoding="utf-8") as f:
+        f.write("war")
+    with open(os.path.join(banco, "rutas"), "w", encoding="utf-8") as f:
+        f.write("\n".join(rutas) + "\n")
+    with open(os.path.join(banco, "guardados"), "w", encoding="utf-8") as f:
+        f.write("")
+
+    def _falso(nombre, cuerpo):
+        ruta = os.path.join(binario, nombre)
+        with open(ruta, "w", encoding="utf-8") as f:
+            f.write("#!/bin/sh\n" + cuerpo + "\n")
+        os.chmod(ruta, 0o755)
+
+    _falso("ip", 'case "$*" in\n'
+                 f'  *"addr show"*) echo "2: eth0    inet {direccion} brd 10.44.0.255 scope global eth0" ;;\n'
+                 '  *"route show"*) cat "$BANCO/rutas" ;;\n'
+                 'esac')
+    _falso("su", 'shift 2\nexec sh -c "$*"')
+    _falso("psql", r'''printf '%s\n' "$*" >> "$BANCO/psql.log"
+case "$*" in
+  *"count(*) from nodes"*) [ -f "$BANCO/falla_nodos" ] && exit 1; cat "$BANCO/nodos" 2>/dev/null || echo "${NODOS:-3}" ;;
+  *"information_schema.tables"*) [ -f "$BANCO/falla_esquema" ] && exit 1; echo 1 ;;
+  *"delete from address_lists"*) : > "$BANCO/guardados" ;;
+  *"insert into address_lists"*) echo "$*" | sed -n "s/.*values (1, 0, 0, 0, 0, '\([^']*\)', '\([^']*\)',.*/\1|\2/p" >> "$BANCO/guardados" ;;
+  *"from address_lists"*) cat "$BANCO/guardados" ;;
+  *) exit 0 ;;
+esac''')
+    _falso("curl", f"echo {codigo_curl}")
+    _falso("systemctl", "exit 0")
+    _falso("sleep", "exit 0")
+    _falso("nxdbmgr", 'printf \'%s\\n\' "$*" >> "$BANCO/nxdbmgr.log"\nexit 0')
+    marca = os.path.join(banco, "sembrado")
+    guion = _PREPARADOR_NETXMS.replace(
+        'MARCA="%s"' % motor.RUTA_MARCA_SEMBRADO, 'MARCA="%s"' % marca
+    ).replace(
+        'WEBAPPS="%s"' % motor.NETXMS_WEBAPPS, 'WEBAPPS="%s"' % webapps
+    )
+    ruta_guion = os.path.join(banco, "netlabs-servicio-netxms")
+    with open(ruta_guion, "w", encoding="utf-8") as f:
+        f.write(guion)
+    return ruta_guion, banco, marca
+
+
+def _corre_preparador(guion, banco, verbo, *extra):
+    entorno = dict(os.environ)
+    entorno["PATH"] = os.path.join(banco, "bin") + ":" + entorno.get("PATH", "")
+    entorno["BANCO"] = banco
+    proceso = _subprocess.run(
+        ["sh", guion, verbo, *extra], capture_output=True, text=True, env=entorno, timeout=60
+    )
+    return proceso.stdout.strip(), proceso.returncode
+
+
+# P2: una ruta a un HOST sale de `ip route show` SIN `/32`; el destino sin barra es /32 y
+# `addr2` (la máscara) tiene que ser "32", nunca la dirección entera. Se miran los VALORES
+# que el guion escribe, no que el texto contenga cierta cadena.
+_guion_p2, _banco_p2, _ = _banco_preparador([
+    "10.44.0.0/24 dev eth0 proto kernel scope link src 10.44.0.10",
+    "10.44.1.0/24 via 10.44.0.12 dev eth0 proto static",
+    "10.44.5.7 via 10.44.0.12 dev eth0 proto static",
+])
+_salida_p2, _rc_p2 = _corre_preparador(_guion_p2, _banco_p2, "objetivos")
+igual(
+    sorted(_salida_p2.split()),
+    ["10.44.0.0/24", "10.44.1.0/24", "10.44.5.7/32"],
+    "un destino SIN barra se declara /32: la red y la máscara son valores distintos y válidos",
+)
+igual(_rc_p2, 0, "y el verbo de lectura termina bien con una ruta a un host")
+_corre_preparador(_guion_p2, _banco_p2, "sembrar")
+with open(os.path.join(_banco_p2, "psql.log"), encoding="utf-8") as _f:
+    _log_p2 = _f.read()
+comprobar(
+    "'10.44.5.7', '32'" in _log_p2 and "'10.44.0.0', '24'" in _log_p2,
+    "y lo que se INSERTA en `address_lists` es addr1='10.44.5.7', addr2='32' (no la dirección "
+    "entera como máscara): NetXMS espera una máscara en addr2",
+)
+
+# P1: tras un despliegue correcto, si el `apply` cambia las rutas, la LECTURA tiene que
+# notarlo y el motor tiene que volver a sembrar. Se prueba el guion de verdad: marca puesta,
+# objetivos guardados viejos, rutas nuevas.
+_guion_p1, _banco_p1, _ = _banco_preparador([
+    "10.44.1.0/24 via 10.44.0.12 dev eth0 proto static",
+])
+_corre_preparador(_guion_p1, _banco_p1, "sembrar")
+igual(
+    _corre_preparador(_guion_p1, _banco_p1, "sembrado")[0], "si",
+    "tras un despliegue correcto, `sembrado` dice `si`: los objetivos guardados son los de ahora",
+)
+igual(
+    _corre_preparador(_guion_p1, _banco_p1, "estado")[0], "si",
+    "y `estado` también: base, web, acceso y objetivos coinciden",
+)
+with open(os.path.join(_banco_p1, "rutas"), "w", encoding="utf-8") as _f:
+    _f.write("10.44.2.0/24 via 10.44.0.13 dev eth0 proto static\n")
+igual(
+    _corre_preparador(_guion_p1, _banco_p1, "sembrado")[0], "no",
+    "si las rutas cambian, `sembrado` deja de valer: la marca sola mentiría",
+)
+igual(
+    _corre_preparador(_guion_p1, _banco_p1, "estado")[0], "no",
+    "y el paso de LECTURA (`estado`) lo nota: pide volver a preparar en vez de dar el área por buena",
+)
+igual(
+    [o["op"] for o in motor._monitorizacion_canonica({}, {"sembrado": False}, "netxms")],
+    ["sembrar_monitorizacion"],
+    "la decisión pura: con `sembrado` en `no`, el motor pide sembrar (no hay comentario que lo tape)",
+)
+_corre_preparador(_guion_p1, _banco_p1, "sembrar")
+igual(
+    _corre_preparador(_guion_p1, _banco_p1, "sembrado")[0], "si",
+    "y tras sembrar con las rutas nuevas, vuelve a converger: los objetivos guardados son los de ahora",
+)
+igual(
+    _corre_preparador(_guion_p1, _banco_p1, "estado")[0], "si",
+    "y la segunda lectura ya no pide nada: dos pasadas seguidas dejan el mismo estado (regla 6)",
+)
+
+# P1, la parte que faltaba (hallazgo del revisor): la lectura corre ANTES de que se escriban las
+# rutas. Si `estado`/`sembrado` comparasen contra las rutas de VERDAD, verían las viejas, dirían
+# `si`, el `apply` no pediría reescribir los objetivos y el área acabaría la pasada con un
+# pendiente: haría falta OTRA pasada. El motor le pasa la lista DECLARADA como argumento y la
+# lectura decide con ella, así que converge en UNA sola pasada.
+igual(
+    motor.objetivos_declarados({
+        "address": [{"interface": "eth0", "address": "10.44.0.20/24"}],
+        "routes": [{"dst_address": "10.44.1.0/24", "gateway": "10.44.0.12"},
+                   {"dst_address": "10.44.5.7", "gateway": "10.44.0.12"}],
+    }),
+    ["10.44.0.0/24", "10.44.1.0/24", "10.44.5.7/32"],
+    "la lista DECLARADA de objetivos es la red de gestión y los destinos de las rutas (un host, /32)",
+)
+igual(
+    motor.objetivos_declarados({"address": "dhcp", "routes": [{"dst_address": "10.0.0.0/8"}]}),
+    ["10.0.0.0/8"],
+    "con `address: dhcp` no se puede derivar la red de gestión: se pasa sólo lo que sí se sabe",
+)
+igual(
+    motor.objetivos_declarados({"address": [{"interface": "eth0", "address": "dhcp"}]}),
+    [],
+    "y si no se puede derivar NADA, la lista va vacía: el guion cae a las rutas de verdad de siempre",
+)
+# P1 de la RELECTURA: si el lab fija la dirección pero no declara el área `routes`, la tabla
+# del equipo se deja intacta, así que `preparar` guarda la red propia MÁS las rutas que el
+# equipo ya tenía. La expectativa tiene que ser esa misma --la viva--: con la red propia sola,
+# la comparación no cuadraba nunca y el motor volvía a preparar y sembrar en CADA pasada
+# (rompía la idempotencia y dejaba `verify` con un pendiente eterno).
+_SIN_RUTAS = {"address": [{"interface": "eth0", "address": "10.44.0.20/24"}]}
+igual(
+    motor.objetivos_declarados(_SIN_RUTAS), [],
+    "sin área `routes` la expectativa NO se inventa: la decide el guion con las rutas vivas",
+)
+_guion_sr, _banco_sr, _ = _banco_preparador([
+    "10.44.0.0/24 dev eth0 proto kernel scope link src 10.44.0.10",
+    "10.44.1.0/24 via 10.44.0.12 dev eth0 proto static",
+])
+# Se siembra y se lee pasándole lo MISMO que le pasa el motor (la lista declarada como
+# argumentos): es la única forma de que la prueba vea lo que ve el motor.
+_corre_preparador(_guion_sr, _banco_sr, "sembrar", *motor.objetivos_declarados(_SIN_RUTAS))
+igual(
+    _corre_preparador(_guion_sr, _banco_sr, "sembrado", *motor.objetivos_declarados(_SIN_RUTAS))[0],
+    "si",
+    "sin área `routes`: tras sembrar, `sembrado` dice `si` -- las rutas vivas SON la expectativa",
+)
+igual(
+    _corre_preparador(_guion_sr, _banco_sr, "estado", *motor.objetivos_declarados(_SIN_RUTAS))[0],
+    "si",
+    "y `estado` también: el área queda convergida y una segunda pasada no vuelve a preparar (regla 6)",
+)
+# P1 de la SEGUNDA relectura: quedarse SIN rutas (`routes: []`, lista explícita vacía) no es lo
+# mismo que no declarar el área. El área SÍ se gestiona y va a quitar las rutas que haya, así que
+# la expectativa es la red propia -- la VIVA en ese momento todavía tiene la ruta vieja, y contra
+# esa la lectura diría `si` y dejaría sus redes en la lista para siempre.
+igual(
+    motor.objetivos_declarados({**_SIN_RUTAS, "routes": []}), ["10.44.0.0/24"],
+    "con `routes: []` (el área se gestiona y se queda sin rutas) la expectativa SÍ es la red propia",
+)
+_guion_vr, _banco_vr, _ = _banco_preparador([
+    "10.44.0.0/24 dev eth0 proto kernel scope link src 10.44.0.10",
+    "10.44.1.0/24 via 10.44.0.12 dev eth0 proto static",
+])
+_corre_preparador(_guion_vr, _banco_vr, "sembrar")
+_RUTAS_VACIAS = {**_SIN_RUTAS, "routes": []}
+igual(
+    _corre_preparador(_guion_vr, _banco_vr, "sembrado", *motor.objetivos_declarados(_RUTAS_VACIAS))[0],
+    "no",
+    "quitada la última ruta declarada, `sembrado` dice `no` AUNQUE la ruta vieja siga en el equipo: "
+    "así se reescriben los objetivos en la MISMA pasada, antes de que el área borre la ruta",
+)
+igual(
+    _corre_preparador(_guion_vr, _banco_vr, "estado", *motor.objetivos_declarados(_RUTAS_VACIAS))[0],
+    "no",
+    "y `estado` también: nada de dar por buena la lista vieja",
+)
+_guion_una, _banco_una, _ = _banco_preparador([
+    "10.44.0.0/24 dev eth0 proto kernel scope link src 10.44.0.10",
+    "10.44.1.0/24 via 10.44.0.12 dev eth0 proto static",
+])
+_corre_preparador(_guion_una, _banco_una, "sembrar")
+_DECLARADA_NUEVA = "10.44.0.0/24 10.44.1.0/24 10.44.2.0/24"
+# Se pasa IGUAL que el motor: la lista como ARGUMENTOS SEPARADOS, no entrecomillada (así se
+# cazó que sólo se leía el primero).
+igual(
+    _corre_preparador(_guion_una, _banco_una, "sembrado", *_DECLARADA_NUEVA.split())[0], "no",
+    "declarada una ruta NUEVA, `sembrado` contesta `no` AUNQUE las rutas del equipo todavía sean "
+    "las viejas: es lo que hace que el motor lo pida en la MISMA pasada",
+)
+igual(
+    _corre_preparador(_guion_una, _banco_una, "estado", *_DECLARADA_NUEVA.split())[0], "no",
+    "y el paso de LECTURA (`estado`) también: pide volver a preparar en vez de dar el área por buena",
+)
+# El `apply` de verdad: primero se escriben las rutas declaradas (área `routes`) y después se
+# siembra (área `monitorizacion`, que va después). Todo en la MISMA pasada.
+with open(os.path.join(_banco_una, "rutas"), "w", encoding="utf-8") as _f:
+    _f.write("10.44.0.0/24 dev eth0 proto kernel scope link src 10.44.0.10\n"
+             "10.44.1.0/24 via 10.44.0.12 dev eth0 proto static\n"
+             "10.44.2.0/24 via 10.44.0.13 dev eth0 proto static\n")
+_corre_preparador(_guion_una, _banco_una, "sembrar")
+igual(
+    _corre_preparador(_guion_una, _banco_una, "sembrado", *_DECLARADA_NUEVA.split())[0], "si",
+    "escritas las rutas nuevas y sembrado, la lectura con la declarada ya dice `si`: el área "
+    "convergió en UNA sola pasada, sin necesidad de otra",
+)
+igual(
+    _corre_preparador(_guion_una, _banco_una, "sembrado")[0], "si",
+    "y la lectura A MANO (sin argumento) coincide: la lista derivada del equipo es la declarada",
+)
+
+
+# --- El área `latido`: aparecer sin que nadie te pregunte ------------------------------
+# Lo que promete el área es UNA cosa: que el equipo se VEA. No configura nada suyo ni abre
+# nada en la red -- da un toque a su pasarela, y con eso su MAC queda en la tabla ARP de su
+# router, que es lo que el sondeo de la vigilancia LEE para encolar el nodo. Por eso lo que
+# se prueba aquí es: que la MARCA (`{}`) basta como declaración, que armado no se toca, que
+# un cambio de cadencia se nota, que lo que se escribe es lo que luego se lee (ida y vuelta)
+# y que el toque NO sale del lab.
+comprobar(
+    [o["op"] for o in motor._latido_canonico({}, {})] == ["write_latido", "start_latido"],
+    "`latido: {}` es una MARCA y basta para declararla: con el equipo sin nada puesto, el plan "
+    "escribe el latido y lo arma. La marca es el diccionario VACÍO, así que tratar el vacío "
+    "como «no declarado» sería un fallo SILENCIOSO: el invitado no se vería y el motor diría "
+    "que ha convergido",
+)
+_ficheros_latido = motor.escrituras_latido("2min")
+_LATIDO_ARMADO = {
+    "activo": True, "habilitado": True,
+    "ficheros_leidos": list(_ficheros_latido.values()),
+}
+igual(
+    [o["op"] for o in motor._latido_canonico({}, _LATIDO_ARMADO)],
+    [],
+    "y con el latido ya armado (activo, habilitado y con sus TRES ficheros ENTEROS) no hay NADA "
+    "que hacer: dos pasadas seguidas dejan el mismo estado (regla 6)",
+)
+igual(
+    [o["op"] for o in motor._latido_canonico({"cada": "5min"}, _LATIDO_ARMADO)],
+    ["write_latido", "start_latido"],
+    "pero si el lab cambia la cadencia, el temporizador ya no coincide y se reescribe: mirando "
+    "sólo que esté `active`, el motor diría «convergido» con la cadencia VIEJA puesta",
+)
+# Hallazgo P1: un latido ROTO tiene que verse. Antes `_latido_canonico` sólo miraba la MARCA del
+# comentario del temporizador: si borraban el guion, o alguien editaba `OnUnitActiveSec` sin
+# tocar el comentario, seguía diciendo «no hay trabajo» con el latido roto.
+igual(
+    [o["op"] for o in motor._latido_canonico({}, {
+        "activo": True, "habilitado": True,
+        "ficheros_leidos": [
+            _ficheros_latido[f"/etc/systemd/system/{motor.UNIDAD_LATIDO}"],
+            _ficheros_latido[f"/etc/systemd/system/{motor.UNIDAD_LATIDO_SERVICIO}"],
+            "",  # el guion YA NO está (lo borraron)
+        ],
+    })],
+    ["write_latido", "start_latido"],
+    "y si el guion desaparece, el motor lo vuelve a escribir: leer sólo la marca lo dejaría roto "
+    "y diría «convergido» (hallazgo P1, PR #13)",
+)
+igual(
+    [o["op"] for o in motor._latido_canonico({}, {
+        "activo": True, "habilitado": True,
+        "ficheros_leidos": [
+            _ficheros_latido[f"/etc/systemd/system/{motor.UNIDAD_LATIDO}"]
+            .replace("OnUnitActiveSec=2min", "OnUnitActiveSec=9min"),
+            _ficheros_latido[f"/etc/systemd/system/{motor.UNIDAD_LATIDO_SERVICIO}"],
+            _ficheros_latido[motor.RUTA_LATIDO],
+        ],
+    })],
+    ["write_latido", "start_latido"],
+    "y si alguien edita `OnUnitActiveSec` sin tocar el comentario, también: se compara el "
+    "temporizador ENTERO, no la marca del comentario (hallazgo P1, PR #13)",
+)
+# Lectura REAL: el comando del área trae los TRES ficheros separados por `SEPARADOR`, y
+# `leido_linux` los junta. El ida y vuelta -- lo que el motor escribe es lo que el lector saca --
+# es lo que hace que la segunda pasada salga limpia.
+_leido_latido = motor.leido_linux([{
+    "area": "latido", "rc": 0,
+    "encontrado": ("active\nenabled\n" + motor.SEPARADOR + "\n"
+                   + _ficheros_latido[f"/etc/systemd/system/{motor.UNIDAD_LATIDO}"]
+                   + motor.SEPARADOR + "\n"
+                   + _ficheros_latido[f"/etc/systemd/system/{motor.UNIDAD_LATIDO_SERVICIO}"]
+                   + motor.SEPARADOR + "\n"
+                   + _ficheros_latido[motor.RUTA_LATIDO]),
+}])
+igual(
+    [o["op"] for o in motor._latido_canonico({}, _leido_latido["latido"])],
+    [],
+    "y lo que el LECTOR saca de un latido sano coincide con lo que el motor escribe: si "
+    "divergieran, reescribiría siempre y el lab nunca convergería",
+)
+comprobar(
+    set(_ficheros_latido) == {motor.RUTA_LATIDO,
+                              f"/etc/systemd/system/{motor.UNIDAD_LATIDO}",
+                              f"/etc/systemd/system/{motor.UNIDAD_LATIDO_SERVICIO}"},
+    "el latido son TRES ficheros y ninguno sobra: el guion que da el toque, la unidad que lo "
+    "ejecuta una vez y el temporizador que lo repite",
+)
+_guion = _ficheros_latido[motor.RUTA_LATIDO]
+comprobar(
+    "ping -c 1" in _guion and "$PUERTA" in _guion and "route show default" in _guion
+    and "8.8.8.8" not in _guion and "http" not in _guion,
+    "el toque va a la PASARELA (sacada de la ruta por defecto) y no a internet: el trabajo lo "
+    "hace la pregunta por la MAC, que ocurre igual -- y así el latido se queda dentro de la "
+    "red del lab y funciona con el cortafuegos en `drop` y sin salida",
+)
+
+# --- El área `routes` de un Linux: el camino, declarado por el lab ----------------------
+igual(
+    [o["op"] for o in motor._routes_canonicas(
+        [{"dst_address": "10.44.1.0/24", "gateway": "10.44.0.11"}], {"estaticas": []}, gobierna_por_defecto=False)],
+    ["add_route"],
+    "una ruta declarada que no está, se pone: es el camino a las zonas que el lab le da al "
+    "bastión -- sin él el motor no llega a los invitados que el lab pone detrás de un fw",
+)
+igual(
+    [o["op"] for o in motor._routes_canonicas(
+        [{"dst_address": "10.44.1.0/24", "gateway": "10.44.0.11"}],
+        {"estaticas": [{"dst_address": "10.44.1.0/24", "gateway": "10.44.0.11"}]}, gobierna_por_defecto=False)],
+    [],
+    "y puesta, no se toca: la lectura saca el mismo par (destino, pasarela) que se declaró, "
+    "así que la segunda pasada no hace nada (regla 6)",
+)
+igual(
+    [o["op"] for o in motor._routes_canonicas(
+        [], {"estaticas": [{"dst_address": "10.44.9.0/24", "gateway": "10.44.0.11"}]}, gobierna_por_defecto=False)],
+    ["remove_route"],
+    "y dentro de un área declarada, lo que no está en el YAML se quita (regla 17): una ruta "
+    "estática que sobra se va -- el área gobierna lo que declara, ni más ni menos",
+)
+comprobar(
+    "routes" in _validador.AREAS_QUE_NO_LE_TOCAN["ctl"].get("routeros", {})
+    and "routes" not in _validador.AREAS_QUE_NO_LE_TOCAN["ctl"].get("*", {}),
+    "y un `ctl` SÍ puede declarar `routes` con su LINUX (el vigilante necesita el camino a las "
+    "zonas detrás de los `fw`): la prohibición de enrutar está acotada a su interior RouterOS, "
+    "igual que la de repartir direcciones",
+)
+comprobar(
+    bool(_validador.CADENCIA_PATRON.match("2min")) and bool(_validador.CADENCIA_PATRON.match("30s"))
+    and not _validador.CADENCIA_PATRON.match("cinco")
+    and not _validador.CADENCIA_PATRON.match("2 minutos"),
+    "y la cadencia del lab se valida con su patrón (número y unidad: `30s`, `2min`, `1h`): un "
+    "«cada: cinco» no llega nunca a systemd, que no armaría el temporizador y dejaría al "
+    "invitado fuera de la topología sin decir por qué",
+)
+
+# --- Los hallazgos P1 del PR #13, uno por uno --------------------------------------------
+# Cada arreglo entra con su prueba, y la prueba tiene que CAZAR el fallo: se escribe, se revierte
+# el arreglo a mano, se comprueba que FALLA, y se vuelve a poner.
+
+# 5. Instalar el servicio (`servicio: netxms`) NO debe empezar a vigilar: los ajustes de
+#    descubrimiento viven DETRÁS del área `monitorizacion`, no en `preparar`. Con el caso
+#    `sembrar` seccionado, se mira que `preparar` no los encienda y que el verbo `sembrar` sí.
+_caso_sembrar = _PREPARADOR_NETXMS.index("sembrar)")
+comprobar(
+    "NetworkDiscovery.Type 3" not in _PREPARADOR_NETXMS[:_caso_sembrar]
+    and "NetworkDiscovery.Type 3" in _PREPARADOR_NETXMS[_caso_sembrar:]
+    and "DefaultCommunityString" not in _PREPARADOR_NETXMS[:_caso_sembrar],
+    "instalar el servicio NO enciende el descubrimiento: sus ajustes viven DETRÁS del área "
+    "`monitorizacion` (`sembrar`), no en `preparar` (hallazgo P1, PR #13) -- el lab 10, que "
+    "sólo declara `servicio: netxms`, no debe empezar a peinar su red cada hora",
+)
+_guion_solo, _banco_solo, _ = _banco_preparador(["10.44.0.0/24 dev eth0 proto kernel scope link src 10.44.0.10"])
+_, _rc_solo = _corre_preparador(_guion_solo, _banco_solo, "preparar")
+_log_nx_solo = ""
+if os.path.exists(os.path.join(_banco_solo, "nxdbmgr.log")):
+    with open(os.path.join(_banco_solo, "nxdbmgr.log"), encoding="utf-8") as _f:
+        _log_nx_solo = _f.read()
+igual(
+    _corre_preparador(_guion_solo, _banco_solo, "estado")[0], "si",
+    "y un invitado con el servicio puesto y la base sana ya está CONVERGIDO sin descubrimiento: "
+    "`estado` no compara objetivos si el motor nunca sembró (nada que mirar, servicio servido)",
+)
+comprobar(
+    "NetworkDiscovery" not in _log_nx_solo and _rc_solo == 0,
+    "y `preparar` no deja ni un ajuste de descubrimiento en el servidor: lo enciende `sembrar`",
+)
+
+# 6. La red del descubrimiento se deriva de la dirección COMPLETA y su prefijo, no de un /24 fijo.
+igual(motor.red_de_direccion("10.44.1.20/16"), "10.44.0.0/16",
+      "la red se deriva del prefijo COMPLETO: un invitado en /16 no escanea sólo su /24")
+igual(motor.red_de_direccion("10.44.1.20/24"), "10.44.1.0/24", "y un /24 da su red, como antes")
+igual(motor.red_de_direccion("10.44.1.130/25"), "10.44.1.128/25",
+      "y una red más fina (/25) enmascara de verdad: no se escanea media red de más")
+igual(motor._red_propia("10.44.1.20/16"), "10.44.0.0/16",
+      "`_red_propia` (lo declarado) usa la MISMA regla, para que las dos formas comparen el mismo hecho")
+igual(motor.red_de_direccion("sin-prefijo"), "", "y sin prefijo no se inventa una red")
+_guion_r16, _banco_r16, _ = _banco_preparador(
+    ["10.44.0.0/16 dev eth0 proto kernel scope link src 10.44.1.20"], direccion="10.44.1.20/16")
+igual(
+    sorted(_corre_preparador(_guion_r16, _banco_r16, "objetivos")[0].split()), ["10.44.0.0/16"],
+    "y el guion de verdad deriva `10.44.0.0/16` de una dirección /16 (antes escribía `10.44.1.0/24`)",
+)
+
+# 9 y 10. `default`/`0.0.0.0/0` y host-sin-barra/`/32` son el MISMO hecho: se normalizan antes
+# de comparar. Sin esto, el motor pedía la ruta en CADA pasada y borraba la que acababa de poner.
+igual(
+    [o["op"] for o in motor._routes_canonicas(
+        [{"dst_address": "0.0.0.0/0", "gateway": "10.44.0.1"}],
+        {"estaticas": [{"dst_address": "default", "gateway": "10.44.0.1"}]}, gobierna_por_defecto=False)],
+    [],
+    "una ruta por defecto declarada `0.0.0.0/0` y leída como `default` son la misma ruta",
+)
+igual(
+    [o["op"] for o in motor._routes_canonicas(
+        [{"dst_address": "10.44.1.5/32", "gateway": "10.44.0.12"}],
+        {"estaticas": [{"dst_address": "10.44.1.5", "gateway": "10.44.0.12"}]}, gobierna_por_defecto=False)],
+    [],
+    "y una ruta a un HOST (`/32`) y su forma sin barra también: no se borra la que se acaba de poner "
+    "(hallazgos P1, PR #13)",
+)
+igual(
+    [o["op"] for o in motor._routes_canonicas(
+        [], {"estaticas": [{"dst_address": "default", "gateway": "10.44.0.1"}]}, gobierna_por_defecto=False)],
+    [],
+    "y una ruta por defecto NO se quita aunque no se declare: en un Linux la pone la plataforma "
+    "al crear el invitado y el motor no la posee -- borrarla lo dejaría sin internet antes de "
+    "instalar nada (hallazgo P1, PR #13). El área gobierna las rutas que SÍ declara, no la salida "
+    "que le dieron",
+)
+
+# 11. La lectura comprueba el `rc` de `ip` ANTES de filtrar: una tabla ilegible no se confunde
+# con una tabla sin rutas.
+comprobar(
+    'ip -4 route show > "$r"' in motor.LECTURAS_LINUX["routes"]["comando"]
+    and "exit 1" in motor.LECTURAS_LINUX["routes"]["comando"],
+    "el `ip route show` de la lectura COMPRUEBA su código de salida antes de filtrar: antes "
+    "`|| true` lo ocultaba y una tabla ilegible se leía como una sin rutas (hallazgo P1, PR #13)",
+)
+igual(motor.leido_linux([{"area": "routes", "rc": 2, "encontrado": ""}]), {},
+     "y una lectura del área `routes` con rc != 0 no se convierte en un estado inventado")
+# Y de verdad: si `ip route show` FALLA, el comando de lectura devuelve ESE fallo; si sale bien
+# sin rutas, devuelve 0. Antes el `|| true` hacía las dos cosas indistinguibles para el driver.
+_lectura_bin = os.path.join(_tempfile.mkdtemp(prefix="netlabs-lectura-"), "bin")
+os.makedirs(_lectura_bin)
+for _nombre, _cuerpo in (
+        ("ip-falla", 'case "$*" in\n  *"route show"*) exit 7 ;;\nesac\nexit 0'),
+        ("ip-vacia", 'case "$*" in\n  *"route show"*) exit 0 ;;\nesac\nexit 0')):
+    with open(os.path.join(_lectura_bin, _nombre), "w", encoding="utf-8") as _f:
+        _f.write("#!/bin/sh\n" + _cuerpo + "\n")
+    os.chmod(os.path.join(_lectura_bin, _nombre), 0o755)
+os.symlink(os.path.join(_lectura_bin, "ip-falla"), os.path.join(_lectura_bin, "ip"))
+_r = _subprocess.run(["sh", "-c", motor.LECTURAS_LINUX["routes"]["comando"]],
+                     env=dict(os.environ, PATH=_lectura_bin + ":" + os.environ.get("PATH", "")),
+                     capture_output=True, text=True)
+comprobar(_r.returncode != 0,
+      "y el comando de lectura DEVUELVE el fallo de `ip route show` (rc != 0): una tabla ilegible "
+      "no se confunde con una sin rutas (hallazgo P1, PR #13)")
+os.remove(os.path.join(_lectura_bin, "ip"))
+os.symlink(os.path.join(_lectura_bin, "ip-vacia"), os.path.join(_lectura_bin, "ip"))
+_r = _subprocess.run(["sh", "-c", motor.LECTURAS_LINUX["routes"]["comando"]],
+                     env=dict(os.environ, PATH=_lectura_bin + ":" + os.environ.get("PATH", "")),
+                     capture_output=True, text=True)
+igual(_r.returncode, 0,
+      "y una tabla SIN rutas estáticas da rc 0: cero coincidencias es legítimo, no una avería")
+
+# 8. Las rutas se dejan ESCRITAS para el próximo arranque: `ip route replace` sólo cambia la
+# tabla en marcha, y un reinicio del invitado se llevaba el camino a las zonas.
+_persist_rutas = motor.rutas_persistentes([{"dst_address": "10.44.1.0/24", "gateway": "10.44.0.12"}])
+comprobar(
+    set(_persist_rutas) == {motor.RUTA_RUTAS, f"/etc/systemd/system/{motor.UNIDAD_RUTAS}"}
+    and "ip route replace 10.44.1.0/24 via 10.44.0.12 proto static" in _persist_rutas[motor.RUTA_RUTAS]
+    and f"ExecStart={motor.RUTA_RUTAS}" in _persist_rutas[f"/etc/systemd/system/{motor.UNIDAD_RUTAS}"],
+    "las rutas del área se dejan ESCRITAS (un guion que las repone + una unidad que lo corre al "
+    "arrancar): `add_route` sólo cambiaba la tabla en marcha (hallazgo P1, PR #13)",
+)
+_escrituras_ruta = motor.escrituras_linux(
+    [{"op": "add_route", "dst_address": "10.44.1.0/24", "gateway": "10.44.0.12"}],
+    _VIGILANTE_CON_RUTAS, DECLARACION, IDENTIDAD, PARAMETROS)
+comprobar(
+    any(c["area"] == "routes" and motor.RUTA_RUTAS in c["comando"] for c in _escrituras_ruta)
+    and any("systemctl enable" in c["comando"] for c in _escrituras_ruta),
+    "y cuando el área toca alguna ruta, el ejecutor deja los ficheros y habilita la unidad",
+)
+comprobar(
+    not any(c["area"] == "routes" for c in motor.escrituras_linux(
+        [{"op": "add_address", "interface": "eth0", "address": "10.44.0.20/24"}],
+        _VIGILANTE_CON_RUTAS, DECLARACION, IDENTIDAD, PARAMETROS)),
+    "y sin operaciones de rutas no se reescriben los ficheros: la segunda pasada sigue siendo "
+    "`changed=0` (regla 6)",
+)
+
+# 12. Las comunidades SNMP ilegibles ya no pasan: se miran los PERMISOS, no sólo el nombre.
+igual(
+    motor._snmp_canonico({}, {
+        "habilitado": True, "comunidades": ["netlabs"],
+        "comunidades_detalle": [{"name": "netlabs", "read": True, "comment": "netlabs-snmp", "id": "*1"}]}),
+    [], "una comunidad del motor CON lectura no produce trabajo (regla 6)",
+)
+igual(
+    [(o["op"], o.get("id")) for o in motor._snmp_canonico({}, {
+        "habilitado": True, "comunidades": ["netlabs"],
+        "comunidades_detalle": [{"name": "netlabs", "read": False, "comment": "netlabs-snmp", "id": "*1"}]})],
+    [("set_snmp_community", "*1")],
+    "una comunidad del motor con la lectura APAGADA se REPARA por su identificador: antes pasaba "
+    "por buena y el colector no podía leer el equipo (hallazgo P1, PR #13)",
+)
+_snmp_conflicto = False
+try:
+    motor._snmp_canonico({}, {
+        "habilitado": True, "comunidades": ["netlabs"],
+        "comunidades_detalle": [{"name": "netlabs", "read": False, "comment": "de otro", "id": "*2"}]})
+except motor.ErrorMotor:
+    _snmp_conflicto = True
+comprobar(
+    _snmp_conflicto,
+    "y una comunidad llamada `netlabs` SIN lectura y SIN la marca del motor INFORMA del conflicto "
+    "y NO se toca (regla 17: no es del área)",
+)
+igual(
+    [o["op"] for o in motor._snmp_canonico({}, {
+        "habilitado": False, "comunidades": [], "comunidades_detalle": []})],
+    ["enable_snmp", "add_snmp_community"],
+    "y un equipo sin agente ni comunidad pide encender y añadir la del motor",
+)
+
+# 1 y 3. Una CAÍDA de la API (curl `000`) NO debe rehacer la base: se clasifica `no-contesta`
+# y el esquema se lee bien, así que no hay DROP. Y si la CONSULTA del esquema falla, se ABORTA.
+_guion_caida, _banco_caida, _ = _banco_preparador(
+    ["10.44.0.0/24 dev eth0 proto kernel scope link src 10.44.0.10"], codigo_curl="000")
+_corre_preparador(_guion_caida, _banco_caida, "preparar")
+with open(os.path.join(_banco_caida, "psql.log"), encoding="utf-8") as _f:
+    _log_caida = _f.read().lower()
+comprobar(
+    "drop database" not in _log_caida,
+    "una caída de la API (000) NO rehace la base: el `000000` de antes se tomaba por un rechazo "
+    "y un `DROP DATABASE` se llevaba los nodos descubiertos (hallazgo P1, PR #13)",
+)
+_guion_esq, _banco_esq, _ = _banco_preparador(["10.44.0.0/24 dev eth0 proto kernel scope link src 10.44.0.10"])
+with open(os.path.join(_banco_esq, "falla_esquema"), "w", encoding="utf-8") as _f:
+    _f.write("x")
+_, _rc_esq = _corre_preparador(_guion_esq, _banco_esq, "preparar")
+with open(os.path.join(_banco_esq, "psql.log"), encoding="utf-8") as _f:
+    _log_esq = _f.read().lower()
+comprobar(
+    _rc_esq != 0 and "drop database" not in _log_esq,
+    "y si la CONSULTA del esquema FALLA se aborta SIN tocar la base: un `no` de una consulta caída "
+    "no significa «vacía» (hallazgo P1, PR #13)",
+)
+
+# 4. El sembrado NO escribe su marca sin confirmar un entero > 0 de equipos vigilados.
+for _caso in ("cero", "fallo"):
+    _guion_s4, _banco_s4, _marca_s4 = _banco_preparador(
+        ["10.44.0.0/24 dev eth0 proto kernel scope link src 10.44.0.10"])
+    _fingido = os.path.join(_banco_s4, "nodos" if _caso == "cero" else "falla_nodos")
+    with open(_fingido, "w", encoding="utf-8") as _f:
+        _f.write("0\n" if _caso == "cero" else "x")
+    _, _rc_s4 = _corre_preparador(_guion_s4, _banco_s4, "sembrar")
+    comprobar(
+        _rc_s4 != 0 and not os.path.exists(_marca_s4),
+        f"el sembrado NO escribe su marca con {_caso} equipos vigilados (ni con la consulta "
+        "fallida): antes, una consulta fallida dejaba el recuento VACÍO, la cadena vacía no es `0` "
+        "y marcaba sin haber confirmado nada (hallazgo P1, PR #13)",
+    )
+
+# Y a nivel de DRIVER, que es donde el TIPO DE EQUIPO decide quién posee la ruta por defecto: un
+# Linux al que la plataforma le puso su salida no la pierde aunque el lab no la declare. Se prueba
+# aquí porque el error cómodo al arreglarlo --equivocar el sitio de llamada-- ninguna prueba de la
+# función lo caza: la función recibe el dueño ya decidido (y ya me mordió dos veces, PR #13).
+CONTROL_SOLO_RUTAS = dict(CONTROL, config={"linux": {
+    "routes": [{"dst_address": "10.44.1.0/24", "gateway": "10.44.0.12"}],
+}})
+igual(
+    motor.pasos_de_convergencia(CONTROL_SOLO_RUTAS, IDENTIDAD, DECLARACION, {
+        "alcanzable": True,
+        "areas": motor.leido_linux([
+            {"area": "address", "rc": 0,
+             "encontrado": "2: eth0    inet 10.60.0.10/24 brd 10.60.0.255 scope global eth0\n"},
+            {"area": "routes", "rc": 0,
+             "encontrado": "10.44.1.0/24 via 10.44.0.12 dev eth0\n"
+                           "default via 10.60.0.1 dev eth0\n"},
+        ]),
+    }, PARAMETROS),
+    [],
+    "un Linux CONVERGIDO no genera ni un paso aunque traiga la ruta por defecto de la plataforma: "
+    "quien la posee lo decide el tipo de equipo, en el sitio de llamada",
+)
+igual(
+    [p["parametros"]["operaciones"] for p in motor.pasos_de_convergencia(
+        CONTROL_SOLO_RUTAS, IDENTIDAD, DECLARACION, {
+            "alcanzable": True,
+            "areas": motor.leido_linux([
+                {"area": "address", "rc": 0,
+                 "encontrado": "2: eth0    inet 10.60.0.10/24 brd 10.60.0.255 scope global eth0\n"},
+                {"area": "routes", "rc": 0,
+                 "encontrado": "default via 10.60.0.1 dev eth0\n"},
+            ]),
+        }, PARAMETROS)],
+    [[{"op": "add_route", "dst_address": "10.44.1.0/24", "gateway": "10.44.0.12"}]],
+    "y si le falta la ruta declarada se pone ESA, y sólo esa: la salida de la plataforma ni se "
+    "toca ni se cuenta",
+)
+
+# Y la red del guion, EJECUTADA de verdad. El revisor dijo que el guion «descarta el prefijo y
+# siempre peina un /24»: se reprodujo ejecutando su función y era peor -- acertaba sólo cuando el
+# trozo de octeto era una potencia de dos -- y aquí queda atada a la del motor, caso por caso.
+_GUION_NETXMS = motor._preparador_netxms()
+_i_red_de = _GUION_NETXMS.index("red_de() {")
+_red_de_guion = _GUION_NETXMS[_i_red_de:_GUION_NETXMS.index("\n}\n", _i_red_de) + 3]
+for _caso in ("10.44.1.20/16", "10.44.1.20/24", "10.44.1.130/25", "10.44.1.20/28",
+              "10.44.1.20/30", "10.44.1.7/32", "172.16.5.9/12"):
+    igual(
+        _subprocess.run(["sh", "-c", _red_de_guion + '\nred_de "$1"', "sh", _caso],
+                        capture_output=True, text=True).stdout.strip(),
+        motor.red_de_direccion(_caso),
+        f"el guion del invitado y el motor derivan la MISMA red de {_caso}: la del prefijo de "
+        "verdad, no un /24 supuesto (y no `int(o/m)*m`, que sólo acierta si el trozo es potencia "
+        "de dos)",
+    )
+
+# ---------------------------------------------------------------------------
+# Lo que cazó la TERCERA relectura (PR #13): tres cosas que no se ven leyendo la idea,
+# sólo mirando cómo viaja el dato.
+# ---------------------------------------------------------------------------
+_FICHEROS_LATIDO = list(motor.escrituras_latido("2min").values())
+igual(
+    motor._latido_canonico({"cada": "2min"}, {
+        "activo": True, "habilitado": True,
+        "ficheros_leidos": [_FICHEROS_LATIDO[0], _FICHEROS_LATIDO[1],
+                            _FICHEROS_LATIDO[2].rstrip("\n")],
+    }),
+    [],
+    "un latido ENTERO converge aunque el último fichero llegue sin su salto de línea final: "
+    "`ansible.builtin.command` recorta el que cierra el stdout, y el guion va el último",
+)
+comprobar(
+    bool(motor._latido_canonico({"cada": "2min"}, {
+        "activo": True, "habilitado": True,
+        "ficheros_leidos": [_FICHEROS_LATIDO[0], _FICHEROS_LATIDO[1], "SIN-FICHERO"],
+    })),
+    "pero un guion BORRADO sigue pidiendo reescribirse: normalizar el salto no afloja el área",
+)
+igual(
+    motor._routes_canonicas(
+        [], {"estaticas": [{"dst_address": "default", "gateway": "10.44.0.254"}]},
+        gobierna_por_defecto=False,
+    ),
+    [],
+    "la ruta POR DEFECTO de un Linux NO se borra: la pone la plataforma al crearlo y no es de "
+    "esta área -- si entrara en la comparación, se la quitaría y lo dejaría sin internet",
+)
+igual(
+    motor._routes_canonicas(
+        [{"dst_address": "10.44.1.0/24", "gateway": "10.44.0.12"}],
+        {"estaticas": [{"dst_address": "10.44.1.0/24", "gateway": "10.44.0.12"},
+                       {"dst_address": "default", "gateway": "10.44.0.254"}]},
+        gobierna_por_defecto=False,
+    ),
+    [],
+    "y con las rutas de las zonas declaradas tampoco sobra nada: el caso del lab 08",
+)
+igual(
+    motor._routes_canonicas(
+        [{"dst_address": "0.0.0.0/0", "gateway": "10.60.0.1"}],
+        {"estaticas": []},
+        gobierna_por_defecto=True,
+    ),
+    [{"op": "add_route", "dst_address": "0.0.0.0/0", "gateway": "10.60.0.1"}],
+    "en un ROUTER la ruta por defecto sí se posee: es su salida, y se pone si falta -- la "
+    "misma área, dos dueños, y el dueño lo dice el tipo de equipo",
+)
+igual(
+    motor.objetivos_declarados({
+        "address": [{"interface": "eth0", "address": "10.44.0.20/24"}],
+        "routes": [{"dst_address": "0.0.0.0/0", "gateway": "10.44.0.254"}],
+    }),
+    ["10.44.0.0/24"],
+    "la expectativa del descubrimiento no se inventa una ruta por defecto: el sembrado no la "
+    "guarda, así que las dos listas tienen que aplicar la MISMA regla",
+)
+_i_psql = motor.PLANTILLA_PREPARADOR_NETXMS.find("where id=1")
+comprobar(
+    _i_psql != -1 and "\\\n" not in motor.PLANTILLA_PREPARADOR_NETXMS[_i_psql:_i_psql + 140],
+    "el `psql` de la recuperación y `systemctl start netxms-server` son DOS comandos: un "
+    "backslash suelto pegaba el arranque al `psql` y el servidor no arrancaba",
+)
 
 if FALLOS:
     print(f"\nRESULTADO: {len(FALLOS)} fallo(s).")

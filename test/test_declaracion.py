@@ -615,6 +615,66 @@ comprobar(
     ),
     "un `servicio` en blanco se caza igual: el espacio no es un nombre del vocabulario",
 )
+# Y la CADENCIA del latido: un cero no es una cadencia. systemd lo lee como «borra la
+# expresión del temporizador», así que el latido no se repetiría nunca y el invitado se
+# caería de la tabla del router sin que nada lo diga (hallazgo del revisor). Se caza con su
+# motivo -- y una cadencia de verdad sigue pasando, que un validador que caza de más es otro
+# bug.
+comprobar(
+    dice(
+        errores_de(
+            lambda d: d["containers"][0]["config"]["linux"].__setitem__("latido", {"cada": "0s"})
+        ),
+        "CERO",
+    ),
+    "una cadencia de CERO en el latido se caza: en systemd un cero BORRA el temporizador",
+)
+comprobar(
+    not dice(
+        errores_de(
+            lambda d: d["containers"][0]["config"]["linux"].__setitem__("latido", {"cada": "2min"})
+        ),
+        "CERO",
+    ),
+    "y una cadencia de verdad (`2min`) pasa: el que caza no caza de más",
+)
+
+# Y la ruta POR DEFECTO no se declara en un Linux: la pone la plataforma al crear el invitado
+# (la pasarela de su pata de gestión) y el motor no la posee. Declararla sería pedirle algo que
+# no va a hacer -- y que su borrado no debe tocar nunca (hallazgo P1, PR #13).
+comprobar(
+    dice(
+        errores_de(
+            lambda d: d["containers"][0]["config"]["linux"].__setitem__(
+                "routes", [{"dst_address": "0.0.0.0/0", "gateway": "10.44.0.254"}]
+            )
+        ),
+        "POR DEFECTO",
+    ),
+    "una ruta por defecto declarada se caza: ésa la pone la plataforma, no el motor",
+)
+comprobar(
+    dice(
+        errores_de(
+            lambda d: d["containers"][0]["config"]["linux"].__setitem__(
+                "routes", [{"dst_address": "default", "gateway": "10.44.0.254"}]
+            )
+        ),
+        "POR DEFECTO",
+    ),
+    "y `default` es el mismo hecho: se caza igual",
+)
+comprobar(
+    not dice(
+        errores_de(
+            lambda d: d["containers"][0]["config"]["linux"].__setitem__(
+                "routes", [{"dst_address": "10.44.1.0/24", "gateway": "10.44.0.12"}]
+            )
+        ),
+        "POR DEFECTO",
+    ),
+    "y una ruta de verdad pasa: el que caza no caza de más",
+)
 
 if FALLOS:
     print(f"\nRESULTADO: {len(FALLOS)} fallo(s).")

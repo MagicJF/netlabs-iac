@@ -20,6 +20,91 @@ aquí está su entrada; los tres tienen que contar lo mismo, y eso es lo que vig
 
 ### Añadido
 
+- **El `latido`: aparecer en la topología sin agente y sin abrir camino (ADR 0031).** Un
+  invitado Linux declara `latido: {}` (o `latido: {cada: 5min}`) y el motor le pone un
+  temporizador que da un toque **a su propia pasarela** —2 minutos por defecto—. No configura
+  nada del equipo ni de la red: lo que hace es mantener su MAC en la tabla ARP de su router,
+  que es lo que el sondeo del vigilante **lee** para encolarlo como nodo (medido en su código:
+  no exige que el invitado conteste). Los equipos de las zonas aparecen así **sin** agente
+  SNMP, **sin** rutas nuevas y **sin** una sola regla nueva en ningún cortafuegos.
+- **Un servidor de VIGILANCIA: el área `snmp` de RouterOS, el área `monitorizacion` de Linux y la
+  pata de gestión que publica un servicio (ADR 0029).** Un lab puede declarar `snmp: {}` en un
+  equipo de red —el motor enciende su agente y le pone **una** comunidad de LECTURA, la constante
+  del motor, la misma con la que el vigilante pregunta— y `monitorizacion: {}` en un `servicio`
+  que sepa vigilar (hoy `netxms`): el motor le **declara la red que tiene que rondar** —la del
+  propio invitado, derivada, nunca un valor declarado— **con el descubrimiento activo encendido**,
+  así que la ronda la hace el servidor **solo** y la topología aparece en la web según encuentra
+  los equipos; el sembrado espera a que sus hallazgos estén en la base y deja su marca. La pata de
+  gestión del plan deja de ser exclusiva del bastión: **quien publica un
+  servicio sale por donde sale el nodo**, con sus propias interfaces y sin una pata por cada
+  bridge del lab. Y el `estado` del `servicio` ya no se conforma con «esquema sí y WAR sí»:
+  **comprueba que se puede ENTRAR**, por el **API WEB** — la misma puerta por la que entra la
+  interfaz —, nunca por la consola de depuración: se midió que un `nxadm` que **autentica bien**
+  deja la clave rota para la web (`403 errorCode 61`, sin recuperación), así que el motor no usa
+  la consola para nada.
+- **`08_dunder-mifflin-con-fw` estrena `monitor` (`ctl-2`)**: un NetXMS en la red de gestión que
+  mira por SNMP a los cinco equipos de red del lab —el único sitio desde el que los ve a todos sin
+  abrir una sola regla— y publica su web como pieza de gestión del nodo.
+
+### Corregido
+
+- **La ruta por defecto tiene DUEÑO, y lo dice el tipo de equipo (hallazgo P1).** En un router
+  es suya --es su salida-- y el área la pone si falta; en un Linux la puso la plataforma al crear
+  el invitado y el motor **no la toca**: entrar en la comparación la borraba y dejaba al vigilante
+  sin internet antes de instalar nada. La decisión vive en el sitio de llamada, con el parámetro
+  `gobierna_por_defecto` **sin valor por omisión** (nadie puede equivocarse en silencio) y una
+  prueba a nivel de driver para cada dueño. Un lab que declare `0.0.0.0/0` en el interior Linux se
+  caza en la declaración, con el motivo.
+- **Un latido perfecto ya no se reescribe cada pasada (hallazgo P1).** `ansible.builtin.command`
+  recorta el `\n` que cierra el `stdout` y el guion va el ÚLTIMO, así que su salto final se perdía
+  por el camino y la comparación exacta fallaba: el `apply` pedía reescribir y arrancar en cada
+  pasada y su comprobación de cierre no podía pasar. Se normalizan los saltos finales **de los dos
+  lados**, y un guion borrado o un `OnUnitActiveSec` editado a mano siguen sin coincidir.
+- **La recuperación de la clave vuelve a arrancar el servidor (hallazgo P1).** Un backslash suelto
+  pegaba `systemctl start netxms-server` al `psql` --sus palabras pasaban a ser argumentos de
+  `psql`, el servidor no arrancaba-- y la reparación no podía completarse.
+
+- **Cuatro cosas que la relectura del PR cazó, todas con su prueba.** (1) Un lab que sólo declara
+  `servicio: netxms` —el 10— ya **no** enciende la vigilancia: los ajustes de descubrimiento
+  viven detrás del área `monitorizacion`. (2) Una **caída de la API** (sin respuesta, o un 5xx)
+  ya no se confunde con un rechazo de credenciales, así que `preparar` no puede borrar una base
+  poblada con un `DROP DATABASE`; la consulta que falla no es un esquema vacío, y la marca de
+  sembrado exige un recuento válido y mayor que cero. (3) Las rutas de un invitado Linux
+  **sobreviven al reinicio**, y las rutas a un host se comparan normalizadas (`/32` y
+  `10.44.1.5` son la misma; `default` y `0.0.0.0/0`, también). (4) La red del descubrimiento se
+  deriva del prefijo **completo**, no de un `/24` supuesto, y la lectura comprueba el `rc` de
+  `ip route` antes de creerse una tabla vacía.
+- **Los objetivos del vigilante comparan contra la DECLARACIÓN, no contra el equipo (ADR 0032).**
+  Si no, cambiar las rutas de un lab ya desplegado no se notaba —la marca de sembrado seguía
+  valiendo— y el vigilante seguía sondeando las redes **viejas**. Y «clave ausente» no es «clave
+  presente pero vacía»: `routes: []` declara el área y va a borrar las rutas, así que ahí la
+  expectativa es la red propia.
+- **La clave del motor se deja al CREAR, y si falta se para diciéndolo (ADR 0033).** Proxmox
+  admite `ssh-public-keys` sólo en el endpoint de creación (comprobado en su código: no está en
+  el esquema de configuración), así que un invitado que existía de antes sin ella no se puede
+  arreglar por la API: el motor reconoce la firma —«Permission denied (publickey)», `rc` 255—
+  y para con la causa y el remedio en vez de dejar un error que no explica nada.
+- **Un latido con cadencia CERO se caza en la declaración.** En systemd un cero BORRA la
+  expresión del temporizador: el latido no se repetiría y el invitado se caería de la topología
+  sin que nada lo dijera. El lector del latido compara además los **tres** artefactos (guion,
+  unidad y temporizador), no sólo el comentario.
+- **El plan cuenta como usadas las direcciones que reparte la propia pasada.** Dos invitados con
+  pata de gestión creados en el MISMO plan derivaban la misma dirección del bridge del nodo (el
+  bastión y un publicador salían los dos por la `10.10.10.254`, que además es la del propio
+  nodo), y eso rompía a medias la conexión del motor con el segundo. Ahora el segundo mira lo que
+  el primero acaba de recibir. Lo blinda `test/test_plan.py`.
+- **El área `servicio` aprende un segundo miembro, y deja de tener la forma de `caddy`
+  (ADR 0028).** Cada miembro del vocabulario cerrado declara sus PIEZAS —paquetes, ejecutables,
+  unidad, ficheros, el comando que prueba que SIRVE, una lectura adicional opcional y los pasos
+  para dejarlo en estado de arrancar— y el motor los gobierna igual para todos. `netxms` es el
+  segundo miembro: añade su repositorio APT (no está en Debian), instala PostgreSQL y Tomcat,
+  crea la base, el usuario y el esquema (`nxdbmgr init`, sólo si la base no tiene tablas) y
+  despliega el WAR del cliente web, y luego prueba que sirve con un `curl` a
+  `127.0.0.1:8080/nxmc/`. Hay una operación nueva, `prepare_service`, que va DESPUÉS de escribir
+  los ficheros y ANTES de arrancar la unidad.
+- **`10_lxc-netxms`**: el lab mínimo otra vez —un contenedor LXC que es bastión y servidor—,
+  pero con NetXMS dentro. La declaración es la misma línea (`servicio: netxms`): la base, la
+  contraseña, la versión y la URL de su web son vocabulario del motor, no del lab.
 - **El tipo de equipo manda sobre las áreas: un equipo, una responsabilidad (ADR 0026).** El
   validador caza un área declarada en el tipo al que no le toca, con el motivo y con el equipo
   que sí puede — «un `rt` que filtra es un router con dos trabajos: eso es un `fw`». Cubre los

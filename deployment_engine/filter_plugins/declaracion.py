@@ -99,6 +99,8 @@ CLAVE_EN_TEXTO = re.compile(
 
 # Una dirección IPv4 con máscara, y un rango `a-b` de un pool DHCP.
 IP_PATRON = re.compile(r"^\d{1,3}(\.\d{1,3}){3}(/\d{1,2})?$")
+# La cadencia del latido: número y unidad, tal y como los lee systemd (`30s`, `2min`, `1h`).
+CADENCIA_PATRON = re.compile(r"^([0-9]+)(s|min|h|d)$")
 
 # El área `tunnel` no declara credenciales ni direcciones de casa: eso es entorno
 # (secrets.yml). Lo único que puede traer son los dos valores que un lab de verdad
@@ -828,6 +830,97 @@ def _validar_linux(declarado, etiqueta, rol, errores):
                 "Un servicio que el motor no sabe instalar y servir se rechaza aquí, no se acepta "
                 "y se ignora. Añadirlo es una primitiva nueva, con su ADR."
             )
+    # `monitorizacion`: el área que hace que el servidor declarado SEPA a quién vigilar. Es
+    # una MARCA (`monitorizacion: {}`), como `uplink`: el lab dice QUÉ servidor vigila, y el
+    # motor decide CÓMO (ronda la red del propio invitado por SNMP). Dos reglas, las dos en
+    # positivo:
+    #   * no lleva opciones -- un valor aquí es una primitiva que el lab se estaría inventando
+    #     (regla 15);
+    #   * el `servicio` declarado tiene que SABER vigilar, o el área no tendría quién la haga:
+    #     se rechaza con el motivo en vez de aceptarla y no hacer nada con ella.
+    if "monitorizacion" in declarado:
+        vigilancia = declarado.get("monitorizacion")
+        if vigilancia not in ({}, None):
+            errores.append(
+                f"`{etiqueta}` ({rol}): el área 'monitorizacion' no lleva opciones y se declaró "
+                f"{vigilancia!r}. Es una marca (`monitorizacion: {{}}`): que el servidor "
+                "declarado vigile la red por la que ve a los equipos. El cómo es del motor."
+            )
+        servicio = declarado.get("servicio")
+        opciones = modulo_interior.SERVICIOS_LINUX_OPCIONES.get(str(servicio or "")) or {}
+        if not opciones.get("monitorizacion"):
+            errores.append(
+                f"`{etiqueta}` ({rol}): 'monitorizacion' necesita un `servicio` que sepa vigilar, "
+                f"y el declarado ({servicio!r}) no lo hace. Que un servicio sepa vigilar es una "
+                "primitiva nueva del motor, con su ADR."
+            )
+
+
+    # `routes` (Linux): las rutas que el motor GOBIERNA dentro del invitado. Cada una necesita
+    # destino y pasarela, y la POR DEFECTO no se declara: la pone la plataforma al crear el
+    # invitado (la pasarela de su pata de gestión) y el motor no la posee -- declararla sería
+    # pedirle algo que no va a hacer, y algo que su borrado no debe tocar nunca, porque dejaría
+    # al invitado sin salida a internet antes de instalar nada (hallazgo P1, PR #13). En un
+    # router es otra cosa: ahí la ruta por defecto es del equipo y se declara con normalidad,
+    # y esa es la razón de que esta guarda viva aquí y no en la del driver de RouterOS.
+    if "routes" in declarado:
+        rutas = declarado.get("routes")
+        if not isinstance(rutas, list):
+            errores.append(f"`{etiqueta}` ({rol}): `routes` es una LISTA de rutas")
+        else:
+            for indice, ruta in enumerate(rutas):
+                if (not isinstance(ruta, dict) or not ruta.get("dst_address")
+                        or not ruta.get("gateway")):
+                    errores.append(
+                        f"`{etiqueta}` ({rol}): `routes[{indice}]` necesita `dst_address` y "
+                        "`gateway`"
+                    )
+                elif str(ruta.get("dst_address")).strip() in ("0.0.0.0/0", "default"):
+                    errores.append(
+                        f"`{etiqueta}` ({rol}): `routes[{indice}]` declara la ruta POR DEFECTO "
+                        "(`0.0.0.0/0`): ésa la pone la plataforma al crear el invitado y el motor "
+                        "no la gobierna. Declara sólo las rutas que quieras poseer."
+                    )
+
+    # `latido` (Linux): una MARCA (`latido: {}`), como `monitorizacion`, con UN valor
+    # opcional: cada cuánto da el toque. La cadencia es un valor DEL LAB (el motor no la
+    # adivina, regla 7), así que se valida aquí y no se deja pasar: un temporizador con una
+    # cadencia que systemd no sabe leer no arma, y el invitado se caería de la topología sin
+    # que nadie dijera por qué. Los nombres de las claves se cierran también: una clave que
+    # el motor no conoce es una primitiva que el lab se estaría inventando (regla 15).
+    if "latido" in declarado:
+        latido = declarado.get("latido")
+        if latido is not None and not isinstance(latido, dict):
+            errores.append(
+                f"`{etiqueta}` ({rol}): el área 'latido' se declara como marca (`latido: {{}}`) "
+                f"o con su cadencia (`latido: {{cada: 2min}}`), y se declaró {latido!r}."
+            )
+        else:
+            cada = (latido or {}).get("cada")
+            cadencia = CADENCIA_PATRON.match(str(cada)) if cada is not None else None
+            if cada is not None and not cadencia:
+                errores.append(
+                    f"`{etiqueta}` ({rol}): 'latido.cada' espera una cadencia "
+                    f"(número y unidad: `30s`, `2min`, `1h`), y se declaró {cada!r}."
+                )
+            # Un CERO no es una cadencia: systemd lo lee como «borra la expresión del
+            # temporizador», así que el latido no se repetiría nunca y el equipo se caería
+            # de la tabla del router sin que ningún check se queje. Se caza aquí porque el
+            # lab no puede pedir en silencio un latido que no late (regla 15: el vocabulario
+            # es del motor, y lo que el motor admite lo dice él).
+            elif cadencia and int(cadencia.group(1)) == 0:
+                errores.append(
+                    f"`{etiqueta}` ({rol}): 'latido.cada' no puede ser CERO ({cada!r}): en "
+                    "systemd un cero BORRA la expresión del temporizador, así que el latido "
+                    "no se repetiría y el invitado se caería de la tabla del router sin que "
+                    "nada lo diga."
+                )
+            sobran = sorted(set(latido or {}) - {"cada"})
+            if sobran:
+                errores.append(
+                    f"`{etiqueta}` ({rol}): 'latido' no lleva esas claves: {', '.join(sobran)}. "
+                    "Lleva sólo `cada` (y es opcional)."
+                )
 
 
 def _address_space_de(declaracion):

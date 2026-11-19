@@ -1,0 +1,70 @@
+# PROPÓSITO:   el mismo lab mínimo que `09_lxc-caddy` -- UN contenedor LXC que es a la vez
+#              el bastión y el servidor -- pero con un servicio que NO cabe en un paquete:
+#              `servicio: netxms` (un servidor de monitorización) con su base de datos y su
+#              interfaz web. Es el lab que enseña que el área `servicio` es una PRIMITIVA y
+#              no un atajo para `caddy`: el lab sigue declarando SÓLO el nombre.
+# INVARIANTES: el lab no declara vmid ni MAC (regla 11: se derivan del clúster).
+#              No hay `vms:` (este lab no tiene ni una máquina virtual) y ninguna
+#              declaración menciona RouterOS: `grep -i routeros` sobre este fichero no
+#              encuentra nada.
+#              El contenedor ES el bastión: es el único invitado, y su túnel es la vía
+#              por la que el motor entra a configurarlo.
+# LÍMITES:     el área `servicio` gobierna los PAQUETES del servicio, su unidad y los
+#              ficheros que el propio motor escribe (la configuración de NetXMS y su
+#              preparador). NO borra paquetes ajenos, y fuera de las áreas declaradas no
+#              toca nada (regla 17). Lo que este lab NO demuestra: no hay router (nada que
+#              enrutar) ni segunda red, y NO hay nada que monitorizar -- NetXMS queda con su
+#              árbol de nodos vacío; lo que se demuestra es que el SERVICIO está en pie y se
+#              puede entrar por su web, no que vigile a nadie. Los paquetes se instalan
+#              saliendo a internet por la PATA DE GESTIÓN (la segunda interfaz que el motor
+#              añade al invitado, en el bridge de gestión del nodo y con su puerta de
+#              enlace), NO por el túnel: el túnel es una conexión que se apoya en esa salida.
+# VER:         docs/decisiones/0028-el-area-servicio-aprende-netxms.md (el segundo miembro
+#              del vocabulario y por qué necesita preparar la base),
+#              docs/decisiones/0027-el-area-servicio-de-un-linux.md (el área `servicio`),
+#              docs/decisiones/0002-el-pool-como-frontera-de-propiedad.md (el pool es la
+#              frontera de propiedad), deployment_engine/filter_plugins/interior.py
+#              (`SERVICIOS_LINUX_OPCIONES["netxms"]`: qué instala, qué escribe y cómo
+#              comprueba que sirve).
+
+lab:
+  nombre: 10_lxc-netxms
+  # Una sola red: la de gestión. El contenedor vive en ella y no hay más.
+  bridges:
+    - nombre: vmb_netxms
+      address: 10.46.0.1/24
+  # Una sola etapa: no hay nada que esperar antes, así que no hay carrera que evitar.
+  stages: [1]
+  # Marca, no valor: el motor lee la clave y sabe que este lab tiene bastión. El
+  # bastión de ESTE lab es el propio contenedor de NetXMS.
+  tunnel: {tipo: bastion}
+
+containers:
+  # El contenedor del lab: un Debian con NetXMS dentro, y a la vez el bastión (el
+  # `tipo: ctl` es lo que lo nombra `ctl-monitor` y lo que hace que el motor le construya
+  # el túnel). Es el ÚNICO invitado: sin routers, sin nada que enrutar.
+  - rol: monitor
+    tipo: ctl         # el bastión de este lab -> el nombre es 'ctl-monitor'
+    stage: 1
+    cores: 2
+    # NetXMS + PostgreSQL + Tomcat viven en el MISMO contenedor: 1 GB es el mínimo con el
+    # que la JVM de Tomcat, la base y el servidor caben a la vez sin que el OOM killer del
+    # kernel se lleve a ninguno por delante.
+    memory: 1024
+    # El WAR de la interfaz web son 53 MB y el repositorio de NetXMS trae sus dependencias:
+    # 4 GB (lo que pide el 09) se queda corto en el primer `apt-get install`.
+    disk: 6
+    bridge: vmb_netxms
+    address: 10.46.0.10/24
+    # Y esto es lo que va DENTRO del contenedor:
+    #   * `tunnel: {}` -- la salida. No lleva valor -- que hay túnel lo dice la CLAVE, no
+    #     su contenido --; por dónde sale, con qué clave y en qué puerto es entorno del
+    #     motor, no una dirección escrita en un lab.
+    #   * `servicio: netxms` -- el servicio que el motor instala y deja SIRVIENDO (área
+    #     `servicio`, vocabulario cerrado; ADR 0027 y 0028). Ni la base, ni la contraseña,
+    #     ni la versión, ni la URL de su web se escriben aquí: son vocabulario del motor
+    #     (regla 7). El lab dice QUÉ servicio, no cómo se monta.
+    config:
+      linux:
+        tunnel: {}
+        servicio: netxms

@@ -2109,8 +2109,17 @@ def objetivos_declarados(declaradas):
     los destinos de sus rutas. Es lo que el motor le pasa a `estado`/`sembrado` para que la
     lectura compare contra lo DECLARADO -- no contra lo que aún hay en el equipo --, y así un
     `apply` que cambia las rutas pide reescribir los objetivos en la MISMA pasada (hallazgo P1,
-    PR #14). Vacío si no se puede derivar (p. ej. `address: dhcp`): entonces el guion cae a las
-    rutas de verdad, que es el comportamiento de siempre."""
+    PR #14).
+
+    Vacío cuando no se puede derivar la declaración: con `address: dhcp` (no se sabe la red de
+    gestión) y también cuando el lab NO declara el área `routes`. En ese segundo caso la tabla
+    del equipo se deja intacta (regla 17), así que `preparar` guarda la red propia Y las rutas
+    que el equipo ya tenía: la expectativa tiene que ser esa misma --la viva--, y devolver vacío
+    hace que el guion compare contra lo que de verdad va a guardar. Con la red propia sola, la
+    comparación no cuadraba NUNCA y el motor volvía a preparar y a sembrar en cada pasada
+    (hallazgo P1 de la relectura, PR #14)."""
+    if not declaradas.get("routes"):
+        return []
     redes = set()
     direcciones = declaradas.get("address") or []
     if isinstance(direcciones, list) and direcciones and isinstance(direcciones[0], dict):

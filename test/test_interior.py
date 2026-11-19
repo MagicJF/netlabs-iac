@@ -1776,14 +1776,25 @@ igual(
     len(_LECTURA_VIGILANCIA), 1,
     "un vigilante se pregunta UNA cosa: si ya sabe a quién mirar",
 )
+# El vigilante de verdad (el del lab 08) declara el área `routes` para llegar a las zonas: con
+# ella, la lectura se pregunta CON la lista declarada como argumento. Sin ella, el motor no
+# pasa lista ninguna y el guion cae a las rutas vivas -- eso lo prueba el caso de la relectura,
+# más abajo, ejecutando el guion de verdad.
+_VIGILANTE_CON_RUTAS = dict(
+    EQUIPO_VIGILANTE,
+    config={"linux": {
+        "tunnel": {}, "servicio": "netxms", "monitorizacion": {},
+        "routes": [{"dst_address": "10.44.1.0/24", "gateway": "10.44.0.12"}],
+    }},
+)
 igual(
-    _LECTURA_VIGILANCIA[0]["comando"],
+    [l for l in motor.lecturas_linux(_VIGILANTE_CON_RUTAS) if l["area"] == "monitorizacion"][0]["comando"],
     motor.SERVICIOS_LINUX_OPCIONES["netxms"]["monitorizacion"]["comando_objetivos"].format(
-        objetivos=" ".join(motor.objetivos_declarados(motor.areas_de(EQUIPO_VIGILANTE)))
+        objetivos=" ".join(motor.objetivos_declarados(motor.areas_de(_VIGILANTE_CON_RUTAS)))
     ),
-    "y se pregunta por el comando del SERVICIO declarado, con la lista DECLARADA de objetivos "
-    "como argumento: así la lectura decide en la MISMA pasada, aunque las rutas aún no se hayan "
-    "escrito (hallazgo P1, PR #14)",
+    "con `routes` declaradas, se pregunta por el comando del SERVICIO con la lista DECLARADA de "
+    "objetivos como argumento: así la lectura decide en la MISMA pasada, aunque las rutas aún no "
+    "se hayan escrito (hallazgo P1, PR #14)",
 )
 igual(
     motor.leido_linux([{"area": "monitorizacion", "rc": 0, "encontrado": "si"}]),
@@ -2123,6 +2134,33 @@ igual(
     motor.objetivos_declarados({"address": [{"interface": "eth0", "address": "dhcp"}]}),
     [],
     "y si no se puede derivar NADA, la lista va vacía: el guion cae a las rutas de verdad de siempre",
+)
+# P1 de la RELECTURA: si el lab fija la dirección pero no declara el área `routes`, la tabla
+# del equipo se deja intacta, así que `preparar` guarda la red propia MÁS las rutas que el
+# equipo ya tenía. La expectativa tiene que ser esa misma --la viva--: con la red propia sola,
+# la comparación no cuadraba nunca y el motor volvía a preparar y sembrar en CADA pasada
+# (rompía la idempotencia y dejaba `verify` con un pendiente eterno).
+_SIN_RUTAS = {"address": [{"interface": "eth0", "address": "10.44.0.20/24"}]}
+igual(
+    motor.objetivos_declarados(_SIN_RUTAS), [],
+    "sin área `routes` la expectativa NO se inventa: la decide el guion con las rutas vivas",
+)
+_guion_sr, _banco_sr, _ = _banco_preparador([
+    "10.44.0.0/24 dev eth0 proto kernel scope link src 10.44.0.10",
+    "10.44.1.0/24 via 10.44.0.12 dev eth0 proto static",
+])
+# Se siembra y se lee pasándole lo MISMO que le pasa el motor (la lista declarada como
+# argumentos): es la única forma de que la prueba vea lo que ve el motor.
+_corre_preparador(_guion_sr, _banco_sr, "sembrar", *motor.objetivos_declarados(_SIN_RUTAS))
+igual(
+    _corre_preparador(_guion_sr, _banco_sr, "sembrado", *motor.objetivos_declarados(_SIN_RUTAS))[0],
+    "si",
+    "sin área `routes`: tras sembrar, `sembrado` dice `si` -- las rutas vivas SON la expectativa",
+)
+igual(
+    _corre_preparador(_guion_sr, _banco_sr, "estado", *motor.objetivos_declarados(_SIN_RUTAS))[0],
+    "si",
+    "y `estado` también: el área queda convergida y una segunda pasada no vuelve a preparar (regla 6)",
 )
 _guion_una, _banco_una, _ = _banco_preparador([
     "10.44.0.0/24 dev eth0 proto kernel scope link src 10.44.0.10",

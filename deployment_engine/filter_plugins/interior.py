@@ -2866,6 +2866,17 @@ def _configuracion_netxms():
         f"DBLogin = {NETXMS_BD['usuario']}",
         f"DBPassword = {NETXMS_BD['clave']}",
         "DBHost = 127.0.0.1",
+        "",
+        "# El API REST con sus RECURSOS (`/v1/objects`, `/v1/alarms`...). Sin este módulo el",
+        "# servidor sólo trae el núcleo del API -- `/v1/login`, el que usa el motor -- y los",
+        "# recursos contestan 404 (medido: es lo que había antes de declararlo).",
+        "# Se queda en LOOPBACK a propósito: quien lo use entra por túnel SSH, nunca expuesto",
+        "# (decisión escrita en el ADR del API del vigilante).",
+        "Module = webapi",
+        "[WEBAPI]",
+        "Enable = yes",
+        "Address = loopback",
+        "Port = 8000",
     ]) + "\n"
 
 
@@ -2876,7 +2887,7 @@ PLANTILLA_PREPARADOR_NETXMS = r'''#!/bin/sh
 # PROPÓSITO: dejar NetXMS en estado de arrancar: su base en PostgreSQL con su usuario, su
 #            esquema y su interfaz web desplegada en Tomcat. Lo escribe el motor (netlabs)
 #            desde el área `servicio`; no se edita a mano.
-# USO:       netlabs-servicio-netxms preparar|estado|sembrar|sembrado|objetivos
+# USO:       netlabs-servicio-netxms preparar|estado|sembrar|sembrado|objetivos|api
 #            `preparar` es idempotente; `estado` imprime `si` cuando la base ya tiene el
 #            esquema de NetXMS Y el WAR de la web está desplegado (es lo que el motor lee
 #            para decidir si hay que preparar); `sembrar` vuelve a declarar las redes que
@@ -2959,6 +2970,21 @@ respuesta_de_la_web() {
         -d "{\"username\":\"$ADMIN\",\"password\":\"$ADMIN_CLAVE\"}" 2>/dev/null) || true
     [ -n "$salida" ] || salida=000
     printf '%%s' "$salida"
+}
+
+api_web() {
+    # ¿Están los RECURSOS del API REST (`/v1/objects`, `/v1/alarms`...)? El núcleo del API
+    # (el `login`) lo trae el servidor y contesta siempre; los recursos los añade el MÓDULO
+    # `webapi`, que se lee SÓLO al arrancar. Sin el módulo, `/v1/objects` contesta 404; con
+    # él, 401/403 (pide token, que es lo correcto para una lectura sin credenciales). Ese
+    # 401 es la prueba, y no el fichero de configuración: el fichero dice lo que se pidió,
+    # el 401 dice lo que el servidor CARGÓ (medido: `/v1/objects` daba 404 con el módulo en
+    # disco y sin cargar).
+    codigo=$(curl -sS -m 10 -o /dev/null -w '%%{http_code}' "http://127.0.0.1:8000/v1/objects" 2>/dev/null) || true
+    case "$codigo" in
+        401|403) echo si ;;
+        *) echo no ;;
+    esac
 }
 
 # ¿Se puede entrar? Tres respuestas, y la diferencia IMPORTA:
@@ -3140,7 +3166,7 @@ estado() {
     # el servicio «sin converger» para siempre (hallazgo P1, PR #13). Con objetivos guardados,
     # un `apply` que cambiara las rutas se nota aquí y el motor vuelve a preparar (PR #14).
     if [ "$(esquema)" != "si" ] || [ ! -s "$WEBAPPS/nxmc.war" ] \
-            || [ "$(entra)" != "si" ]; then
+            || [ "$(entra)" != "si" ] || [ "$(api_web)" != "si" ]; then
         echo no
         return 0
     fi
@@ -3172,6 +3198,11 @@ sembrado)
 objetivos)
     # Sólo lectura: las redes que este invitado alcanza, en la forma `red/máscara`.
     objetivos
+    ;;
+api)
+    # Sólo lectura: `si` si los RECURSOS del API REST están cargados (el módulo `webapi`).
+    # Es la prueba que usa `estado`, y también sirve a mano para diagnosticar en un minuto.
+    api_web
     ;;
 sembrar)
     # Se pregunta por el API WEB (la puerta de la interfaz), nunca por la consola: `nxadm`
@@ -3353,9 +3384,24 @@ preparar)
     # pasada era, él solo, lo que dejaba la clave rota.
     systemctl enable netxms-server >/dev/null 2>&1
     systemctl is-active --quiet netxms-server || systemctl start netxms-server >/dev/null 2>&1
+    # El MÓDULO del API (y su Address/Port) se leen SÓLO al arrancar: si los recursos del API
+    # no están, hay que REINICIAR, y es lo único que justifica un reinicio aquí. Detrás va la
+    # trampa medida del hash -- un arranque deja la clave en la forma que no verifica --, así
+    # que después se repone la clave buena (camino barato) y se vuelve a preguntar, en ese
+    # orden y nunca al revés. Se reinicia SÓLO cuando falta el API: un arranque de más era lo
+    # que rompía la clave en cada pasada.
+    if [ "$(api_web)" != "si" ]; then
+        systemctl restart netxms-server >/dev/null 2>&1
+        i=0
+        while [ "$i" -lt 20 ] && [ "$(api_web)" != "si" ]; do i=$((i + 1)); sleep 2; done
+        if [ "$(entra)" = "rechaza" ]; then
+            reponer_clave
+            entra >/dev/null
+        fi
+    fi
     ;;
 *)
-    echo "uso: $0 preparar|estado|sembrar|sembrado" >&2
+    echo "uso: $0 preparar|estado|sembrar|sembrado|objetivos|api" >&2
     exit 2
     ;;
 esac

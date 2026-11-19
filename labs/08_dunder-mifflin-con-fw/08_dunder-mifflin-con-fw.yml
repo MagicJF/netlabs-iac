@@ -360,8 +360,14 @@ containers:
     nombre: 2
     stage: 2          # después de los equipos de red: cuando ronda la red, ya contestan
     cores: 2
-    memory: 1536
-    disk: 6
+    # 4 GB / 20 GB: el mínimo que publica la documentación de NetXMS para un servidor que
+    # vigila hasta 500 nodos es 2 cores / 4 GB / 50 GB, y este contenedor nació con 1,5 GB
+    # y 6 GB -- se quedaba corto ya con doce equipos (la base crece con el histórico). Va
+    # a 4 GB de RAM (el mínimo, no un valor elegido por gusto) y 20 GB de disco: por
+    # debajo de los 50 GB de la doc, que son para 500 nodos, pero con holgura para lo que
+    # este lab mide y para que el diario de la base no llene el rootfs.
+    memory: 4096
+    disk: 20
     bridge: vmb_fw_gestion
     address: 10.44.0.20/24
     ready: {tipo: ssh, espera: 120}

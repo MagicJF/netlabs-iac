@@ -1643,6 +1643,24 @@ comprobar(
     "su configuración dice DÓNDE está su base (driver, usuario y host): sin eso no hay servidor",
 )
 comprobar(
+    all(clave in _FICHEROS_NETXMS[0] for clave in ("Module = webapi", "[WEBAPI]",
+                                                   "Address = loopback", "Port = 8000")),
+    "su configuración CARGA el módulo del API REST -- sin él sólo queda el `login` y los "
+    "recursos contestan 404 -- y lo deja en LOOPBACK: quien use el API entra por túnel",
+)
+comprobar(
+    "http://127.0.0.1:8000/v1/objects" in _FICHEROS_NETXMS[2]
+    and '"$(api_web)" != "si"' in _FICHEROS_NETXMS[2],
+    "la LECTURA pregunta por los RECURSOS del API (401/403 en `/v1/objects`) y no se fía del "
+    "fichero: el fichero dice lo que se pidió, la respuesta dice lo que el servidor CARGÓ",
+)
+comprobar(
+    "systemctl restart netxms-server" in _FICHEROS_NETXMS[2]
+    and "reponer_clave" in _FICHEROS_NETXMS[2],
+    "el preparador REINICIA sólo cuando falta el API (el módulo se lee al arrancar) y detrás "
+    "repone la clave buena: ese arranque deja el hash en la forma que no verifica",
+)
+comprobar(
     all(pieza in _FICHEROS_NETXMS[2]
         for pieza in ('nxdbmgr -c /etc/netxmsd.conf -p "$ADMIN_CLAVE" init pgsql',
                       "createdb", "nxmc.war", "pg_isready")),
@@ -2042,12 +2060,14 @@ import subprocess as _subprocess
 import tempfile as _tempfile
 
 
-def _banco_preparador(rutas, direccion="10.44.0.10/24", codigo_curl="201"):
+def _banco_preparador(rutas, direccion="10.44.0.10/24", codigo_curl="201", codigo_api="401"):
     """Un banco con `ip`/`psql`/`/su`/`curl` falsos; devuelve (guion, banco, marca).
 
     `direccion` es la que devuelve `ip addr show` (para probar la derivación de red con
-    prefijos distintos de /24) y `codigo_curl` lo que contesta el API web (para probar una
-    caída, `000`). Los ficheros `nodos`/`falla_nodos`/`falla_esquema` dentro del banco permiten
+    prefijos distintos de /24), `codigo_curl` lo que contesta el API web (para probar una
+    caída, `000`) y `codigo_api` lo que contestan sus RECURSOS (`/v1/objects`): 401 es
+    «módulo cargado», 404 «módulo sin cargar» -- la diferencia que vigila `estado`.
+    Los ficheros `nodos`/`falla_nodos`/`falla_esquema` dentro del banco permiten
     fingir que la base contesta, que falla la consulta de equipos o la del esquema.
     """
     banco = _tempfile.mkdtemp(prefix="netlabs-preparador-")
@@ -2082,8 +2102,11 @@ case "$*" in
   *"from address_lists"*) cat "$BANCO/guardados" ;;
   *) exit 0 ;;
 esac''')
-    _falso("curl", f"echo {codigo_curl}")
-    _falso("systemctl", "exit 0")
+    _falso("curl", f'''case "$*" in
+  */v1/objects*) echo {codigo_api} ;;
+  *) echo {codigo_curl} ;;
+esac''')
+    _falso("systemctl", 'printf \'%s\\n\' "$*" >> "$BANCO/systemctl.log"\nexit 0')
     _falso("sleep", "exit 0")
     _falso("nxdbmgr", 'printf \'%s\\n\' "$*" >> "$BANCO/nxdbmgr.log"\nexit 0')
     marca = os.path.join(banco, "sembrado")
@@ -2590,7 +2613,8 @@ igual(
 # 1 y 3. Una CAÍDA de la API (curl `000`) NO debe rehacer la base: se clasifica `no-contesta`
 # y el esquema se lee bien, así que no hay DROP. Y si la CONSULTA del esquema falla, se ABORTA.
 _guion_caida, _banco_caida, _ = _banco_preparador(
-    ["10.44.0.0/24 dev eth0 proto kernel scope link src 10.44.0.10"], codigo_curl="000")
+    ["10.44.0.0/24 dev eth0 proto kernel scope link src 10.44.0.10"], codigo_curl="000",
+    codigo_api="000")
 _corre_preparador(_guion_caida, _banco_caida, "preparar")
 with open(os.path.join(_banco_caida, "psql.log"), encoding="utf-8") as _f:
     _log_caida = _f.read().lower()
@@ -2609,6 +2633,37 @@ comprobar(
     _rc_esq != 0 and "drop database" not in _log_esq,
     "y si la CONSULTA del esquema FALLA se aborta SIN tocar la base: un `no` de una consulta caída "
     "no significa «vacía» (hallazgo P1, PR #13)",
+)
+
+# El MÓDULO del API REST: /v1/objects contesta 404 sin él y 401 con él. Es la prueba que
+# distingue «lo pedí» de «lo cargó», y la única forma de que `estado` note que falta.
+_guion_mod, _banco_mod, _ = _banco_preparador(
+    ["10.44.0.0/24 dev eth0 proto kernel scope link src 10.44.0.10"], codigo_api="404")
+igual(
+    _corre_preparador(_guion_mod, _banco_mod, "estado")[0], "no",
+    "sin el módulo del API (404 en `/v1/objects`) el área NO está servida, aunque la base y la "
+    "web sí: el API a medias no es el API",
+)
+igual(_corre_preparador(_guion_mod, _banco_mod, "api")[0], "no",
+      "y el verbo `api` lo dice sin tocar nada")
+_corre_preparador(_guion_mod, _banco_mod, "preparar")
+with open(os.path.join(_banco_mod, "systemctl.log"), encoding="utf-8") as _f:
+    _log_mod = _f.read()
+comprobar(
+    "restart netxms-server" in _log_mod,
+    "`preparar` REINICIA el servidor cuando falta el módulo: la configuración se lee al arrancar, "
+    "y sin reinicio el módulo no se cargaría NUNCA",
+)
+_guion_api, _banco_api, _ = _banco_preparador(
+    ["10.44.0.0/24 dev eth0 proto kernel scope link src 10.44.0.10"])
+igual(_corre_preparador(_guion_api, _banco_api, "api")[0], "si",
+      "con 401 en `/v1/objects` el API está cargado y el verbo dice `si`")
+_corre_preparador(_guion_api, _banco_api, "preparar")
+with open(os.path.join(_banco_api, "systemctl.log"), encoding="utf-8") as _f:
+    _log_api = _f.read()
+comprobar(
+    "restart netxms-server" not in _log_api,
+    "y con el módulo ya cargado NO reinicia: un arranque de más es lo que dejaba la clave rota",
 )
 
 # 4. El sembrado NO escribe su marca sin confirmar un entero > 0 de equipos vigilados.

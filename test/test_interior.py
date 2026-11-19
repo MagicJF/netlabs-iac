@@ -1997,6 +1997,21 @@ comprobar(
     "después y sin condición, para que un fallo de en medio no lo deje caído (hallazgo P1, PR #16)",
 )
 comprobar(
+    "flags = flags & 247" in _PREPARADOR_NETXMS
+    and "grace_logins = 5" in _PREPARADOR_NETXMS
+    and 'where name = \'$ADMIN\'' in _PREPARADOR_NETXMS
+    and _PREPARADOR_NETXMS.count("limpiar_entrada") >= 2,
+    "y la ENTRADA se abre con la clave BUENA: el flag de cambiar la clave y las gracias son lo "
+    "que cierra la puerta cuando se agotan (medido: 403 con `errorCode 61` y el hash correcto), y "
+    "se limpian al inicializar la base y otra vez cuando el servidor rechaza la clave",
+)
+comprobar(
+    _PREPARADOR_NETXMS.index("abrir_entrada\n        se_entra=$(entra)")
+    < _PREPARADOR_NETXMS.index("reponer_clave\n            se_entra=$(entra)"),
+    "y en un `rechaza` se prueba PRIMERO abrir la entrada y DESPUÉS reponer el hash: reponer la "
+    "clave no arregla una puerta cerrada por el flag, así que el orden barato es el que converge",
+)
+comprobar(
     'salida=$(curl' in _PREPARADOR_NETXMS
     and '[ -n "$salida" ] || salida=000' in _PREPARADOR_NETXMS
     and "2>/dev/null || echo 000" not in _PREPARADOR_NETXMS,

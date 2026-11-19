@@ -3011,8 +3011,19 @@ reponer_clave() {
     [ -s "$CLAVE_BUENA" ] || return 1
     systemctl stop netxms-server >/dev/null 2>&1
     sleep 2
-    buena=$(cat "$CLAVE_BUENA")
-    como_postgres "psql -q -d %(bd)s -c \"update users set password='$buena' where id=1\""
+    # TRAMPA MEDIDA: el hash LLEVA `$` (`$argon2id$v=19$...`) y `como_postgres` lo pasa por
+    # `su postgres -c`, que es un SEGUNDO shell. Metido dentro de su cadena, `$argon2id` y `$v`
+    # los expandía ESE shell a vacío: la contraseña quedaba escrita como basura, el servidor la
+    # rechazaba, todo login contestaba 403 y la única salida aparente era `DROP DATABASE` -- que
+    # se lleva por delante el descubrimiento entero (medido: de 9 equipos vigilados a 3).
+    # Por eso el valor NO viaja dentro de ninguna orden: `printf` lo escribe tal cual (la marca de
+    # formato no re-expande nada) a un fichero que psql lee con `-f`, y ese fichero se borra en el
+    # acto. El fichero es para `postgres`, que es quien lo abre: dueño y modo, explícitos.
+    clave_sql=$(mktemp) || return 1
+    printf "update users set password = '%%s' where id=1;\n" "$(cat "$CLAVE_BUENA")" > "$clave_sql"
+    chown postgres "$clave_sql" && chmod 600 "$clave_sql"
+    como_postgres "psql -q -d %(bd)s -f $clave_sql"
+    rm -f "$clave_sql"
     systemctl start netxms-server >/dev/null 2>&1
 }
 

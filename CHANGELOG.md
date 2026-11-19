@@ -31,17 +31,23 @@ aquí está su entrada; los tres tienen que contar lo mismo, y eso es lo que vig
   escribía un cambio que el primero debía haber dejado hecho: la segunda pasada no era
   `changed=0` (regla 6). Las dos condiciones se atan en `test/test_plan.py` y el ciclo lo
   comprueba con DOS `apply` seguidos (P2, PR #13).
-- **La clave del vigilante se repone sola cuando el primer login la deja rota.** Al entrar por su
-  API, NetXMS reescribe el hash del administrador y desde ahí todo login contesta 403; la lectura
-  siguiente daba el área `servicio` por no convergida y el segundo `apply` fallaba aunque no
-  hubiera nada que hacer (regla 6: `failed=1` en la segunda pasada, con la primera en verde).
-  Ahora `entra` repone el hash bueno —una sola vez— y vuelve a preguntar en el sitio, que es lo
-  que su propio comentario ya exigía al llamante.
-- **PENDIENTE, dicho y no maquillado:** con eso, `destroy → apply → apply` cierra en verde
-  (segunda pasada `changed=0`, `failed=0`), pero el verbo `verify` **suelto** todavía marca
-  `rol=monitor: [servicio] prepare_service` como pendiente. Es el mismo sitio y el mismo login
-  los dos, así que falta una pasada de diagnóstico sobre el preparador (la condición que decide
-  `estado` frente a la que decide el apply) antes de dar el ciclo por bueno.
+- **La clave del vigilante se reponía ROTA, y con ella caía el ciclo entero.** `reponer_clave`
+  metía el hash dentro de la cadena de `como_postgres`, que es `su postgres -c`: un SEGUNDO shell.
+  El hash lleva `$` (`$argon2id$v=19$…`) y ese segundo shell expandía `$argon2id` y `$v` a vacío,
+  así que escribía basura. El servidor la rechazaba, todo login contestaba 403, `entra` acababa en
+  `rechaza` y la única salida que quedaba era rehacer la base — con el descubrimiento dentro
+  (medido: de 9 equipos vigilados a 3). Ahora el valor no viaja dentro de ninguna orden: `printf`
+  lo escribe a un fichero que psql lee con `-f`, y el fichero se borra en el acto. El patrón viejo,
+  reproducido en shell, escribía `password='='=19=65536''`; la prueba de regresión lo caza.
+- **Y funcionó, medido:** con el `destroy → apply → verify` sale **CORRECTO** y **12/12** invitados
+  leídos por dentro y coincidentes. La única pasada que se paró fue un corte de la conexión al
+  RELEER un invitado (el motor lo trata como «no llegué» y PARA, en vez de dar por bueno lo que no
+  puede confirmar); el reintento de `apply` —idempotente— la cerró. Antes de esto el mismo lab no
+  podía salir verde: cada login rechazado acababa rehaciendo la base.
+- **Dos piezas, y la segunda se midió a mano:** (a) el valor ya no se corrompe (arriba); (b) la
+  clave que se guarda para reponer se REFRESCA cuando la base se rehace. Restaurar una clave
+  guardada por una pasada vieja repone basura y no arregla nada — eso es exactamente lo que se
+  midió en el invitado que arrastraba las pasadas anteriores, con el arreglo (a) ya puesto.
 
 ### Añadido
 

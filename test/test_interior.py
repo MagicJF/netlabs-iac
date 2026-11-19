@@ -1935,6 +1935,20 @@ comprobar(
     "reponer se VUELVE A PREGUNTAR: decidir con la respuesta vieja no vale (hallazgo P1, PR #13)",
 )
 comprobar(
+    "clave_sql=$(mktemp)" in _PREPARADOR_NETXMS
+    and "-f $clave_sql" in _PREPARADOR_NETXMS
+    and 'chown postgres "$clave_sql"' in _PREPARADOR_NETXMS
+    and 'buena=$(cat "$CLAVE_BUENA")' not in _PREPARADOR_NETXMS
+    and "password='$buena'" not in _PREPARADOR_NETXMS,
+    "y el valor de la clave NO viaja DENTRO de ninguna orden: `como_postgres` mete la cadena en "
+    "`su postgres -c`, que es un SEGUNDO shell, y un hash que lleva `$` ($argon2id$v=19$…) salía "
+    "de ahí con sus `$` expandidos a vacío -- la clave quedaba escrita como basura, el servidor "
+    "la rechazaba y todo login contestaba 403: el área `servicio` no convergía NUNCA y la única "
+    "salida aparente era tirar la base (medido; el patrón viejo reproducido en shell: "
+    "password='='=19=65536''). Se escribe con `printf` -- que no re-expande -- a un fichero que "
+    "psql lee con `-f`, y el fichero se borra en el acto",
+)
+comprobar(
     'if [ "$esquema_actual" != "si" ] || [ "$se_entra" = "rechaza" ]; then' in _PREPARADOR_NETXMS
     and "no-contesta" in _PREPARADOR_NETXMS,
     "y la sonda del API distingue TRES casos -- `si` / `rechaza` / `no-contesta` -- y sólo "

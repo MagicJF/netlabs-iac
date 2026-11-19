@@ -185,7 +185,7 @@
   },
   "docs/decisiones/0028-el-area-servicio-aprende-netxms.md": {
     "citados": {
-      "deployment_engine/filter_plugins/interior.py": "2d9123ae5e968a177d0b2056c7d7c34a856b5f79b10d70c5057f51eccdb75e92"
+      "deployment_engine/filter_plugins/interior.py": "a9ca125830888c8015812553f1656eb42292a7ea8fceef2f6096e26490fbabfb"
     }
   },
   "docs/decisiones/0032-el-rango-de-vigilancia-se-deriva-de-las-rutas.md": {

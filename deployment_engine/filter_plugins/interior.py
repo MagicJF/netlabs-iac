@@ -2866,6 +2866,17 @@ def _configuracion_netxms():
         f"DBLogin = {NETXMS_BD['usuario']}",
         f"DBPassword = {NETXMS_BD['clave']}",
         "DBHost = 127.0.0.1",
+        "",
+        "# El API REST con sus RECURSOS (`/v1/objects`, `/v1/alarms`...). Sin este módulo el",
+        "# servidor sólo trae el núcleo del API -- `/v1/login`, el que usa el motor -- y los",
+        "# recursos contestan 404 (medido: es lo que había antes de declararlo).",
+        "# Se queda en LOOPBACK a propósito: quien lo use entra por túnel SSH, nunca expuesto",
+        "# (decisión escrita en el ADR del API del vigilante).",
+        "Module = webapi",
+        "[WEBAPI]",
+        "Enable = yes",
+        "Address = loopback",
+        "Port = 8000",
     ]) + "\n"
 
 
@@ -2876,7 +2887,7 @@ PLANTILLA_PREPARADOR_NETXMS = r'''#!/bin/sh
 # PROPÓSITO: dejar NetXMS en estado de arrancar: su base en PostgreSQL con su usuario, su
 #            esquema y su interfaz web desplegada en Tomcat. Lo escribe el motor (netlabs)
 #            desde el área `servicio`; no se edita a mano.
-# USO:       netlabs-servicio-netxms preparar|estado|sembrar|sembrado|objetivos
+# USO:       netlabs-servicio-netxms preparar|estado|sembrar|sembrado|objetivos|api
 #            `preparar` es idempotente; `estado` imprime `si` cuando la base ya tiene el
 #            esquema de NetXMS Y el WAR de la web está desplegado (es lo que el motor lee
 #            para decidir si hay que preparar); `sembrar` vuelve a declarar las redes que
@@ -2961,6 +2972,21 @@ respuesta_de_la_web() {
     printf '%%s' "$salida"
 }
 
+api_web() {
+    # ¿Están los RECURSOS del API REST (`/v1/objects`, `/v1/alarms`...)? El núcleo del API
+    # (el `login`) lo trae el servidor y contesta siempre; los recursos los añade el MÓDULO
+    # `webapi`, que se lee SÓLO al arrancar. Sin el módulo, `/v1/objects` contesta 404; con
+    # él, 401/403 (pide token, que es lo correcto para una lectura sin credenciales). Ese
+    # 401 es la prueba, y no el fichero de configuración: el fichero dice lo que se pidió,
+    # el 401 dice lo que el servidor CARGÓ (medido: `/v1/objects` daba 404 con el módulo en
+    # disco y sin cargar).
+    codigo=$(curl -sS -m 10 -o /dev/null -w '%%{http_code}' "http://127.0.0.1:8000/v1/objects" 2>/dev/null) || true
+    case "$codigo" in
+        401|403) echo si ;;
+        *) echo no ;;
+    esac
+}
+
 # ¿Se puede entrar? Tres respuestas, y la diferencia IMPORTA:
 #   `si`          -- el API contesta 201: la clave está aplicada y se entra.
 #   `rechaza`     -- contesta y NO acepta la clave (un 4xx: 401/403): es la AL AZAR del paquete.
@@ -2995,6 +3021,16 @@ entra() {
 # hash que `init` dejó (el que SÍ verifica) y se vuelve a arrancar. NO decide por sí misma si se
 # puede entrar: la respuesta de antes de reponer ya no vale, así que el llamante TIENE que
 # volver a PREGUNTAR (hallazgo P1, PR #13).
+# La ENTRADA está cerrada aunque la clave sea la buena: `nxdbmgr init -p` deja el usuario
+# con el flag de "cambie la clave al entrar" (`UF_CHANGE_PASSWORD`) y 5 `grace_logins`, y
+# CADA login correcto gasta uno. A los cinco, el servidor contesta 403 con `errorCode 61`
+# -- que parece "clave incorrecta" y no lo es -- y ya no se entra NUNCA, ni reiniciando ni
+# reponiendo el hash (medido: era la causa real de que la clave "se quedara rota" en cada
+# pasada; el motor hace varios intentos de login por ejecución, así que se agotaba solo).
+# Se abre limpiando el flag y reponiendo las gracia, con el servidor PARADO: la lista de
+# usuarios se lee al arrancar y vive en memoria, así que escribir la base con el servidor
+# vivo no cambia nada hasta el siguiente arranque.
+# La escritura, sin arrancar: el que llama sabe si el servidor tenía que estar vivo.
 reponer_clave() {
     [ -s "$CLAVE_BUENA" ] || return 1
     # TRAMPA MEDIDA: el hash LLEVA `$` (`$argon2id$v=19$...`) y `como_postgres` lo pasa por
@@ -3021,6 +3057,17 @@ reponer_clave() {
     sleep 2
     como_postgres "psql -q -d %(bd)s -f $clave_sql"
     rm -f "$clave_sql"
+    systemctl start netxms-server >/dev/null 2>&1
+}
+
+limpiar_entrada() {
+    como_postgres "psql -q -d %(bd)s -c \"update users set flags = flags & 247, grace_logins = 5, auth_failures = 0, disabled_until = 0 where name = '$ADMIN'\"" >/dev/null 2>&1
+}
+
+abrir_entrada() {
+    systemctl stop netxms-server >/dev/null 2>&1
+    sleep 2
+    limpiar_entrada
     systemctl start netxms-server >/dev/null 2>&1
 }
 
@@ -3132,6 +3179,22 @@ escribir_objetivos() {
     done
 }
 
+# La PUERTA del administrador, en SÓLO LECTURA: `abierta` si no tiene el flag de cambiar la
+# clave al entrar y le quedan gracias. Se lee junto al resto del estado porque un `entra` con
+# la clave buena dice `si` mientras queden gracias: una base heredada con el flag puesto se
+# daba por CONVERGIDA y se rompía en la pasada siguiente -- preparar no llegaba a abrirla
+# (hallazgo P1 de la relectura, PR #18).
+puerta() {
+    valores=$(como_postgres "psql -tA -d %(bd)s -c \"select flags, grace_logins from users where name = '$ADMIN'\"" 2>/dev/null)
+    case "$valores" in
+        ''|*[!0-9|]*) echo cerrada; return 0 ;;
+    esac
+    flags=${valores%%|*}
+    gracias=${valores##*|}
+    if [ $((flags & 8)) -ne 0 ] || [ "$gracias" -eq 0 ]; then echo cerrada; return 0; fi
+    echo abierta
+}
+
 estado() {
     # Lo que el motor lee para decidir si hay que PREPARAR. Base, web y acceso son la mitad;
     # la otra -- los objetivos del descubrimiento -- SÓLO cuenta si el motor lo ha configurado
@@ -3140,7 +3203,8 @@ estado() {
     # el servicio «sin converger» para siempre (hallazgo P1, PR #13). Con objetivos guardados,
     # un `apply` que cambiara las rutas se nota aquí y el motor vuelve a preparar (PR #14).
     if [ "$(esquema)" != "si" ] || [ ! -s "$WEBAPPS/nxmc.war" ] \
-            || [ "$(entra)" != "si" ]; then
+            || [ "$(entra)" != "si" ] || [ "$(api_web)" != "si" ] \
+            || [ "$(puerta)" != "abierta" ]; then
         echo no
         return 0
     fi
@@ -3172,6 +3236,11 @@ sembrado)
 objetivos)
     # Sólo lectura: las redes que este invitado alcanza, en la forma `red/máscara`.
     objetivos
+    ;;
+api)
+    # Sólo lectura: `si` si los RECURSOS del API REST están cargados (el módulo `webapi`).
+    # Es la prueba que usa `estado`, y también sirve a mano para diagnosticar en un minuto.
+    api_web
     ;;
 sembrar)
     # Se pregunta por el API WEB (la puerta de la interfaz), nunca por la consola: `nxadm`
@@ -3283,12 +3352,20 @@ preparar)
     # Un `rechaza` NO se paga rehaciendo la base: primero el camino BARATO -- devolver el hash
     # que `init` dejó, sin tocar un solo dato --, y sólo si eso tampoco deja entrar se rehace.
     if [ "$se_entra" = "rechaza" ]; then
-        # Primero el camino BARATO -- devolver el hash que `init` dejó, sin tocar un solo dato
-        # --, y DESPUÉS se vuelve a PREGUNTAR: la respuesta de antes de reponer ya no vale, no
-        # se decide con la vieja (hallazgo P1, PR #13). Y no se rehace la base por una caída de
-        # conexión o un 5xx: sólo un rechazo FRESCO (4xx) la justifica.
-        reponer_clave
+        # Dos caminos baratos, en orden, y se vuelve a PREGUNTAR detrás de cada uno (la
+        # respuesta de antes ya no vale: hallazgo P1, PR #13):
+        #   1. ABRIR LA ENTRADA -- el flag de cambiar la clave y las gracias, que es lo que de
+        #      verdad cierra la puerta con la clave buena (medido: 403 `errorCode 61` con el
+        #      hash correcto, y con el hash correcto puesto otra vez).
+        #   2. Devolver el hash que `init` dejó, sin tocar un solo dato.
+        # Y no se rehace la base por una caída de conexión o un 5xx: sólo un rechazo FRESCO
+        # (4xx) la justifica.
+        abrir_entrada
         se_entra=$(entra)
+        if [ "$se_entra" = "rechaza" ]; then
+            reponer_clave
+            se_entra=$(entra)
+        fi
     fi
     esquema_actual=$(esquema)
     # Si la CONSULTA del esquema falla (`error`), se aborta SIN tocar la base: un `no` de una
@@ -3328,6 +3405,10 @@ preparar)
         # (medido: de 9 equipos vigilados a 3).
         como_postgres "psql -tA -d %(bd)s -c 'select password from users where id=1'" > "$CLAVE_BUENA"
         chmod 600 "$CLAVE_BUENA"
+        # Y la ENTRADA abierta: `init -p` deja el flag de cambiar la clave y cinco gracias,
+        # que se gastan a razón de un login -- y el motor pregunta por el API varias veces
+        # por pasada. Sin esto, la quinta pasada ya no entra y parece que la clave está mal.
+        limpiar_entrada
         # La base es nueva: lo que dijera la marca del sembrado ya es mentira -- no hay ni un
         # nodo --, así que se borra y la siembra vuelve a correr. Una marca que sobrevive a su
         # base no dice nada (regla 6: la marca vale porque describe lo que hay).
@@ -3353,9 +3434,29 @@ preparar)
     # pasada era, él solo, lo que dejaba la clave rota.
     systemctl enable netxms-server >/dev/null 2>&1
     systemctl is-active --quiet netxms-server || systemctl start netxms-server >/dev/null 2>&1
+    # El MÓDULO del API (y su Address/Port) se leen SÓLO al arrancar: si los recursos del API
+    # no están, hay que REINICIAR, y es lo único que justifica un reinicio aquí. Detrás va la
+    # trampa medida del hash -- un arranque deja la clave en la forma que no verifica --, así
+    # que después se repone la clave buena (camino barato) y se vuelve a preguntar, en ese
+    # orden y nunca al revés. Se reinicia SÓLO cuando falta el API: un arranque de más era lo
+    # que rompía la clave en cada pasada.
+    if [ "$(api_web)" != "si" ]; then
+        systemctl restart netxms-server >/dev/null 2>&1
+        i=0
+        while [ "$i" -lt 20 ] && [ "$(api_web)" != "si" ]; do i=$((i + 1)); sleep 2; done
+        if [ "$(entra)" = "rechaza" ]; then
+            # Mismo orden que arriba: primero la entrada, después el hash. El arranque del
+            # módulo pudo dejar la puerta cerrada igual -- y con el hash bueno.
+            abrir_entrada
+            if [ "$(entra)" = "rechaza" ]; then
+                reponer_clave
+                entra >/dev/null
+            fi
+        fi
+    fi
     ;;
 *)
-    echo "uso: $0 preparar|estado|sembrar|sembrado" >&2
+    echo "uso: $0 preparar|estado|sembrar|sembrado|objetivos|api" >&2
     exit 2
     ;;
 esac

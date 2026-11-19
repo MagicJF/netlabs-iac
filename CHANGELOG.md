@@ -18,6 +18,19 @@ aquí está su entrada; los tres tienen que contar lo mismo, y eso es lo que vig
 
 ## [No publicado]
 
+### Añadido
+
+- **El API REST de NetXMS se carga de verdad, y se queda dentro.** `servicio: netxms` escribía la
+  configuración del servidor sin el módulo `webapi`, así que el API contestaba al `login` (el que
+  usa el motor) y sus recursos —`/v1/objects`, `/v1/alarms`…— daban **404**: el API de la
+  documentación no existía. Ahora el módulo se carga y `Address = loopback` (no se publica: se
+  entra por túnel SSH, receta en el ADR 0034); la lectura pregunta a `/v1/objects` (401 = cargado,
+  404 = sin módulo) en vez de fiarse del fichero, y hay verbo `netlabs-servicio-netxms api`. Como
+  el módulo se lee **sólo al arrancar**, `preparar` reinicia el servidor una vez cuando falta y
+  repone la clave detrás, en ese orden y nunca al revés.
+- **El vigilante del 08 sube a 4 GB de RAM y 20 GB de disco**: la documentación de NetXMS pide 4 GB
+  de mínimo para un servidor de hasta 500 nodos y el contenedor había nacido con 1,5 GB y 6 GB.
+
 ### Arreglado
 
 - **La persistencia de las rutas se repara aunque la tabla ya coincida.** Un invitado Linux con

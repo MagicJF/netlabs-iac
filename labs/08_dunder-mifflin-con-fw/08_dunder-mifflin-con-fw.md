@@ -93,7 +93,7 @@ En el diagrama, la **forma** y el **color** de cada equipo dicen qué es (el tip
 | oficina | fw (filtra) | VM (qemu) | 1 | 2 | 512 | 1 | vmb_fw_gestion + vmb_fw_troncal + vmb_fw_oficina | 10.44.0.12/24 |
 | servidores | fw (filtra) | VM (qemu) | 1 | 2 | 512 | 1 | vmb_fw_gestion + vmb_fw_troncal + vmb_fw_dmz | 10.44.0.14/24 |
 | ficheros | srv (servidor) | LXC | 2 | 1 | 512 | 8 | vmb_fw_oficina | 10.44.1.10/24 |
-| monitor | ctl (control del lab) | LXC | 2 | 2 | 1536 | 6 | vmb_fw_gestion | 10.44.0.20/24 |
+| monitor | ctl (control del lab) | LXC | 2 | 2 | 4096 | 20 | vmb_fw_gestion | 10.44.0.20/24 |
 | puesto-1 | ws (puesto de trabajo) | LXC | 2 | 1 | 512 | 4 | vmb_fw_oficina | 10.44.1.11/24 |
 | puesto-2 | ws (puesto de trabajo) | LXC | 2 | 1 | 512 | 4 | vmb_fw_oficina | 10.44.1.12/24 |
 | puesto-3 | ws (puesto de trabajo) | LXC | 2 | 1 | 512 | 4 | vmb_fw_almacen | 10.44.2.11/24 |
@@ -311,6 +311,16 @@ tras un `preparar`, y luego decae** hasta la siguiente pasada. No lo controla ni
 lo único que el motor puede hacer —y hace— es no confundir «aún no contesta» con «no acepta la
 clave» (esa confusión costaba la base entera, con su topología), curar un rechazo devolviendo el
 hash bueno **sin tocar un dato**, y no reiniciar el servidor «por si acaso».
+
+**El API REST, y por qué no se publica.** El servidor carga el módulo `webapi`, que es lo que
+convierte el API en el de la documentación: sin él sólo vive el `login` y los recursos
+(`/v1/objects`, `/v1/alarms`…) contestan `404` — medido en este mismo contenedor antes de
+declararlo. Se queda en **loopback** a propósito (`Address = loopback`): la única credencial del
+API es un token de sesión, y por eso no se expone; se entra por túnel SSH, con la receta escrita en
+el ADR 0034. La lectura del área lo comprueba preguntando a `/v1/objects` (401/403 = cargado), no
+mirando el fichero: el fichero dice lo que se pidió. Y como el módulo se lee **sólo al arrancar**,
+`preparar` reinicia el servidor **una vez** cuando falta — y ese arranque va seguido de la
+reposición de la clave, en ese orden y nunca al revés.
 
 ## Qué se rompió (y cómo se arregló)
 

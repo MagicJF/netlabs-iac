@@ -2162,6 +2162,31 @@ igual(
     "si",
     "y `estado` también: el área queda convergida y una segunda pasada no vuelve a preparar (regla 6)",
 )
+# P1 de la SEGUNDA relectura: quedarse SIN rutas (`routes: []`, lista explícita vacía) no es lo
+# mismo que no declarar el área. El área SÍ se gestiona y va a quitar las rutas que haya, así que
+# la expectativa es la red propia -- la VIVA en ese momento todavía tiene la ruta vieja, y contra
+# esa la lectura diría `si` y dejaría sus redes en la lista para siempre.
+igual(
+    motor.objetivos_declarados({**_SIN_RUTAS, "routes": []}), ["10.44.0.0/24"],
+    "con `routes: []` (el área se gestiona y se queda sin rutas) la expectativa SÍ es la red propia",
+)
+_guion_vr, _banco_vr, _ = _banco_preparador([
+    "10.44.0.0/24 dev eth0 proto kernel scope link src 10.44.0.10",
+    "10.44.1.0/24 via 10.44.0.12 dev eth0 proto static",
+])
+_corre_preparador(_guion_vr, _banco_vr, "sembrar")
+_RUTAS_VACIAS = {**_SIN_RUTAS, "routes": []}
+igual(
+    _corre_preparador(_guion_vr, _banco_vr, "sembrado", *motor.objetivos_declarados(_RUTAS_VACIAS))[0],
+    "no",
+    "quitada la última ruta declarada, `sembrado` dice `no` AUNQUE la ruta vieja siga en el equipo: "
+    "así se reescriben los objetivos en la MISMA pasada, antes de que el área borre la ruta",
+)
+igual(
+    _corre_preparador(_guion_vr, _banco_vr, "estado", *motor.objetivos_declarados(_RUTAS_VACIAS))[0],
+    "no",
+    "y `estado` también: nada de dar por buena la lista vieja",
+)
 _guion_una, _banco_una, _ = _banco_preparador([
     "10.44.0.0/24 dev eth0 proto kernel scope link src 10.44.0.10",
     "10.44.1.0/24 via 10.44.0.12 dev eth0 proto static",

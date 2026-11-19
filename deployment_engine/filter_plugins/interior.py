@@ -2118,7 +2118,14 @@ def objetivos_declarados(declaradas):
     hace que el guion compare contra lo que de verdad va a guardar. Con la red propia sola, la
     comparación no cuadraba NUNCA y el motor volvía a preparar y a sembrar en cada pasada
     (hallazgo P1 de la relectura, PR #14)."""
-    if not declaradas.get("routes"):
+    # Clave AUSENTE = el área no se gestiona: la tabla del equipo se deja intacta, la expectativa
+    # es la viva y la decide el guion (por eso, vacío).
+    # Clave PRESENTE pero VACÍA = el área SÍ se gestiona y no declara ninguna ruta: `preparar`
+    # quitará las que haya y guardará sólo la red propia, así que ésa es la expectativa.
+    # Confundirlas -- mirar el VALOR en vez de la CLAVE -- deja los objetivos VIEJOS en la lista
+    # cuando un lab se queda sin rutas, y el área acaba la pasada con un pendiente (hallazgo P1
+    # de la segunda relectura, PR #14).
+    if "routes" not in declaradas:
         return []
     redes = set()
     direcciones = declaradas.get("address") or []

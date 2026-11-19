@@ -1001,7 +1001,7 @@ def _es_ruta_por_defecto(destino):
     return _destino_normalizado(destino) in ("0.0.0.0/0", "default")
 
 
-def _routes_canonicas(declarado, leido, gobierna_por_defecto):
+def _routes_canonicas(declarado, leido, gobierna_por_defecto, persistir):
     """Diferencia del área `rutas`: sólo las ESTÁTICAS. Las conectadas las pone el
     sistema y la dinámica del DHCP es residuo (`reiniciar_invitado`).
 
@@ -1029,6 +1029,35 @@ def _routes_canonicas(declarado, leido, gobierna_por_defecto):
         operaciones.append({"op": "add_route", "dst_address": destino, "gateway": pasarela})
     for destino, pasarela in sorted(actuales - deseadas):
         operaciones.append({"op": "remove_route", "dst_address": destino, "gateway": pasarela})
+    # Y la PERSISTENCIA, que es otra cosa que la tabla en marcha: `ip route replace` sólo cambia
+    # lo que corre. Si el lab declara rutas y los dos artefactos que las reponen al arrancar no
+    # están -- o la unidad no está habilitada -- hay que reponerlos AUNQUE la tabla ya coincida;
+    # si no, un reinicio se lleva el camino a las zonas y el vigilante se queda ciego hasta el
+    # siguiente `apply`. El fallo era que la escritura de esos ficheros sólo saltaba cuando había
+    # que TOCAR la tabla, así que un invitado ya convergido no se podía reparar nunca (hallazgo
+    # P1: lo cazó el revisor y se reprodujo leyendo el código). El área es la misma para los dos
+    # drivers, pero `persistir` es de un Linux a propósito: un RouterOS guarda su configuración
+    # solo, y ahí este segundo artefacto no existe.
+    if persistir:
+        declaradas = [r for r in (declarado or [])
+                      if not _es_ruta_por_defecto(r.get("dst_address"))]
+        ficheros = rutas_persistentes(declaradas)
+        # El orden importa, y NO es el del diccionario: la lectura devuelve el guion primero y la
+        # unidad después (el orden en que los pide la orden), así que los dos se nombran por su
+        # ruta en vez de fiarse del orden en que `rutas_persistentes` los tenga dentro. Fiarse de
+        # él fue el fallo de la primera versión de este arreglo -- y la prueba lo tenía también,
+        # porque montaba la lectura con el MISMO `.values()`: los dos se equivocaban igual y el
+        # invitado no convergía nunca (lo dijo el diario, no una corazonada).
+        esperados = [ficheros[RUTA_RUTAS],
+                     ficheros["/etc/systemd/system/" + UNIDAD_RUTAS]]
+        leidos = (leido or {}).get("ficheros_leidos") or []
+        # Los saltos de línea del final se normalizan por lo mismo que en el latido: el guion va
+        # el ÚLTIMO bloque y `ansible.builtin.command` le recorta el suyo.
+        if not ((leido or {}).get("habilitada")
+                and len(leidos) == len(esperados)
+                and all(str(a or "").rstrip("\n") == str(b or "").rstrip("\n")
+                        for a, b in zip(leidos, esperados))):
+            operaciones.append({"op": "write_routes"})
     return operaciones
 
 
@@ -1721,7 +1750,9 @@ def pasos_de_convergencia(guest, identidad, declaracion, leido, parametros):
             # nombre del área: en un router es suya --es su salida-- y en un Linux es de la
             # plataforma, que se la puso al crear el invitado.
             operaciones = _routes_canonicas(
-                declaradas[area], actual, gobierna_por_defecto=(tipo == "routeros")
+                declaradas[area], actual,
+                gobierna_por_defecto=(tipo == "routeros"),
+                persistir=(tipo == "linux"),
             )
         elif area == "uplink":
             operaciones = _uplink_canonico(declaradas[area], actual, parametros)
@@ -2203,11 +2234,18 @@ LECTURAS_LINUX = {
         # la tubería devolvía lo mismo que una tabla sin rutas, el área se daba por leída y el
         # plan escribía sin conocer el estado real (hallazgo P1, PR #13). Cero coincidencias SÍ
         # es legítimo (un Linux sin rutas estáticas), y por eso el filtro no arrastra el `rc`.
-        "comando": ("r=$(mktemp); ip -4 route show > \"$r\" || { rm -f \"$r\"; exit 1; }; "
-                    "grep ' via ' \"$r\" | grep -vE '^169\\.254' | grep -v ' proto dhcp ' "
-                    "| grep -vE '^(default|0\\.0\\.0\\.0/0)( |$)'; "
-                    "rm -f \"$r\"; true"),
-        "descripcion": "sus rutas estáticas (las que el motor gobierna)",
+        "comando": (
+            "r=$(mktemp); ip -4 route show > \"$r\" || { rm -f \"$r\"; exit 1; }; "
+            + "grep ' via ' \"$r\" | grep -vE '^169\\.254' | grep -v ' proto dhcp ' "
+            + "| grep -vE '^(default|0\\.0\\.0\\.0/0)( |$)'; "
+            + "rm -f \"$r\"; echo " + SEPARADOR + "; cat " + RUTA_RUTAS
+            + " 2>/dev/null || echo SIN-FICHERO; echo " + SEPARADOR
+            + "; cat /etc/systemd/system/" + UNIDAD_RUTAS
+            + " 2>/dev/null || echo SIN-FICHERO; echo " + SEPARADOR
+            + "; systemctl is-enabled " + UNIDAD_RUTAS + " 2>/dev/null || echo SIN-UNIDAD; "
+            + "true"
+        ),
+        "descripcion": "sus rutas estáticas y la persistencia que las repone al arrancar",
     },
     "latido": {
         # Los TRES artefactos gestionados, ENTEROS y separados: si el temporizador está ARMADO,
@@ -2458,16 +2496,27 @@ def leido_linux(lecturas):
             leido["tunnel"] = {"salida": (lineas[0] if lineas else "") == "active"}
 
         elif area == "routes":
-            # `ip -4 route show` -> "10.44.1.0/24 via 10.44.0.11 dev eth0 proto static"
-            # Sólo lo que el motor gobierna: destino y pasarela. Lo conectado y lo del DHCP
-            # ya lo filtró la orden de lectura.
+            # Bloque 0: la tabla EN MARCHA (`ip -4 route show` -> "10.44.1.0/24 via 10.44.0.11
+            # dev eth0 proto static"); sólo lo que el motor gobierna, que ya filtró la orden.
+            # Bloques 1 y 2: el CONTENIDO de los dos artefactos que reponen las rutas al arrancar
+            # (el guion y la unidad), en el orden de `rutas_persistentes`; bloque 3: si la unidad
+            # está habilitada. Sin mirarlos, un invitado con la tabla bien y los ficheros
+            # borrados se daba por convergido y el primer reinicio se llevaba el camino a las
+            # zonas -- y el vigilante con él (hallazgo P1, PR #13).
+            bloques = str(texto).split(SEPARADOR)
             estaticas = []
-            for linea in lineas:
+            for linea in _lineas(bloques[0] if bloques else ""):
                 trozos = linea.split()
                 if "via" in trozos:
                     estaticas.append({"dst_address": trozos[0],
                                       "gateway": trozos[trozos.index("via") + 1]})
-            leido["routes"] = {"estaticas": estaticas}
+            estado = _lineas(bloques[3] if len(bloques) > 3 else "")
+            leido["routes"] = {
+                "estaticas": estaticas,
+                "ficheros_leidos": [(bloques[i] if i < len(bloques) else "").lstrip("\n")
+                                    for i in (1, 2)],
+                "habilitada": bool(estado) and estado[0] == "enabled",
+            }
 
         elif area == "latido":
             # Bloque 0: estado (vivo/habilitado); bloques 1..3: el CONTENIDO de los tres
@@ -2923,11 +2972,28 @@ respuesta_de_la_web() {
 #                    P1, PR #13).
 entra() {
     i=0
+    repuesto=no
     while [ "$i" -lt 20 ]; do
         codigo=$(respuesta_de_la_web)
         [ "$codigo" = "201" ] && { echo si; return 0; }
         case "$codigo" in
-            4*) echo rechaza; return 0 ;;
+            4*)
+                # Un 4xx es «contesta y no acepta la clave». Y aquí hay una TRAMPA medida: el
+                # servidor REESCRIBE el hash al entrar y a partir de ahí todo login contesta 403,
+                # así que la primera lectura de una pasada deja la clave rota para la siguiente y
+                # el área `servicio` se quedaba «sin converger» para siempre: el segundo `apply`
+                # fallaba aunque no hubiera nada que hacer (regla 6, hallazgo P2 del revisor,
+                # reproducido con DOS applies seguidos). La respuesta de ANTES de reponer ya no
+                # vale, así que se repone -- UNA vez -- y se vuelve a preguntar AQUÍ MISMO:
+                # `entra` es el llamante que pregunta, y por eso puede decidir con la respuesta
+                # de después. Si aun así no entra, se dice `rechaza` y el motor ya decide.
+                if [ "$repuesto" = "no" ] && reponer_clave; then
+                    repuesto=si
+                    i=0
+                    sleep 2
+                    continue
+                fi
+                echo rechaza; return 0 ;;
         esac
         i=$((i + 1)); sleep 3
     done
@@ -3654,7 +3720,8 @@ def escrituras_linux(operaciones, guest, declaracion, identidad, parametros):
     # arrancar (guion + unidad) y se habilita la unidad -- UNA sola vez, aunque haya varias
     # operaciones. Si no hay ninguna operación de rutas, no se toca nada y la segunda pasada
     # sigue siendo `changed=0` (reglas 6 y 17; hallazgo P1, PR #13).
-    if any(operacion.get("op") in ("add_route", "remove_route") for operacion in (operaciones or [])):
+    if any(operacion.get("op") in ("add_route", "remove_route", "write_routes")
+           for operacion in (operaciones or [])):
         ficheros = rutas_persistentes(declarado.get("routes"))
         escrituras = " && ".join(
             f"echo {_b64(contenido)} | base64 -d > {ruta}"
@@ -3683,7 +3750,7 @@ def pendiente_de_driver(operacion):
         "disable_offload", "reload_dnsmasq",
         "install_service", "write_service_config", "prepare_service",
         "enable_service", "reload_service", "sembrar_monitorizacion",
-        "add_route", "remove_route", "write_latido", "start_latido",
+        "add_route", "remove_route", "write_routes", "write_latido", "start_latido",
     }
     op = (operacion or {}).get("op")
     if op in conocidas:

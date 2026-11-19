@@ -22,13 +22,16 @@
 #              docs/decisiones/0026-un-equipo-una-responsabilidad... y el §5 del README
 
 import copy
+import inspect
 import os
 import sys
 
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(RAIZ, "deployment_engine", "tools"))
+sys.path.insert(0, os.path.join(RAIZ, "deployment_engine", "filter_plugins"))
 
 import plan as modulo  # noqa: E402
+import interior as modulo_interior  # noqa: E402  (el predicado de la consola: el MISMO que usa la creación)
 
 FALLOS = []
 
@@ -282,6 +285,38 @@ for guest, puentes in ((DOS_PATAS, ["vmb_gestion", "vmb_lan"]),):
 comprobar(
     comprobado,
     "los bridges que crear escribe y los que comparar espera son los MISMOS: una sola fuente",
+)
+
+# La creación y la expectativa tienen que decir lo MISMO sobre `cmode`. Con condiciones distintas
+# -- y eran `tiene_tunnel` y `necesita_pata_de_gestion` -- un invitado con pata de gestión y sin
+# túnel, como el `monitor` del 08, nacía con el `tty` de fábrica mientras el plan esperaba
+# `shell`: el apply siguiente escribía un cambio que el primero debió dejar hecho, y la segunda
+# pasada dejaba de ser `changed=0` (regla 6; hallazgo P2 del revisor, reproducido leyendo las dos
+# condiciones). Aquí se ata la CONDICIÓN -- no hay costura para llamar a la creación sin un nodo
+# entero -- y el ciclo real lo comprueba de punta a punta con DOS `apply` seguidos, que es la
+# única forma honesta de probar la idempotencia.
+_MONITOR_08 = {
+    "rol": "monitor", "nombre": "srv-monitor", "tipo": "lxc", "stage": 1, "vmid": 110,
+    "cores": 2, "memory": 2048, "disk": 8, "bridge": "vmb_fw_gestion",
+    "address": "10.44.0.20/24", "descripcion": "lab=08 rol=monitor",
+    "servicio": "netxms", "config": {"linux": {"servicio": {"nombre": "netxms"}}},
+}
+comprobar(
+    "necesita_pata_de_gestion(guest)" in inspect.getsource(modulo._parametros_creacion)
+    and "tiene_tunnel(guest)" not in inspect.getsource(modulo._parametros_creacion),
+    "la consola del invitado se decide con la MISMA condición que la expectativa "
+    "(`necesita_pata_de_gestion`), no con una segunda que se le parezca",
+)
+igual(
+    modulo._esperado_del_guest(_MONITOR_08).get("cmode"),
+    "shell",
+    "y un invitado con pata de gestión y sin túnel -- el `monitor` del 08 -- espera `shell` de "
+    "verdad: es la otra mitad del contrato que la creación tiene que cumplir en la misma pasada",
+)
+comprobar(
+    not modulo_interior.tiene_tunnel(_MONITOR_08),
+    "el caso que se está atando no lleva túnel: es justo el que se escapaba entre las dos "
+    "condiciones",
 )
 
 if FALLOS:

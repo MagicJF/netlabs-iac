@@ -18,6 +18,31 @@ aquí está su entrada; los tres tienen que contar lo mismo, y eso es lo que vig
 
 ## [No publicado]
 
+### Arreglado
+
+- **La persistencia de las rutas se repara aunque la tabla ya coincida.** Un invitado Linux con
+  rutas declaradas y los ficheros que las reponen al arrancar perdidos —o su unidad
+  deshabilitada— se daba por convergido, y el primer reinicio se llevaba el camino a las zonas
+  (y al vigilante con él). Ahora el área lee también esos ficheros y, si faltan, los reescribe
+  sin tocar la tabla. Se reproduce en `test/test_interior.py`; lo cazó el revisor (P1, PR #13).
+- **La consola del invitado se decide con una sola condición.** La creación la ponía en `shell`
+  sólo a los invitados con túnel mientras el plan la esperaba en todo el que tenga pata de
+  gestión, así que un invitado como el `monitor` del 08 nacía en `tty` y el `apply` siguiente
+  escribía un cambio que el primero debía haber dejado hecho: la segunda pasada no era
+  `changed=0` (regla 6). Las dos condiciones se atan en `test/test_plan.py` y el ciclo lo
+  comprueba con DOS `apply` seguidos (P2, PR #13).
+- **La clave del vigilante se repone sola cuando el primer login la deja rota.** Al entrar por su
+  API, NetXMS reescribe el hash del administrador y desde ahí todo login contesta 403; la lectura
+  siguiente daba el área `servicio` por no convergida y el segundo `apply` fallaba aunque no
+  hubiera nada que hacer (regla 6: `failed=1` en la segunda pasada, con la primera en verde).
+  Ahora `entra` repone el hash bueno —una sola vez— y vuelve a preguntar en el sitio, que es lo
+  que su propio comentario ya exigía al llamante.
+- **PENDIENTE, dicho y no maquillado:** con eso, `destroy → apply → apply` cierra en verde
+  (segunda pasada `changed=0`, `failed=0`), pero el verbo `verify` **suelto** todavía marca
+  `rol=monitor: [servicio] prepare_service` como pendiente. Es el mismo sitio y el mismo login
+  los dos, así que falta una pasada de diagnóstico sobre el preparador (la condición que decide
+  `estado` frente a la que decide el apply) antes de dar el ciclo por bueno.
+
 ### Añadido
 
 - **El `latido`: aparecer en la topología sin agente y sin abrir camino (ADR 0031).** Un

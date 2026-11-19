@@ -1925,18 +1925,44 @@ comprobar(
 comprobar(
     "reponer_clave" in _PREPARADOR_NETXMS
     and "select password from users where id=1" in _PREPARADOR_NETXMS
-    and _PREPARADOR_NETXMS.index("reponer_clave && se_entra=si")
-    < _PREPARADOR_NETXMS.index("drop database if exists"),
+    and _PREPARADOR_NETXMS.index("reponer_clave")
+    < _PREPARADOR_NETXMS.index("drop database if exists")
+    and 'reponer_clave\n' in _PREPARADOR_NETXMS
+    and 'se_entra=$(entra)' in _PREPARADOR_NETXMS,
     "y un 'rechaza' se cura PRIMERO devolviendo el hash bueno que `init` dejó -- guardado aparte, "
     "sin tocar un solo dato -- y sólo después, si eso no basta, rehaciendo la base: rehacerla de "
-    "entrada se llevaba por delante todo lo descubierto (medido: de 9 equipos a 3)",
+    "entrada se llevaba por delante todo lo descubierto (medido: de 9 equipos a 3). Y tras "
+    "reponer se VUELVE A PREGUNTAR: decidir con la respuesta vieja no vale (hallazgo P1, PR #13)",
 )
 comprobar(
-    'if [ "$(esquema)" != "si" ] || [ "$se_entra" = "rechaza" ]; then' in _PREPARADOR_NETXMS
+    'if [ "$esquema_actual" != "si" ] || [ "$se_entra" = "rechaza" ]; then' in _PREPARADOR_NETXMS
     and "no-contesta" in _PREPARADOR_NETXMS,
     "y la sonda del API distingue TRES casos -- `si` / `rechaza` / `no-contesta` -- y sólo "
     "`rechaza` rehace la base: rehacerla porque el API aún no contesta (servidor arrancando) "
     "tiraba el descubrimiento entero (medido)",
+)
+comprobar(
+    'case "$codigo" in\n            4*) echo rechaza' in _PREPARADOR_NETXMS
+    or '4*) echo rechaza' in _PREPARADOR_NETXMS,
+    "y una caída de conexión (000) o un 5xx NUNCA se toman por un rechazo de credenciales: sólo "
+    "un 4xx -- el servidor CONTESTA y no acepta la clave -- abre el camino de rehacer la base "
+    "(hallazgo P1, PR #13)",
+)
+comprobar(
+    'salida=$(curl' in _PREPARADOR_NETXMS
+    and '[ -n "$salida" ] || salida=000' in _PREPARADOR_NETXMS
+    and "2>/dev/null || echo 000" not in _PREPARADOR_NETXMS,
+    "y `respuesta_de_la_web` devuelve UN solo valor: el `|| echo 000` de antes añadía otro `000` "
+    "al que `curl -w` ya imprime en una caída, y el lector recibía `000000` y lo tomaba por un "
+    "rechazo (hallazgo P1, PR #13)",
+)
+comprobar(
+    'if [ "$esquema_actual" = "error" ]; then' in _PREPARADOR_NETXMS
+    and "salida=$(tablas) || { echo error; return 0; }" in _PREPARADOR_NETXMS
+    and 'case "$nodos" in' in _PREPARADOR_NETXMS
+    and '[ "$nodos" -gt 0 ]' in _PREPARADOR_NETXMS,
+    "y la consulta del esquema distingue `error` de «vacía» (se aborta SIN tocar la base si "
+    "falla), y el sembrado exige un entero > 0 antes de escribir su marca (hallazgos P1, PR #13)",
 )
 comprobar(
     "sembrar)" in _PREPARADOR_NETXMS
@@ -1986,8 +2012,14 @@ import subprocess as _subprocess
 import tempfile as _tempfile
 
 
-def _banco_preparador(rutas):
-    """Un banco con `ip`/`psql`/`su` falsos; devuelve (guion, banco, marca)."""
+def _banco_preparador(rutas, direccion="10.44.0.10/24", codigo_curl="201"):
+    """Un banco con `ip`/`psql`/`/su`/`curl` falsos; devuelve (guion, banco, marca).
+
+    `direccion` es la que devuelve `ip addr show` (para probar la derivación de red con
+    prefijos distintos de /24) y `codigo_curl` lo que contesta el API web (para probar una
+    caída, `000`). Los ficheros `nodos`/`falla_nodos`/`falla_esquema` dentro del banco permiten
+    fingir que la base contesta, que falla la consulta de equipos o la del esquema.
+    """
     banco = _tempfile.mkdtemp(prefix="netlabs-preparador-")
     binario = os.path.join(banco, "bin")
     os.makedirs(binario)
@@ -2006,25 +2038,24 @@ def _banco_preparador(rutas):
             f.write("#!/bin/sh\n" + cuerpo + "\n")
         os.chmod(ruta, 0o755)
 
-    _falso("ip", r'''case "$*" in
-  *"addr show"*) echo "2: eth0    inet 10.44.0.10/24 brd 10.44.0.255 scope global eth0" ;;
-  *"route show"*) cat "$BANCO/rutas" ;;
-esac''')
-    _falso("su", r'''shift 2
-exec sh -c "$*"''')
+    _falso("ip", 'case "$*" in\n'
+                 f'  *"addr show"*) echo "2: eth0    inet {direccion} brd 10.44.0.255 scope global eth0" ;;\n'
+                 '  *"route show"*) cat "$BANCO/rutas" ;;\n'
+                 'esac')
+    _falso("su", 'shift 2\nexec sh -c "$*"')
     _falso("psql", r'''printf '%s\n' "$*" >> "$BANCO/psql.log"
 case "$*" in
-  *"count(*) from nodes"*) echo "${NODOS:-3}" ;;
-  *"information_schema.tables"*) echo 1 ;;
+  *"count(*) from nodes"*) [ -f "$BANCO/falla_nodos" ] && exit 1; cat "$BANCO/nodos" 2>/dev/null || echo "${NODOS:-3}" ;;
+  *"information_schema.tables"*) [ -f "$BANCO/falla_esquema" ] && exit 1; echo 1 ;;
   *"delete from address_lists"*) : > "$BANCO/guardados" ;;
   *"insert into address_lists"*) echo "$*" | sed -n "s/.*values (1, 0, 0, 0, 0, '\([^']*\)', '\([^']*\)',.*/\1|\2/p" >> "$BANCO/guardados" ;;
   *"from address_lists"*) cat "$BANCO/guardados" ;;
   *) exit 0 ;;
 esac''')
-    _falso("curl", "echo 201")
+    _falso("curl", f"echo {codigo_curl}")
     _falso("systemctl", "exit 0")
     _falso("sleep", "exit 0")
-    _falso("nxdbmgr", "exit 0")
+    _falso("nxdbmgr", 'printf \'%s\\n\' "$*" >> "$BANCO/nxdbmgr.log"\nexit 0')
     marca = os.path.join(banco, "sembrado")
     guion = _PREPARADOR_NETXMS.replace(
         'MARCA="%s"' % motor.RUTA_MARCA_SEMBRADO, 'MARCA="%s"' % marca
@@ -2236,36 +2267,77 @@ comprobar(
     "como «no declarado» sería un fallo SILENCIOSO: el invitado no se vería y el motor diría "
     "que ha convergido",
 )
-igual(
-    [o["op"] for o in motor._latido_canonico({}, {"marca": "# netlabs latido cada=2min",
-                                                  "activo": True, "habilitado": True})],
-    [],
-    "y con el latido ya armado (activo, habilitado y con su marca) no hay NADA que hacer: dos "
-    "pasadas seguidas dejan el mismo estado (regla 6)",
-)
-igual(
-    [o["op"] for o in motor._latido_canonico({"cada": "5min"},
-                                             {"marca": "# netlabs latido cada=2min",
-                                              "activo": True, "habilitado": True})],
-    ["write_latido", "start_latido"],
-    "pero si el lab cambia la cadencia, la marca del fichero ya no coincide y se reescribe: "
-    "mirando sólo que esté `active`, el motor diría «convergido» con la cadencia VIEJA puesta",
-)
 _ficheros_latido = motor.escrituras_latido("2min")
+_LATIDO_ARMADO = {
+    "activo": True, "habilitado": True,
+    "ficheros_leidos": list(_ficheros_latido.values()),
+}
+igual(
+    [o["op"] for o in motor._latido_canonico({}, _LATIDO_ARMADO)],
+    [],
+    "y con el latido ya armado (activo, habilitado y con sus TRES ficheros ENTEROS) no hay NADA "
+    "que hacer: dos pasadas seguidas dejan el mismo estado (regla 6)",
+)
+igual(
+    [o["op"] for o in motor._latido_canonico({"cada": "5min"}, _LATIDO_ARMADO)],
+    ["write_latido", "start_latido"],
+    "pero si el lab cambia la cadencia, el temporizador ya no coincide y se reescribe: mirando "
+    "sólo que esté `active`, el motor diría «convergido» con la cadencia VIEJA puesta",
+)
+# Hallazgo P1: un latido ROTO tiene que verse. Antes `_latido_canonico` sólo miraba la MARCA del
+# comentario del temporizador: si borraban el guion, o alguien editaba `OnUnitActiveSec` sin
+# tocar el comentario, seguía diciendo «no hay trabajo» con el latido roto.
+igual(
+    [o["op"] for o in motor._latido_canonico({}, {
+        "activo": True, "habilitado": True,
+        "ficheros_leidos": [
+            _ficheros_latido[f"/etc/systemd/system/{motor.UNIDAD_LATIDO}"],
+            _ficheros_latido[f"/etc/systemd/system/{motor.UNIDAD_LATIDO_SERVICIO}"],
+            "",  # el guion YA NO está (lo borraron)
+        ],
+    })],
+    ["write_latido", "start_latido"],
+    "y si el guion desaparece, el motor lo vuelve a escribir: leer sólo la marca lo dejaría roto "
+    "y diría «convergido» (hallazgo P1, PR #13)",
+)
+igual(
+    [o["op"] for o in motor._latido_canonico({}, {
+        "activo": True, "habilitado": True,
+        "ficheros_leidos": [
+            _ficheros_latido[f"/etc/systemd/system/{motor.UNIDAD_LATIDO}"]
+            .replace("OnUnitActiveSec=2min", "OnUnitActiveSec=9min"),
+            _ficheros_latido[f"/etc/systemd/system/{motor.UNIDAD_LATIDO_SERVICIO}"],
+            _ficheros_latido[motor.RUTA_LATIDO],
+        ],
+    })],
+    ["write_latido", "start_latido"],
+    "y si alguien edita `OnUnitActiveSec` sin tocar el comentario, también: se compara el "
+    "temporizador ENTERO, no la marca del comentario (hallazgo P1, PR #13)",
+)
+# Lectura REAL: el comando del área trae los TRES ficheros separados por `SEPARADOR`, y
+# `leido_linux` los junta. El ida y vuelta -- lo que el motor escribe es lo que el lector saca --
+# es lo que hace que la segunda pasada salga limpia.
+_leido_latido = motor.leido_linux([{
+    "area": "latido", "rc": 0,
+    "encontrado": ("active\nenabled\n" + motor.SEPARADOR + "\n"
+                   + _ficheros_latido[f"/etc/systemd/system/{motor.UNIDAD_LATIDO}"]
+                   + motor.SEPARADOR + "\n"
+                   + _ficheros_latido[f"/etc/systemd/system/{motor.UNIDAD_LATIDO_SERVICIO}"]
+                   + motor.SEPARADOR + "\n"
+                   + _ficheros_latido[motor.RUTA_LATIDO]),
+}])
+igual(
+    [o["op"] for o in motor._latido_canonico({}, _leido_latido["latido"])],
+    [],
+    "y lo que el LECTOR saca de un latido sano coincide con lo que el motor escribe: si "
+    "divergieran, reescribiría siempre y el lab nunca convergería",
+)
 comprobar(
     set(_ficheros_latido) == {motor.RUTA_LATIDO,
                               f"/etc/systemd/system/{motor.UNIDAD_LATIDO}",
                               f"/etc/systemd/system/{motor.UNIDAD_LATIDO_SERVICIO}"},
     "el latido son TRES ficheros y ninguno sobra: el guion que da el toque, la unidad que lo "
     "ejecuta una vez y el temporizador que lo repite",
-)
-comprobar(
-    "# netlabs latido cada=2min" in _ficheros_latido[f"/etc/systemd/system/{motor.UNIDAD_LATIDO}"]
-    and motor._latido_canonico({}, {"marca": "# netlabs latido cada=2min",
-                                    "activo": True, "habilitado": True}) == [],
-    "y la marca que el motor ESCRIBE es exactamente la que luego LEE: es el ida y vuelta que "
-    "hace que la segunda pasada salga limpia (si divergieran, reescribiría siempre y el lab "
-    "nunca convergería)",
 )
 _guion = _ficheros_latido[motor.RUTA_LATIDO]
 comprobar(
@@ -2314,6 +2386,212 @@ comprobar(
     "«cada: cinco» no llega nunca a systemd, que no armaría el temporizador y dejaría al "
     "invitado fuera de la topología sin decir por qué",
 )
+
+# --- Los hallazgos P1 del PR #13, uno por uno --------------------------------------------
+# Cada arreglo entra con su prueba, y la prueba tiene que CAZAR el fallo: se escribe, se revierte
+# el arreglo a mano, se comprueba que FALLA, y se vuelve a poner.
+
+# 5. Instalar el servicio (`servicio: netxms`) NO debe empezar a vigilar: los ajustes de
+#    descubrimiento viven DETRÁS del área `monitorizacion`, no en `preparar`. Con el caso
+#    `sembrar` seccionado, se mira que `preparar` no los encienda y que el verbo `sembrar` sí.
+_caso_sembrar = _PREPARADOR_NETXMS.index("sembrar)")
+comprobar(
+    "NetworkDiscovery.Type 3" not in _PREPARADOR_NETXMS[:_caso_sembrar]
+    and "NetworkDiscovery.Type 3" in _PREPARADOR_NETXMS[_caso_sembrar:]
+    and "DefaultCommunityString" not in _PREPARADOR_NETXMS[:_caso_sembrar],
+    "instalar el servicio NO enciende el descubrimiento: sus ajustes viven DETRÁS del área "
+    "`monitorizacion` (`sembrar`), no en `preparar` (hallazgo P1, PR #13) -- el lab 10, que "
+    "sólo declara `servicio: netxms`, no debe empezar a peinar su red cada hora",
+)
+_guion_solo, _banco_solo, _ = _banco_preparador(["10.44.0.0/24 dev eth0 proto kernel scope link src 10.44.0.10"])
+_, _rc_solo = _corre_preparador(_guion_solo, _banco_solo, "preparar")
+_log_nx_solo = ""
+if os.path.exists(os.path.join(_banco_solo, "nxdbmgr.log")):
+    with open(os.path.join(_banco_solo, "nxdbmgr.log"), encoding="utf-8") as _f:
+        _log_nx_solo = _f.read()
+igual(
+    _corre_preparador(_guion_solo, _banco_solo, "estado")[0], "si",
+    "y un invitado con el servicio puesto y la base sana ya está CONVERGIDO sin descubrimiento: "
+    "`estado` no compara objetivos si el motor nunca sembró (nada que mirar, servicio servido)",
+)
+comprobar(
+    "NetworkDiscovery" not in _log_nx_solo and _rc_solo == 0,
+    "y `preparar` no deja ni un ajuste de descubrimiento en el servidor: lo enciende `sembrar`",
+)
+
+# 6. La red del descubrimiento se deriva de la dirección COMPLETA y su prefijo, no de un /24 fijo.
+igual(motor.red_de_direccion("10.44.1.20/16"), "10.44.0.0/16",
+      "la red se deriva del prefijo COMPLETO: un invitado en /16 no escanea sólo su /24")
+igual(motor.red_de_direccion("10.44.1.20/24"), "10.44.1.0/24", "y un /24 da su red, como antes")
+igual(motor.red_de_direccion("10.44.1.130/25"), "10.44.1.128/25",
+      "y una red más fina (/25) enmascara de verdad: no se escanea media red de más")
+igual(motor._red_propia("10.44.1.20/16"), "10.44.0.0/16",
+      "`_red_propia` (lo declarado) usa la MISMA regla, para que las dos formas comparen el mismo hecho")
+igual(motor.red_de_direccion("sin-prefijo"), "", "y sin prefijo no se inventa una red")
+_guion_r16, _banco_r16, _ = _banco_preparador(
+    ["10.44.0.0/16 dev eth0 proto kernel scope link src 10.44.1.20"], direccion="10.44.1.20/16")
+igual(
+    sorted(_corre_preparador(_guion_r16, _banco_r16, "objetivos")[0].split()), ["10.44.0.0/16"],
+    "y el guion de verdad deriva `10.44.0.0/16` de una dirección /16 (antes escribía `10.44.1.0/24`)",
+)
+
+# 9 y 10. `default`/`0.0.0.0/0` y host-sin-barra/`/32` son el MISMO hecho: se normalizan antes
+# de comparar. Sin esto, el motor pedía la ruta en CADA pasada y borraba la que acababa de poner.
+igual(
+    [o["op"] for o in motor._routes_canonicas(
+        [{"dst_address": "0.0.0.0/0", "gateway": "10.44.0.1"}],
+        {"estaticas": [{"dst_address": "default", "gateway": "10.44.0.1"}]})],
+    [],
+    "una ruta por defecto declarada `0.0.0.0/0` y leída como `default` son la misma ruta",
+)
+igual(
+    [o["op"] for o in motor._routes_canonicas(
+        [{"dst_address": "10.44.1.5/32", "gateway": "10.44.0.12"}],
+        {"estaticas": [{"dst_address": "10.44.1.5", "gateway": "10.44.0.12"}]})],
+    [],
+    "y una ruta a un HOST (`/32`) y su forma sin barra también: no se borra la que se acaba de poner "
+    "(hallazgos P1, PR #13)",
+)
+igual(
+    [o["op"] for o in motor._routes_canonicas(
+        [], {"estaticas": [{"dst_address": "default", "gateway": "10.44.0.1"}]})],
+    ["remove_route"],
+    "y una ruta por defecto que ya NO se declara sí se quita (regla 17): ahora el lector la ve",
+)
+
+# 11. La lectura comprueba el `rc` de `ip` ANTES de filtrar: una tabla ilegible no se confunde
+# con una tabla sin rutas.
+comprobar(
+    'ip -4 route show > "$r"' in motor.LECTURAS_LINUX["routes"]["comando"]
+    and "exit 1" in motor.LECTURAS_LINUX["routes"]["comando"],
+    "el `ip route show` de la lectura COMPRUEBA su código de salida antes de filtrar: antes "
+    "`|| true` lo ocultaba y una tabla ilegible se leía como una sin rutas (hallazgo P1, PR #13)",
+)
+igual(motor.leido_linux([{"area": "routes", "rc": 2, "encontrado": ""}]), {},
+     "y una lectura del área `routes` con rc != 0 no se convierte en un estado inventado")
+# Y de verdad: si `ip route show` FALLA, el comando de lectura devuelve ESE fallo; si sale bien
+# sin rutas, devuelve 0. Antes el `|| true` hacía las dos cosas indistinguibles para el driver.
+_lectura_bin = os.path.join(_tempfile.mkdtemp(prefix="netlabs-lectura-"), "bin")
+os.makedirs(_lectura_bin)
+for _nombre, _cuerpo in (
+        ("ip-falla", 'case "$*" in\n  *"route show"*) exit 7 ;;\nesac\nexit 0'),
+        ("ip-vacia", 'case "$*" in\n  *"route show"*) exit 0 ;;\nesac\nexit 0')):
+    with open(os.path.join(_lectura_bin, _nombre), "w", encoding="utf-8") as _f:
+        _f.write("#!/bin/sh\n" + _cuerpo + "\n")
+    os.chmod(os.path.join(_lectura_bin, _nombre), 0o755)
+os.symlink(os.path.join(_lectura_bin, "ip-falla"), os.path.join(_lectura_bin, "ip"))
+_r = _subprocess.run(["sh", "-c", motor.LECTURAS_LINUX["routes"]["comando"]],
+                     env=dict(os.environ, PATH=_lectura_bin + ":" + os.environ.get("PATH", "")),
+                     capture_output=True, text=True)
+comprobar(_r.returncode != 0,
+      "y el comando de lectura DEVUELVE el fallo de `ip route show` (rc != 0): una tabla ilegible "
+      "no se confunde con una sin rutas (hallazgo P1, PR #13)")
+os.remove(os.path.join(_lectura_bin, "ip"))
+os.symlink(os.path.join(_lectura_bin, "ip-vacia"), os.path.join(_lectura_bin, "ip"))
+_r = _subprocess.run(["sh", "-c", motor.LECTURAS_LINUX["routes"]["comando"]],
+                     env=dict(os.environ, PATH=_lectura_bin + ":" + os.environ.get("PATH", "")),
+                     capture_output=True, text=True)
+igual(_r.returncode, 0,
+      "y una tabla SIN rutas estáticas da rc 0: cero coincidencias es legítimo, no una avería")
+
+# 8. Las rutas se dejan ESCRITAS para el próximo arranque: `ip route replace` sólo cambia la
+# tabla en marcha, y un reinicio del invitado se llevaba el camino a las zonas.
+_persist_rutas = motor.rutas_persistentes([{"dst_address": "10.44.1.0/24", "gateway": "10.44.0.12"}])
+comprobar(
+    set(_persist_rutas) == {motor.RUTA_RUTAS, f"/etc/systemd/system/{motor.UNIDAD_RUTAS}"}
+    and "ip route replace 10.44.1.0/24 via 10.44.0.12 proto static" in _persist_rutas[motor.RUTA_RUTAS]
+    and f"ExecStart={motor.RUTA_RUTAS}" in _persist_rutas[f"/etc/systemd/system/{motor.UNIDAD_RUTAS}"],
+    "las rutas del área se dejan ESCRITAS (un guion que las repone + una unidad que lo corre al "
+    "arrancar): `add_route` sólo cambiaba la tabla en marcha (hallazgo P1, PR #13)",
+)
+_escrituras_ruta = motor.escrituras_linux(
+    [{"op": "add_route", "dst_address": "10.44.1.0/24", "gateway": "10.44.0.12"}],
+    _VIGILANTE_CON_RUTAS, DECLARACION, IDENTIDAD, PARAMETROS)
+comprobar(
+    any(c["area"] == "routes" and motor.RUTA_RUTAS in c["comando"] for c in _escrituras_ruta)
+    and any("systemctl enable" in c["comando"] for c in _escrituras_ruta),
+    "y cuando el área toca alguna ruta, el ejecutor deja los ficheros y habilita la unidad",
+)
+comprobar(
+    not any(c["area"] == "routes" for c in motor.escrituras_linux(
+        [{"op": "add_address", "interface": "eth0", "address": "10.44.0.20/24"}],
+        _VIGILANTE_CON_RUTAS, DECLARACION, IDENTIDAD, PARAMETROS)),
+    "y sin operaciones de rutas no se reescriben los ficheros: la segunda pasada sigue siendo "
+    "`changed=0` (regla 6)",
+)
+
+# 12. Las comunidades SNMP ilegibles ya no pasan: se miran los PERMISOS, no sólo el nombre.
+igual(
+    motor._snmp_canonico({}, {
+        "habilitado": True, "comunidades": ["netlabs"],
+        "comunidades_detalle": [{"name": "netlabs", "read": True, "comment": "netlabs-snmp", "id": "*1"}]}),
+    [], "una comunidad del motor CON lectura no produce trabajo (regla 6)",
+)
+igual(
+    [(o["op"], o.get("id")) for o in motor._snmp_canonico({}, {
+        "habilitado": True, "comunidades": ["netlabs"],
+        "comunidades_detalle": [{"name": "netlabs", "read": False, "comment": "netlabs-snmp", "id": "*1"}]})],
+    [("set_snmp_community", "*1")],
+    "una comunidad del motor con la lectura APAGADA se REPARA por su identificador: antes pasaba "
+    "por buena y el colector no podía leer el equipo (hallazgo P1, PR #13)",
+)
+_snmp_conflicto = False
+try:
+    motor._snmp_canonico({}, {
+        "habilitado": True, "comunidades": ["netlabs"],
+        "comunidades_detalle": [{"name": "netlabs", "read": False, "comment": "de otro", "id": "*2"}]})
+except motor.ErrorMotor:
+    _snmp_conflicto = True
+comprobar(
+    _snmp_conflicto,
+    "y una comunidad llamada `netlabs` SIN lectura y SIN la marca del motor INFORMA del conflicto "
+    "y NO se toca (regla 17: no es del área)",
+)
+igual(
+    [o["op"] for o in motor._snmp_canonico({}, {
+        "habilitado": False, "comunidades": [], "comunidades_detalle": []})],
+    ["enable_snmp", "add_snmp_community"],
+    "y un equipo sin agente ni comunidad pide encender y añadir la del motor",
+)
+
+# 1 y 3. Una CAÍDA de la API (curl `000`) NO debe rehacer la base: se clasifica `no-contesta`
+# y el esquema se lee bien, así que no hay DROP. Y si la CONSULTA del esquema falla, se ABORTA.
+_guion_caida, _banco_caida, _ = _banco_preparador(
+    ["10.44.0.0/24 dev eth0 proto kernel scope link src 10.44.0.10"], codigo_curl="000")
+_corre_preparador(_guion_caida, _banco_caida, "preparar")
+with open(os.path.join(_banco_caida, "psql.log"), encoding="utf-8") as _f:
+    _log_caida = _f.read().lower()
+comprobar(
+    "drop database" not in _log_caida,
+    "una caída de la API (000) NO rehace la base: el `000000` de antes se tomaba por un rechazo "
+    "y un `DROP DATABASE` se llevaba los nodos descubiertos (hallazgo P1, PR #13)",
+)
+_guion_esq, _banco_esq, _ = _banco_preparador(["10.44.0.0/24 dev eth0 proto kernel scope link src 10.44.0.10"])
+with open(os.path.join(_banco_esq, "falla_esquema"), "w", encoding="utf-8") as _f:
+    _f.write("x")
+_, _rc_esq = _corre_preparador(_guion_esq, _banco_esq, "preparar")
+with open(os.path.join(_banco_esq, "psql.log"), encoding="utf-8") as _f:
+    _log_esq = _f.read().lower()
+comprobar(
+    _rc_esq != 0 and "drop database" not in _log_esq,
+    "y si la CONSULTA del esquema FALLA se aborta SIN tocar la base: un `no` de una consulta caída "
+    "no significa «vacía» (hallazgo P1, PR #13)",
+)
+
+# 4. El sembrado NO escribe su marca sin confirmar un entero > 0 de equipos vigilados.
+for _caso in ("cero", "fallo"):
+    _guion_s4, _banco_s4, _marca_s4 = _banco_preparador(
+        ["10.44.0.0/24 dev eth0 proto kernel scope link src 10.44.0.10"])
+    _fingido = os.path.join(_banco_s4, "nodos" if _caso == "cero" else "falla_nodos")
+    with open(_fingido, "w", encoding="utf-8") as _f:
+        _f.write("0\n" if _caso == "cero" else "x")
+    _, _rc_s4 = _corre_preparador(_guion_s4, _banco_s4, "sembrar")
+    comprobar(
+        _rc_s4 != 0 and not os.path.exists(_marca_s4),
+        f"el sembrado NO escribe su marca con {_caso} equipos vigilados (ni con la consulta "
+        "fallida): antes, una consulta fallida dejaba el recuento VACÍO, la cadena vacía no es `0` "
+        "y marcaba sin haber confirmado nada (hallazgo P1, PR #13)",
+    )
 
 if FALLOS:
     print(f"\nRESULTADO: {len(FALLOS)} fallo(s).")

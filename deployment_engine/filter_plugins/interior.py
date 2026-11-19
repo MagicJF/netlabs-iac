@@ -102,6 +102,13 @@ UNIDAD_LATIDO_SERVICIO = "netlabs-latido.service"
 # y lo hace cada cuarto de hora, así que una entrada que caduque entre medias no se ve.
 CADENCIA_LATIDO = "2min"
 
+# Las rutas estáticas de un Linux (área `routes`): `ip route replace` sólo cambia la tabla en
+# marcha, así que un reinicio del invitado se lleva el camino a las zonas hasta el siguiente
+# `apply`. Por eso el motor deja además un guion y una unidad que las REPONEN al arrancar; los
+# dos viven dentro del área declarada, y se reescriben cuando las rutas cambian (regla 17).
+RUTA_RUTAS = "/usr/local/sbin/netlabs-rutas"
+UNIDAD_RUTAS = "netlabs-rutas.service"
+
 # Las dos acciones del túnel, con nombre propio: el plan las nombra y el ejecutor
 # las despacha, y una cadena suelta en dos sitios es una cadena que se separa.
 ACCION_TUNNEL = "construir_tunnel"
@@ -968,18 +975,35 @@ def _addresses_canonicas(declarado, leido):
     return operaciones
 
 
+def _destino_normalizado(destino):
+    """La forma CANÓNICA de un destino de ruta, para que lo DECLARADO y lo LEÍDO comparen el
+    mismo hecho. `ip route show` imprime el destino por defecto como `default` y una ruta a un
+    HOST sin el `/32` (`10.44.1.5 via ...`), mientras el lab los declara como `0.0.0.0/0` y
+    `10.44.1.5/32`. Sin normalizar, el motor volvería a escribir en cada pasada y borraría la
+    que acaba de poner (hallazgos P1, PR #13)."""
+    texto = str(destino or "").strip()
+    if texto == "default":
+        return "0.0.0.0/0"
+    if texto and "/" not in texto:
+        return texto + "/32"
+    return texto
+
+
 def _routes_canonicas(declarado, leido):
     """Diferencia del área `rutas`: sólo las ESTÁTICAS. Las conectadas las pone el
     sistema y la dinámica del DHCP es residuo (`reiniciar_invitado`).
 
     Lo DECLARADO es la lista tal cual (`- {destino, pasarela}`); lo LEÍDO, lo que el
-    driver saca del equipo.
+    driver saca del equipo. Los dos destinos se NORMALIZAN antes de compararse (ver
+    `_destino_normalizado`): `default`/`0.0.0.0/0` y host sin barra/con `/32` son el
+    MISMO hecho, y tratarlos como distintos rompía la convergencia.
     """
     deseadas = {
-        (str(r.get("dst_address")), str(r.get("gateway"))) for r in (declarado or [])
+        (_destino_normalizado(r.get("dst_address")), str(r.get("gateway")))
+        for r in (declarado or [])
     }
     actuales = {
-        (str(r.get("dst_address")), str(r.get("gateway")))
+        (_destino_normalizado(r.get("dst_address")), str(r.get("gateway")))
         for r in ((leido or {}).get("estaticas") or [])
     }
     operaciones = []
@@ -1055,6 +1079,54 @@ WantedBy=timers.target
     }
 
 
+def rutas_persistentes(rutas):
+    """Los ficheros que dejan las rutas del área `routes` ESCRITAS para el próximo arranque.
+
+    `ip route replace` sólo cambia la tabla en marcha; sin esto, un reinicio del invitado se
+    lleva el camino a las zonas hasta el siguiente `apply`, y el vigilante se queda ciego (es
+    justo lo que el latido intenta que no pase, hallazgo P1, PR #13). Son DOS artefactos, y
+    ninguno sobra: el guion repone las rutas declaradas y la unidad lo hace correr al arrancar.
+    Se ordenan para que el contenido sea determinista y reescribir lo mismo no dé `changed`.
+
+    Un cambio en las rutas declaradas reescribe estos ficheros (los dos viven dentro del área
+    declarada, regla 17). Si el área no cambia no se tocan: la segunda pasada sigue siendo
+    `changed=0` (regla 6).
+    """
+    ordenadas = sorted(
+        (r for r in (rutas or []) if str(r.get("dst_address") or "").strip()
+         and str(r.get("gateway") or "").strip()),
+        key=lambda r: (str(r.get("dst_address")), str(r.get("gateway"))),
+    )
+    guion = "\n".join(
+        ["#!/bin/sh",
+         "# PROPÓSITO: reponer al arrancar las rutas estáticas que declara el área `routes`.",
+         "# INVARIANTES: repone EXACTAMENTE las rutas que el lab declara; las que ya no se",
+         "#              declaran las quita el área al converger (regla 17).",
+         "# LÍMITES:    sólo aplica la tabla en marcha; no configura ninguna interfaz.",
+         "# VER:        docs/decisiones/0030-el-vigilante-alcanza-las-zonas.md",
+         ""]
+        + [f"ip route replace {r['dst_address']} via {r['gateway']} proto static" for r in ordenadas]
+    ) + "\n"
+    unidad = f"""[Unit]
+# PROPÓSITO: reponer las rutas del área `routes` tras cada reinicio del invitado.
+# VER:       docs/decisiones/0030-el-vigilante-alcanza-las-zonas.md
+Description=netlabs: las rutas estáticas declaradas por el lab
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart={RUTA_RUTAS}
+
+[Install]
+WantedBy=multi-user.target
+"""
+    return {
+        f"/etc/systemd/system/{UNIDAD_RUTAS}": unidad,
+        RUTA_RUTAS: guion,
+    }
+
+
 def _latido_canonico(declarado, leido):
     """Diferencia del área `latido`: que el equipo se vea en la red por la que vive.
 
@@ -1072,9 +1144,20 @@ def _latido_canonico(declarado, leido):
     # YAML ya quiere decir «este equipo tiene que verse». Su único valor posible es `cada`,
     # y tiene defecto. Un `if not declarado: return []` aquí sería un fallo silencioso:
     # la marca es el diccionario VACÍO, y el latido no se pondría nunca.
+    #
+    # Se comparan los TRES artefactos gestionados por su CONTENIDO ENTERO (guion, unidad y
+    # temporizador), no la marca del comentario a secas: si borran el guion, o alguien edita
+    # `OnUnitActiveSec` sin tocar el comentario, la marca sola seguiría diciendo «no hay
+    # trabajo» y el latido estaría roto sin que nadie lo notara (hallazgo P1, PR #13). El
+    # orden es el que devuelve `escrituras_latido` (temporizador, unidad, guion), y el lector
+    # lo respeta.
     actual = leido or {}
-    marca = f"# netlabs latido cada={_cadencia_latido(declarado)}"
-    if actual.get("marca") == marca and actual.get("activo") and actual.get("habilitado"):
+    esperados = list(escrituras_latido(_cadencia_latido(declarado)).values())
+    leidos = actual.get("ficheros_leidos") or []
+    if actual.get("activo") and actual.get("habilitado") and (
+        len(leidos) == len(esperados)
+        and all(str(a or "") == str(b or "") for a, b in zip(leidos, esperados))
+    ):
         return []
     return [
         {"op": "write_latido", "cadencia": _cadencia_latido(declarado)},
@@ -1334,20 +1417,49 @@ def _snmp_canonico(declarado, leido):
 
     Dos hechos, y los dos se leen:
       * el agente encendido (`/snmp` es `no` de fábrica);
-      * una comunidad de LECTURA con el nombre del motor (`COMUNIDAD_SNMP`) entre las que
-        el equipo tiene -- sin ella el colector no puede preguntar con la suya.
+      * una comunidad de LECTURA con el nombre del motor (`COMUNIDAD_SNMP`) y CON permiso de
+        lectura -- sin ella (o con la lectura APAGADA) el colector no puede preguntar con su
+        nombre. Antes sólo se miraba que el nombre existiera, así que una `netlabs` con
+        `read-access=no` pasaba por buena y el equipo quedaba ilegible (hallazgo P1, PR #13).
 
     No se recorta ni se borra la comunidad de fábrica ni las demás: el área dice «este
     equipo se vigila», no «estas son TODAS tus comunidades». Un equipo ya convergido no
     produce NINGUNA operación -- que es lo que hace verdadera la promesa de la regla 6.
+
+    Cuando la comunidad del motor existe pero sin lectura: si lleva SU MARCA (`MARCA_SNMP`) se
+    REPARA por su identificador (no es de nadie más); si es una comunidad ajena llamada
+    `netlabs`, se INFORMA del conflicto y NO se la toca (regla 17: no es del área).
     """
     if not isinstance(leido, dict):
         return []
     operaciones = []
     if not leido.get("habilitado"):
         operaciones.append({"op": "enable_snmp"})
-    if COMUNIDAD_SNMP not in (leido.get("comunidades") or []):
-        operaciones.append({"op": "add_snmp_community", "nombre": COMUNIDAD_SNMP})
+    detalle = leido.get("comunidades_detalle")
+    if detalle is None:
+        # Respaldo para una lectura parcial o vieja (sin el detalle): se cae a mirar sólo los
+        # nombres, que es lo único que antes se leía.
+        if COMUNIDAD_SNMP not in (leido.get("comunidades") or []):
+            operaciones.append({"op": "add_snmp_community", "nombre": COMUNIDAD_SNMP})
+        return operaciones
+    legibles = {str(c.get("name")) for c in detalle if c.get("read")}
+    if COMUNIDAD_SNMP not in legibles:
+        propias = [c for c in detalle if str(c.get("name")) == COMUNIDAD_SNMP]
+        del_motor = [c for c in propias if str(c.get("comment") or "") == MARCA_SNMP]
+        if del_motor and del_motor[0].get("id"):
+            operaciones.append({
+                "op": "set_snmp_community",
+                "id": str(del_motor[0]["id"]),
+                "nombre": COMUNIDAD_SNMP,
+            })
+        elif propias:
+            raise ErrorMotor(
+                f"el equipo tiene una comunidad SNMP llamada '{COMUNIDAD_SNMP}' SIN permiso de "
+                "lectura y sin la marca del motor: es de otro y el motor no la toca (regla 17). "
+                "Renómbrala o quítala a mano, o deja que el motor use otro nombre"
+            )
+        else:
+            operaciones.append({"op": "add_snmp_community", "nombre": COMUNIDAD_SNMP})
     return operaciones
 
 
@@ -2023,6 +2135,10 @@ def bastion(declaracion):
     return ""
 
 
+# La marca que separa los bloques de una lectura que trae VARIOS hechos (ruedas de datos del
+# analizador). Se declara ANTES de las lecturas porque sus comandos la usan como plantilla.
+SEPARADOR = "---NETLABS---"
+
 # Las lecturas, una por área, y el porqué de cada comando. Van aquí (y no en el
 # playbook) porque son DATOS: el driver no decide qué preguntar, lo lee de aquí.
 #
@@ -2049,27 +2165,34 @@ LECTURAS_LINUX = {
     },
     "routes": {
         # Las rutas ESTÁTICAS, y sólo ésas: se piden las que llevan pasarela (` via `) y se
-        # descartan las conectadas (`proto kernel`, las pone el sistema), las del DHCP y la
-        # de salida por defecto (`default`), que la declara el lab a nivel de plataforma.
-        # `|| true` NO es decoración: el analizador marca como NO LEÍDA toda área cuyo `rc`
-        # no sea 0 (un `rc != 0` es AVERÍA, no estado) -- y un `grep` sin resultados devuelve
-        # 1. Sin esto, un Linux SIN rutas estáticas se leería como «no pude leer» y el driver
-        # pararía con «no leyó el área 'routes'» en vez de concluir, correctamente, que no hay
-        # ninguna que poner. Medido: es exactamente lo que pasó en el primer apply.
-        "comando": ("ip -4 route show | grep ' via ' "
-                    "| grep -vE '^(default|169\\.254)' | grep -v ' proto dhcp ' || true"),
+        # descartan las conectadas (`proto kernel`, las pone el sistema) y las del DHCP.
+        # El destino por defecto SÍ se lee (se normaliza a `0.0.0.0/0` en `_routes_canonicas`):
+        # antes se filtraba el `default`, así que una ruta por defecto declarada nunca cuadraba
+        # y el motor no podía quitarla (hallazgo P1, PR #13).
+        # El código de salida de `ip` se COMPRUEBA antes de filtrar: si `ip route show` falla,
+        # la tubería devolvía lo mismo que una tabla sin rutas, el área se daba por leída y el
+        # plan escribía sin conocer el estado real (hallazgo P1, PR #13). Cero coincidencias SÍ
+        # es legítimo (un Linux sin rutas estáticas), y por eso el filtro no arrastra el `rc`.
+        "comando": ("r=$(mktemp); ip -4 route show > \"$r\" || { rm -f \"$r\"; exit 1; }; "
+                    "grep ' via ' \"$r\" | grep -vE '^169\\.254' | grep -v ' proto dhcp '; "
+                    "rm -f \"$r\"; true"),
         "descripcion": "sus rutas estáticas (las que el motor gobierna)",
     },
     "latido": {
-        # TRES cosas en un viaje, en este orden: si el temporizador está ARMADO, si está
-        # habilitado al arranque, y LA MARCA del fichero, que dice con qué cadencia se puso.
-        # Sin la marca, cambiar la cadencia no se notaría y el motor diría «convergido» con
-        # la cadencia vieja puesta -- que es la forma silenciosa de mentir.
+        # Los TRES artefactos gestionados, ENTEROS y separados: si el temporizador está ARMADO,
+        # si está habilitado al arranque y el CONTENIDO de cada fichero (temporizador, unidad y
+        # guion), en el mismo orden que `escrituras_latido`. Antes sólo se leía la marca del
+        # comentario: borrar el guion o editar `OnUnitActiveSec` sin tocar el comentario dejaría
+        # el latido roto y el motor diría «convergido» (hallazgo P1, PR #13).
         "comando": (f"systemctl is-active {UNIDAD_LATIDO} 2>/dev/null || echo inactive; "
                     f"systemctl is-enabled {UNIDAD_LATIDO} 2>/dev/null || echo disabled; "
-                    f"grep -h '^# netlabs latido' /etc/systemd/system/{UNIDAD_LATIDO} "
-                    "2>/dev/null || echo sin-marca"),
-        "descripcion": "si el latido está armado, y con qué cadencia",
+                    f"echo {SEPARADOR}; "
+                    f"cat /etc/systemd/system/{UNIDAD_LATIDO} 2>/dev/null || echo SIN-FICHERO; "
+                    f"echo {SEPARADOR}; "
+                    f"cat /etc/systemd/system/{UNIDAD_LATIDO_SERVICIO} 2>/dev/null || echo SIN-FICHERO; "
+                    f"echo {SEPARADOR}; "
+                    f"cat {RUTA_LATIDO} 2>/dev/null || echo SIN-FICHERO"),
+        "descripcion": "si el latido está armado y ENTERO (guion, unidad y temporizador con su contenido)",
     },
     "dhcp_server": {
         # CUATRO cosas en un viaje, separadas por una marca que el analizador conoce:
@@ -2091,17 +2214,45 @@ LECTURAS_LINUX = {
     # (cuántos ficheros, qué comprobación), así que la construye `lectura_servicio(nombre)`.
 }
 
-SEPARADOR = "---NETLABS---"
+
+
+def red_de_direccion(direccion):
+    """La red (dirección base CON su prefijo) de una dirección con máscara.
+
+    Deriva la red del prefijo COMPLETO -- no asume un /24 --: un invitado en
+    `10.44.1.20/16` tiene su red en `10.44.0.0/16`, y uno en una red más pequeña no puede
+    escanear direcciones de fuera de su rango. Es la MISMA regla que aplica el guion del
+    invitado (`red_de` en la plantilla), a propósito: lo declarado y lo que el equipo deriva
+    tienen que comparar el mismo hecho (hallazgo P1, PR #13). Devuelve "" si no se puede.
+    """
+    texto = str(direccion or "").strip()
+    if "/" not in texto:
+        return ""
+    base, _, prefijo = texto.partition("/")
+    partes = base.split(".")
+    if len(partes) != 4 or not prefijo.isdigit():
+        return ""
+    bits = int(prefijo)
+    if not 0 <= bits <= 32:
+        return ""
+    try:
+        octetos = [int(p) for p in partes]
+    except ValueError:
+        return ""
+    if any(not 0 <= o <= 255 for o in octetos):
+        return ""
+    valor = (octetos[0] << 24) | (octetos[1] << 16) | (octetos[2] << 8) | octetos[3]
+    mascara = ((0xFFFFFFFF << (32 - bits)) & 0xFFFFFFFF) if bits else 0
+    red = valor & mascara
+    return f"{(red >> 24) & 255}.{(red >> 16) & 255}.{(red >> 8) & 255}.{red & 255}/{bits}"
 
 
 def _red_propia(direccion):
-    """La red de la dirección de gestión, con la MISMA regla que el guion del invitado: los
-    tres primeros octetos y /24. Se mantiene a propósito, para que la lista declarada y la que
-    el equipo deriva comparen el mismo hecho."""
-    partes = str(direccion or "").split("/")[0].split(".")
-    if len(partes) != 4:
-        return ""
-    return ".".join(partes[:3]) + ".0/24"
+    """La red de la dirección de gestión del invitado, en la forma `red/prefijo` que usa el
+    descubrimiento. Se deriva de la dirección COMPLETA con su prefijo (no un /24 fijo), para
+    que la lista declarada y la que el equipo deriva comparen el mismo hecho (hallazgo P1,
+    PR #13)."""
+    return red_de_direccion(direccion)
 
 
 def objetivos_declarados(declaradas):
@@ -2282,10 +2433,18 @@ def leido_linux(lecturas):
             leido["routes"] = {"estaticas": estaticas}
 
         elif area == "latido":
+            # Bloque 0: estado (vivo/habilitado); bloques 1..3: el CONTENIDO de los tres
+            # artefactos (temporizador, unidad, guion), en el orden de `escrituras_latido`.
+            # Se comparan enteros, no la marca: un guion borrado o un `OnUnitActiveSec`
+            # editado a mano tienen que verse (hallazgo P1, PR #13).
+            bloques = str(texto).split(SEPARADOR)
+            estado = _lineas(bloques[0] if bloques else "")
             leido["latido"] = {
-                "activo": (lineas[0] if lineas else "") == "active",
-                "habilitado": len(lineas) > 1 and lineas[1] == "enabled",
-                "marca": lineas[2] if len(lineas) > 2 else "",
+                "activo": bool(estado) and estado[0] == "active",
+                "habilitado": len(estado) > 1 and estado[1] == "enabled",
+                "ficheros_leidos": [
+                    (bloques[i] if i < len(bloques) else "").lstrip("\n") for i in (1, 2, 3)
+                ],
             }
 
         elif area == "claves":
@@ -2671,12 +2830,21 @@ como_postgres() {
     su postgres -c "cd /tmp && $*" 2>/dev/null
 }
 
+# El recuento de tablas del esquema, o FALLO si la consulta no se pudo leer. El código de
+# salida IMPORTA: si PostgreSQL todavía no acepta conexiones, `psql` no devuelve recuento y
+# `esquema` no puede confundir «no leí» con «está vacía» -- esa confusión es la que hacía que
+# un `DROP DATABASE` cayera sobre una base que nunca se leyó (hallazgo P1, PR #13).
 tablas() {
     como_postgres "psql -tA -d %(bd)s -c \"select count(*) from information_schema.tables where table_schema = 'public'\""
 }
 
+# Tres respuestas, y la diferencia IMPORTA: `si` (hay esquema), `no` (la base está VACÍA o es
+# nueva -- se puede inicializar) y `error` (la consulta falló: NO se sabe qué hay). El estado
+# se decide por el CÓDIGO DE SALIDA de la consulta, no por el valor: una consulta fallida
+# devuelve la cadena VACÍA, que no es `0`, y antes se tomaba por un esquema vacío.
 esquema() {
-    n=$(tablas | tr -d ' \r')
+    salida=$(tablas) || { echo error; return 0; }
+    n=$(printf '%%s' "$salida" | tr -d ' \r')
     case "$n" in
         ''|0|*[!0-9]*) echo no ;;
         *) echo si ;;
@@ -2695,49 +2863,62 @@ esquema() {
 # (la consola de depuración) queda PROHIBIDA aquí: autentica bien y aun así deja la clave rota
 # para la web (medido: justo antes de la consola el API contesta 201; justo después, 403
 # `errorCode 61`, y ya no se recupera).
+# Devuelve UN SOLO valor: se captura la salida de `curl` en una variable y sólo si esa salida
+# viene vacía se recurre a `000`. El `|| echo 000` de antes AÑADÍA otro `000` al que `curl -w`
+# ya imprime en una caída, así que el lector recibía `000000` y lo tomaba por un rechazo --
+# y una caída de la API podía acabar tirando una base poblada (hallazgo P1, PR #13).
 respuesta_de_la_web() {
-    curl -sS -m 10 -o /dev/null -w '%%{http_code}' -X POST "http://127.0.0.1:8000/v1/login" \
+    salida=$(curl -sS -m 10 -o /dev/null -w '%%{http_code}' -X POST "http://127.0.0.1:8000/v1/login" \
         -H 'Content-Type: application/json' \
-        -d "{\"username\":\"$ADMIN\",\"password\":\"$ADMIN_CLAVE\"}" 2>/dev/null || echo 000
+        -d "{\"username\":\"$ADMIN\",\"password\":\"$ADMIN_CLAVE\"}" 2>/dev/null) || true
+    [ -n "$salida" ] || salida=000
+    printf '%%s' "$salida"
 }
 
 # ¿Se puede entrar? Tres respuestas, y la diferencia IMPORTA:
 #   `si`          -- el API contesta 201: la clave está aplicada y se entra.
-#   `rechaza`     -- contesta y NO acepta la clave: es la AL AZAR del paquete. Se rehace la base.
-#   `no-contesta` -- no hay API (un servidor que aún arranca, tomcat caído). NO se rehace nada:
-#                    rehacer la base por esto tiraba el descubrimiento entero (medido). Se le da
-#                    un respiro largo -- un servidor tarda ~7 s en activar -- y se vuelve a mirar.
+#   `rechaza`     -- contesta y NO acepta la clave (un 4xx: 401/403): es la AL AZAR del paquete.
+#                    Sólo ESTE caso abre el camino de rehacer la base.
+#   `no-contesta` -- no hay API (000) o el servidor devuelve un 5xx (aún arrancando, tomcat
+#                    caído). NO se rehace nada: rehacer la base por esto tiraba el
+#                    descubrimiento entero (medido). Se le da un respiro acotado y se vuelve a
+#                    mirar. Una caída de conexión NO es un rechazo de credenciales (hallazgo
+#                    P1, PR #13).
 entra() {
-    codigo=000
     i=0
     while [ "$i" -lt 20 ]; do
         codigo=$(respuesta_de_la_web)
         [ "$codigo" = "201" ] && { echo si; return 0; }
+        case "$codigo" in
+            4*) echo rechaza; return 0 ;;
+        esac
         i=$((i + 1)); sleep 3
     done
-    if [ "$codigo" = "000" ]; then echo no-contesta; else echo rechaza; fi
+    echo no-contesta
 }
 
 # Devolver la clave buena SIN tocar un solo dato. `netxms-server`, al ENTRAR con un hash en
 # formato viejo, lo reescribe a argon2id (`[userdb] Password hash has to be recomputed`) y ese
 # argon2id -- medido, determinista -- deja de verificar: desde ahí TODO login contesta 403. Una
 # base con la topología ya descubierta no se tira por eso: se para el servidor, se devuelve el
-# hash que `init` dejó (el que SÍ verifica) y se vuelve a arrancar. Se comprueba preguntando.
+# hash que `init` dejó (el que SÍ verifica) y se vuelve a arrancar. NO decide por sí misma si se
+# puede entrar: la respuesta de antes de reponer ya no vale, así que el llamante TIENE que
+# volver a PREGUNTAR (hallazgo P1, PR #13).
 reponer_clave() {
     [ -s "$CLAVE_BUENA" ] || return 1
     systemctl stop netxms-server >/dev/null 2>&1
     sleep 2
     buena=$(cat "$CLAVE_BUENA")
     como_postgres "psql -q -d %(bd)s -c \"update users set password='$buena' where id=1\"" \
-        || { systemctl start netxms-server >/dev/null 2>&1; return 1; }
     systemctl start netxms-server >/dev/null 2>&1
-    [ "$(entra)" = "si" ]
 }
 
 # Los equipos que el servidor tiene YA en su base -- lo que la web enseña --. Se leen de la
-# base, no de la consola: la consola rompe la clave del administrador (medido).
+# base, no de la consola: la consola rompe la clave del administrador (medido). Devuelve el
+# recuento CRUDO (sin `tr` que oculte el fallo): quien lo usa mira el CÓDIGO DE SALIDA para
+# distinguir «cero equipos» de «no se pudo leer» (hallazgo P1, PR #13).
 vigilados() {
-    como_postgres "psql -tA -d netxms -c 'select count(*) from nodes'" 2>/dev/null | tr -d ' \r'
+    como_postgres "psql -tA -d netxms -c 'select count(*) from nodes'"
 }
 
 # Las redes que este invitado ALCANZA y que el servidor tiene que sondear: la suya (derivada
@@ -2745,11 +2926,36 @@ vigilados() {
 # que es la que entiende NetXMS. Un destino SIN `/` es un HOST -- `ip route show` lo imprime
 # así (`10.44.5.7 via 10.44.0.12`) -- y su máscara es `/32`: sin esto, `cut -d/ -f2` devolvía
 # la dirección entera y se escribía como máscara, que no es una máscara (hallazgo P2, PR #14).
+# La red (dirección base CON su prefijo) de una dirección con máscara, calculada con el prefijo
+# COMPLETO -- no un /24 fijo --: un invitado en `10.44.1.20/16` tiene su red en `10.44.0.0/16`,
+# y uno en una red más pequeña NO puede escanear direcciones de fuera de su rango (hallazgo P1,
+# PR #13). Es la MISMA regla que `red_de_direccion` en el motor. Se enmascara octeto a octeto
+# para no depender de enteros de 32 bits (awk los representa como coma flotante).
+red_de() {
+    echo "$1" | awk -F'[./]' '{
+        o[1]=$1+0; o[2]=$2+0; o[3]=$3+0; o[4]=$4+0; b=$5+0
+        out=""
+        for (i=1; i<=4; i++) {
+            if (b>=8) { v=o[i]; b-=8 }
+            else if (b<=0) { v=0 }
+            else { m=256-2^(8-b); v=int(o[i]/m)*m; b=0 }
+            out = out (i>1 ? "." : "") v
+        }
+        printf "%%s/%%d\n", out, $5+0
+    }'
+}
+
+# Las redes que este invitado ALCANZA y que el servidor tiene que sondear: la suya (derivada
+# de su interfaz, con su prefijo de verdad) y cada destino de sus rutas estáticas. Se imprime
+# en la forma `red/máscara`, que es la que entiende NetXMS. Un destino SIN `/` es un HOST --
+# `ip route show` lo imprime así (`10.44.5.7 via 10.44.0.12`) -- y su máscara es `/32`: sin
+# esto, `cut -d/ -f2` devolvía la dirección entera y se escribía como máscara, que no es una
+# máscara (hallazgo P2, PR #14).
 objetivos() {
-    base=$(ip -4 -o addr show eth0 2>/dev/null | awk '{print $4}' | head -1 | cut -d/ -f1 | cut -d. -f1-3)
-    [ -n "$base" ] || return 1
-    printf '%%s\n' "$base.0/24"
-    ip -4 route show 2>/dev/null | grep ' via ' | grep -vE '^(default|169\.254)' \
+    linea=$(ip -4 -o addr show eth0 2>/dev/null | awk '{print $4}' | head -1)
+    [ -n "$linea" ] || return 1
+    red_de "$linea" || return 1
+    ip -4 route show 2>/dev/null | grep ' via ' | grep -vE '^(default|169\\.254)' \
         | grep -v ' proto dhcp ' | awk '{print $1}' \
         | while read -r destino; do
             case "$destino" in
@@ -2811,17 +3017,20 @@ escribir_objetivos() {
 
 estado() {
     # Lo que el motor lee para decidir si hay que PREPARAR. Base, web y acceso son la mitad;
-    # la otra es que los objetivos de descubrimiento sigan siendo los de las rutas de AHORA
-    # (cuarto tiempo). Con sólo la primera mitad, un `apply` que cambiara las rutas daba el
-    # área por buena y NetXMS seguía sondeando las redes viejas (hallazgo P1, PR #14). Si
-    # difieren se contesta `no` y el motor vuelve a preparar, que reescribe los objetivos.
+    # la otra -- los objetivos del descubrimiento -- SÓLO cuenta si el motor lo ha configurado
+    # (hay objetivos guardados). Sin esa mitad, el área `servicio` no ha pedido vigilancia:
+    # instalar el servicio NO debe empezar a vigilar, y comparar contra una lista vacía dejaba
+    # el servicio «sin converger» para siempre (hallazgo P1, PR #13). Con objetivos guardados,
+    # un `apply` que cambiara las rutas se nota aquí y el motor vuelve a preparar (PR #14).
     if [ "$(esquema)" != "si" ] || [ ! -s "$WEBAPPS/nxmc.war" ] \
             || [ "$(entra)" != "si" ]; then
         echo no
         return 0
     fi
+    guardados=$(objetivos_guardados)
+    [ -n "$guardados" ] || { echo si; return 0; }
     actual=$(objetivos_comparados 2>/dev/null | sort -u)
-    if [ -z "$actual" ] || [ "$actual" != "$(objetivos_guardados)" ]; then
+    if [ -z "$actual" ] || [ "$actual" != "$guardados" ]; then
         echo no
         return 0
     fi
@@ -2860,13 +3069,33 @@ sembrar)
         fi
         exit 1
     fi
-    # Las redes que el vigilante ALCANZA -- la suya (derivada de su interfaz) y las de sus rutas
-    # estáticas --: se vuelven a escribir aquí, no sólo en `preparar`. El `sembrado` manda a
-    # sembrar cuando las rutas cambiaron, y si esta rama sólo pusiera la marca, el servidor
-    # seguiría sondeando las redes viejas y la marca mentiría (hallazgo P1, PR #14). No es un
-    # valor de lab: se lee del propio equipo, igual que en `preparar`.
+    # Y la VIGILANCIA: es AQUÍ -- detrás del área `monitorizacion`, no en `preparar` -- donde
+    # se ENCIENDE el descubrimiento. Instalar el servicio (`servicio: netxms`) no debe empezar
+    # a peinar la red del invitado cada hora: quien pide vigilancia es `monitorizacion`
+    # (hallazgo P1, PR #13). Se preguntó por el API WEB al entrar (arriba): nunca por la
+    # consola, que deja la clave rota (medido).
+    linea=$(ip -4 -o addr show eth0 2>/dev/null | awk '{print $4}' | head -1)
+    [ -n "$linea" ] || { echo "sin dirección en eth0: no se sabe qué red vigilar" >&2; exit 1; }
+    # `nxdbmgr set` deja el valor que se le da; repetirlo no cambia nada. Van por aquí SÓLO las
+    # variables que NetXMS 7.0 de verdad LEE (medido sobre su fuente): la comunidad, el tipo de
+    # descubrimiento, la sonda SNMP y el intervalo (en SEGUNDOS; 3600 = una hora).
+    for ajuste in "DefaultCommunityString $COMUNIDAD" \
+                  "NetworkDiscovery.Type 3" \
+                  "NetworkDiscovery.ActiveDiscovery.EnableSNMPProbing 1" \
+                  "NetworkDiscovery.ActiveDiscovery.Interval 3600"; do
+        nxdbmgr -c /etc/netxmsd.conf set $ajuste >/dev/null 2>&1 || {
+            echo "no se pudo dejar el ajuste '$ajuste' en el servidor de vigilancia" >&2
+            exit 1
+        }
+    done
+    # Los objetivos del descubrimiento activo salen de la tabla `address_lists` (list_type=1),
+    # NO de `NetworkDiscovery.ActiveDiscovery.AddressRange` (medido sobre la fuente). El CÓMO
+    # vive en UN solo sitio (`escribir_objetivos`). Las redes que el vigilante ALCANZA -- la
+    # suya (derivada de su interfaz) y las de sus rutas estáticas -- se (re)escriben aquí, no
+    # en `preparar`, por lo mismo (hallazgo P1, PR #13). No es un valor de lab: se lee del
+    # propio equipo.
     escribir_objetivos || {
-        echo "no se pudo volver a declarar las redes a vigilar en la base del servidor" >&2
+        echo "no se pudo declarar las redes a vigilar en la base del servidor" >&2
         exit 1
     }
     # El descubrimiento NO se dispara desde aquí: lo hace el SERVIDOR solo -- los objetivos
@@ -2874,14 +3103,32 @@ sembrar)
     # descubrimiento activo encendido --, y aquí sólo se ESPERA a que sus hallazgos estén en
     # la base. La consola (`nxadm -c "scan"`) era lo que rompía la clave del administrador
     # (medido), así que se fue de aquí.
+    # Se exige un RECUENTO VÁLIDO (un entero > 0) antes de dar la siembra por hecha. Si `psql`
+    # falla, `vigilados` devuelve la cadena VACÍA -- y la cadena vacía NO es `0`, así que el
+    # bucle terminaba y se escribía la marca sin confirmar un solo hallazgo (hallazgo P1, PR
+    # #13). Con error o cero persistente, la marca NO se escribe.
     i=0
-    while [ "$i" -lt 40 ] && [ "$(vigilados)" = "0" ]; do
+    nodos=""
+    while [ "$i" -lt 40 ]; do
+        if nodos=$(vigilados); then
+            case "$nodos" in
+                ''|*[!0-9]*) ;;   # consulta ilegible: se sigue esperando
+                0) ;;             # aún ningún equipo
+                *) break ;;       # entero > 0: ya hay hallazgos
+            esac
+        fi
+        nodos=""
         i=$((i + 1)); sleep 3
     done
-    if [ "$(vigilados)" = "0" ]; then
+    case "$nodos" in
+        ''|*[!0-9]*)
+            echo "no se pudo leer cuántos equipos vigilados hay (la consulta falló): no se marca la siembra" >&2
+            exit 1 ;;
+    esac
+    [ "$nodos" -gt 0 ] || {
         echo "el servidor de vigilancia no ha añadido un solo equipo todavía: tiene declaradas las redes que este invitado alcanza (la suya y las de sus rutas) con descubrimiento activo, y la ronda tarda (se le da otra pasada)" >&2
         exit 1
-    fi
+    }
     mkdir -p "$(dirname "$MARCA")"
     : > "$MARCA"
     ;;
@@ -2919,9 +3166,23 @@ preparar)
     # Un `rechaza` NO se paga rehaciendo la base: primero el camino BARATO -- devolver el hash
     # que `init` dejó, sin tocar un solo dato --, y sólo si eso tampoco deja entrar se rehace.
     if [ "$se_entra" = "rechaza" ]; then
-        reponer_clave && se_entra=si
+        # Primero el camino BARATO -- devolver el hash que `init` dejó, sin tocar un solo dato
+        # --, y DESPUÉS se vuelve a PREGUNTAR: la respuesta de antes de reponer ya no vale, no
+        # se decide con la vieja (hallazgo P1, PR #13). Y no se rehace la base por una caída de
+        # conexión o un 5xx: sólo un rechazo FRESCO (4xx) la justifica.
+        reponer_clave
+        se_entra=$(entra)
     fi
-    if [ "$(esquema)" != "si" ] || [ "$se_entra" = "rechaza" ]; then
+    esquema_actual=$(esquema)
+    # Si la CONSULTA del esquema falla (`error`), se aborta SIN tocar la base: un `no` de una
+    # consulta caída no significa «vacía», y el `DROP DATABASE` podía caer sobre una base
+    # poblada que nunca se leyó (hallazgo P1, PR #13). La inicialización automática queda SÓLO
+    # para una base nueva o un esquema vacío de verdad (`no`).
+    if [ "$esquema_actual" = "error" ]; then
+        echo "no se pudo leer el esquema de la base del servidor de vigilancia: no se toca la base" >&2
+        exit 1
+    fi
+    if [ "$esquema_actual" != "si" ] || [ "$se_entra" = "rechaza" ]; then
         # El servidor se PARA antes de tocar la base: con él en marcha la base está BLOQUEADA
         # -- `nxdbmgr` contesta "Database is locked by server ..." y no inicializa ni pone
         # clave ninguna (medido) --. Se vuelve a arrancar al final, cuando la base está como
@@ -2955,42 +3216,9 @@ preparar)
         # base no dice nada (regla 6: la marca vale porque describe lo que hay).
         rm -f "$MARCA"
     fi
-    # Y la VIGILANCIA: que el servidor PREGUNTE -- descubrimiento activo, con sonda SNMP -- sobre
-    # LAS REDES QUE ESTE INVITADO ALCANZA: la suya (derivada de su interfaz) y las que sus rutas
-    # estáticas declaran (el motor las LEE del propio equipo, jamás son un valor de lab), y con
-    # qué comunidad: la MISMA que los equipos declaran con el área `snmp` (una constante del
-    # motor, para que no haya dos sitios que se descoordinen). La ronda la hace el SERVIDOR solo,
-    # al arrancar y cada `Interval` SEGUNDOS: no la dispara la consola, que dejaba la clave del
-    # administrador rota para la web (medido).
-    base=$(ip -4 -o addr show eth0 2>/dev/null | awk '{print $4}' | head -1 | cut -d/ -f1 | cut -d. -f1-3)
-    if [ -z "$base" ]; then
-        echo "sin dirección en eth0: no se sabe qué red vigilar" >&2
-        exit 1
-    fi
-    # `nxdbmgr set` deja el valor que se le da; repetirlo no cambia nada. Si no se pudiera
-    # escribir, se PARA: un servidor que no pregunta no vigila, y darlo por bueno sería una
-    # promesa sin respaldo. Van por aquí SÓLO las variables que NetXMS 7.0 de verdad LEE (medido
-    # sobre su fuente): la comunidad, el tipo de descubrimiento, la sonda SNMP y el intervalo
-    # (en SEGUNDOS; 3600 = una hora).
-    for ajuste in "DefaultCommunityString $COMUNIDAD" \
-                  "NetworkDiscovery.Type 3" \
-                  "NetworkDiscovery.ActiveDiscovery.EnableSNMPProbing 1" \
-                  "NetworkDiscovery.ActiveDiscovery.Interval 3600"; do
-        nxdbmgr -c /etc/netxmsd.conf set $ajuste >/dev/null 2>&1 || {
-            echo "no se pudo dejar el ajuste '$ajuste' en el servidor de vigilancia" >&2
-            exit 1
-        }
-    done
-    # El RANGO de descubrimiento activo NO va en la variable
-    # `NetworkDiscovery.ActiveDiscovery.AddressRange`: medido sobre la fuente de NetXMS 7.0, esa
-    # variable NO se lee -- los objetivos del descubrimiento activo salen de la tabla
-    # `address_lists` (list_type=1). Por eso el rango se ESCRIBE ahí. El CÓMO vive en UN solo
-    # sitio (`escribir_objetivos`), que es también el que usa `sembrar`: si hubiera dos
-    # escritores, uno podría corregir la máscara y el otro no (hallazgo P2, PR #14).
-    escribir_objetivos || {
-        echo "no se pudo fijar las redes a vigilar en la base del servidor" >&2
-        exit 1
-    }
+    # Y la VIGILANCIA ya NO se enciende aquí: eso es del área `monitorizacion` (ver `sembrar`).
+    # Instalar el servicio (`servicio: netxms`) no debe empezar a peinar la red del invitado
+    # cada hora (hallazgo P1, PR #13). Aquí sólo se deja la web lista.
     nueva_web=no
     mkdir -p "$WEBAPPS"
     if [ ! -s "$WEBAPPS/nxmc.war" ]; then
@@ -3377,6 +3605,25 @@ def escrituras_linux(operaciones, guest, declaracion, identidad, parametros):
                                 "que vigilar (ronda su red por SNMP)"),
                 "comando": " && ".join(opciones.get("sembrar") or ()),
             })
+
+    # Persistencia de las rutas: `add_route`/`remove_route` sólo cambian la tabla EN MARCHA.
+    # Si el área ha decidido tocar alguna ruta, se dejan además los ficheros que las reponen al
+    # arrancar (guion + unidad) y se habilita la unidad -- UNA sola vez, aunque haya varias
+    # operaciones. Si no hay ninguna operación de rutas, no se toca nada y la segunda pasada
+    # sigue siendo `changed=0` (reglas 6 y 17; hallazgo P1, PR #13).
+    if any(operacion.get("op") in ("add_route", "remove_route") for operacion in (operaciones or [])):
+        ficheros = rutas_persistentes(declarado.get("routes"))
+        escrituras = " && ".join(
+            f"echo {_b64(contenido)} | base64 -d > {ruta}"
+            for ruta, contenido in ficheros.items())
+        comandos.append({
+            "area": "routes", "accion": "escribir",
+            "declarado": f"{len(declarado.get('routes') or [])} ruta(s) del lab",
+            "descripcion": "dejar escritas las rutas para que sobrevivan a un reinicio",
+            "comando": (f"mkdir -p /usr/local/sbin /etc/systemd/system && {escrituras} && "
+                        f"chmod 0755 {RUTA_RUTAS} && systemctl daemon-reload && "
+                        f"systemctl enable {UNIDAD_RUTAS} >/dev/null 2>&1"),
+        })
 
     return comandos
 
@@ -3965,6 +4212,23 @@ def leido_routeros(leidos, guest=None, usuario_motor="", clave_publica="", crede
                 str(c.get("name")) for c in comunidades if _ros_si(c.get("read-access"))
             ],
         }
+        # El DETALLE de la comunidad del motor (permiso, comentario e identificador) sólo se
+        # adjunta cuando HACE FALTA: cuando existe una comunidad con el nombre del motor que NO
+        # es legible. Es el único caso en que hay que distinguir «es del motor, se repara» de
+        # «es de otro, no se toca»: sin estos campos, una `netlabs` con `read-access=no` pasaba
+        # por buena y el colector no podía leer el equipo (hallazgo P1, PR #13). Cuando la
+        # comunidad es legible o no existe, no hay nada que distinguir y el detalle sobra.
+        if COMUNIDAD_SNMP in areas["snmp"]["comunidades"] \
+                and COMUNIDAD_SNMP not in areas["snmp"]["lectura"]:
+            areas["snmp"]["comunidades_detalle"] = [
+                {
+                    "name": str(c.get("name") or ""),
+                    "read": _ros_si(c.get("read-access")),
+                    "comment": str(c.get("comment") or ""),
+                    "id": str(c.get(".id") or c.get("id") or ""),
+                }
+                for c in comunidades
+            ]
 
     # Cuatro hechos, los cuatro leídos del equipo: la dirección de la interfaz de fuera, si
     # tiene ruta por defecto (y por dónde), si está la regla de NAT del motor, y cómo tiene
@@ -4375,6 +4639,16 @@ def escrituras_routeros(operaciones, guest, declaracion, identidad, parametros, 
                      "read-access": "yes", "write-access": "no", "comment": MARCA_SNMP},
                     f"poner la comunidad de LECTURA '{operacion.get('nombre') or COMUNIDAD_SNMP}' "
                     "con la que el servidor de vigilancia le pregunta")
+
+        elif op == "set_snmp_community":
+            # REPARAR la comunidad del motor que quedó sin lectura: se la identifica por su
+            # `.id` (no por el nombre, que podría repetirse) y se le devuelve el permiso de
+            # lectura. Es del motor (lleva su marca), así que tocarla es correcto (regla 17).
+            llamada(area, "POST", "/snmp/community/set",
+                    {"numbers": str(operacion.get("id") or ""),
+                     "read-access": "yes", "write-access": "no", "comment": MARCA_SNMP},
+                    f"devolver el permiso de LECTURA a la comunidad del motor "
+                    f"'{operacion.get('nombre') or COMUNIDAD_SNMP}'")
 
         elif op == "enable_dns_resolver":
             servidores = [str(s) for s in (operacion.get("servidores") or []) if str(s)]

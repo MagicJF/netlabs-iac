@@ -2975,7 +2975,13 @@ red_de() {
         for (i=1; i<=4; i++) {
             if (b>=8) { v=o[i]; b-=8 }
             else if (b<=0) { v=0 }
-            else { m=256-2^(8-b); v=int(o[i]/m)*m; b=0 }
+        # El trozo de octeto que cae a medias se redondea A LA BAJA al múltiplo de 2^k, que es lo
+        # que hace una máscara: `int(o/2^k)*2^k`. Con `int(o/m)*m` el guion sólo acertaba cuando
+        # el trozo era una potencia de dos, y se equivocaba en /28, /30 y todo lo que no sea 8, 7,
+        # 6, 5, 4, 3, 2, 1, 0 bits -- `10.44.1.20/30` lo leía como `10.44.1.0/30` (el .20 SÍ está
+        # en su /30) y `172.16.5.9/12` como `172.0.0.0/12`. El vigilante peinaba otra red
+        # (hallazgo P1, PR #13: lo cazó el revisor y se reprodujo ejecutando la función).
+            else { k=2^(8-b); v=int(o[i]/k)*k; b=0 }
             out = out (i>1 ? "." : "") v
         }
         printf "%%s/%%d\n", out, $5+0

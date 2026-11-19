@@ -2634,6 +2634,23 @@ igual(
     "toca ni se cuenta",
 )
 
+# Y la red del guion, EJECUTADA de verdad. El revisor dijo que el guion «descarta el prefijo y
+# siempre peina un /24»: se reprodujo ejecutando su función y era peor -- acertaba sólo cuando el
+# trozo de octeto era una potencia de dos -- y aquí queda atada a la del motor, caso por caso.
+_GUION_NETXMS = motor._preparador_netxms()
+_i_red_de = _GUION_NETXMS.index("red_de() {")
+_red_de_guion = _GUION_NETXMS[_i_red_de:_GUION_NETXMS.index("\n}\n", _i_red_de) + 3]
+for _caso in ("10.44.1.20/16", "10.44.1.20/24", "10.44.1.130/25", "10.44.1.20/28",
+              "10.44.1.20/30", "10.44.1.7/32", "172.16.5.9/12"):
+    igual(
+        _subprocess.run(["sh", "-c", _red_de_guion + '\nred_de "$1"', "sh", _caso],
+                        capture_output=True, text=True).stdout.strip(),
+        motor.red_de_direccion(_caso),
+        f"el guion del invitado y el motor derivan la MISMA red de {_caso}: la del prefijo de "
+        "verdad, no un /24 supuesto (y no `int(o/m)*m`, que sólo acierta si el trozo es potencia "
+        "de dos)",
+    )
+
 # ---------------------------------------------------------------------------
 # Lo que cazó la TERCERA relectura (PR #13): tres cosas que no se ven leyendo la idea,
 # sólo mirando cómo viaja el dato.

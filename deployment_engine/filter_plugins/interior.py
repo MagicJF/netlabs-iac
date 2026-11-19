@@ -2568,12 +2568,15 @@ PLANTILLA_PREPARADOR_NETXMS = r'''#!/bin/sh
 # PROPÓSITO: dejar NetXMS en estado de arrancar: su base en PostgreSQL con su usuario, su
 #            esquema y su interfaz web desplegada en Tomcat. Lo escribe el motor (netlabs)
 #            desde el área `servicio`; no se edita a mano.
-# USO:       netlabs-servicio-netxms preparar|estado|sembrar|sembrado
+# USO:       netlabs-servicio-netxms preparar|estado|sembrar|sembrado|objetivos
 #            `preparar` es idempotente; `estado` imprime `si` cuando la base ya tiene el
 #            esquema de NetXMS Y el WAR de la web está desplegado (es lo que el motor lee
-#            para decidir si hay que preparar); `sembrar` comprueba que el servidor YA ha
-#            empezado a vigilar (el rango queda declarado en `preparar`) y deja su marca;
-#            `sembrado` imprime `si` si esa marca está.
+#            para decidir si hay que preparar); `sembrar` vuelve a declarar las redes que
+#            este invitado alcanza, comprueba que el servidor YA ha empezado a vigilar y
+#            deja su marca; `sembrado` imprime `si` si esa marca está Y los objetivos
+#            guardados siguen siendo los de las rutas de AHORA (si no, el motor vuelve a
+#            sembrar); `objetivos` imprime, sólo para leer, las redes que este invitado
+#            alcanza en la forma `red/máscara`.
 set -u
 
 WEBAPPS="%(webapps)s"
@@ -2661,10 +2664,79 @@ vigilados() {
     como_postgres "psql -tA -d netxms -c 'select count(*) from nodes'" 2>/dev/null | tr -d ' \r'
 }
 
+# Las redes que este invitado ALCANZA y que el servidor tiene que sondear: la suya (derivada
+# de su interfaz) y cada destino de sus rutas estáticas. Se imprime en la forma `red/máscara`,
+# que es la que entiende NetXMS. Un destino SIN `/` es un HOST -- `ip route show` lo imprime
+# así (`10.44.5.7 via 10.44.0.12`) -- y su máscara es `/32`: sin esto, `cut -d/ -f2` devolvía
+# la dirección entera y se escribía como máscara, que no es una máscara (hallazgo P2, PR #14).
+objetivos() {
+    base=$(ip -4 -o addr show eth0 2>/dev/null | awk '{print $4}' | head -1 | cut -d/ -f1 | cut -d. -f1-3)
+    [ -n "$base" ] || return 1
+    printf '%%s\n' "$base.0/24"
+    ip -4 route show 2>/dev/null | grep ' via ' | grep -vE '^(default|169\.254)' \
+        | grep -v ' proto dhcp ' | awk '{print $1}' \
+        | while read -r destino; do
+            case "$destino" in
+                */*) printf '%%s\n' "$destino" ;;
+                *) printf '%%s\n' "$destino/32" ;;
+            esac
+        done
+}
+
+# La máscara en la forma en que se COMPARA: un prefijo numérico. NetXMS guarda en `addr2` lo
+# que se le dio, y una máscara puede volver como "24" o como "255.255.255.0"; el cuarto tiempo
+# tiene que comparar el mismo HECHO, no la misma cadena -- si no, un /24 válido se leería como
+# distinto en cada pasada y el motor volvería a sembrar para siempre (regla 6).
+prefijo() {
+    case "$1" in
+        *.*) echo "$1" | awk -F. '{n=0; for(i=1;i<=4;i++){v=$i+0; while(v>0){n+=v%%2; v=int(v/2)}} print n}' ;;
+        *) echo "$1" ;;
+    esac
+}
+
+# Los objetivos que el servidor tiene GUARDADOS en su tabla `address_lists` (list_type=1), en
+# la misma forma `red/máscara`. Es la mitad «lo que hay» del cuarto tiempo: compararlo con
+# `objetivos` es lo que dice si el descubrimiento sigue a las rutas de verdad. Si la consulta
+# falla, sale vacío y la comparación dirá que no -- nunca se da por bueno lo que no se leyó.
+objetivos_guardados() {
+    como_postgres "psql -tA -d %(bd)s -c \"select addr1 || '|' || addr2 from address_lists where list_type = 1\"" 2>/dev/null \
+        | tr -d ' \r' | while IFS='|' read -r red mascara; do
+            [ -n "$red" ] && printf '%%s/%%s\n' "$red" "$(prefijo "$mascara")"
+        done | sort -u
+}
+
+# Escribe en la base los objetivos del descubrimiento activo: una fila por red. Se borra lo
+# que el motor no declara (regla 17) y se ponen las declaradas; repetirlo deja el mismo
+# estado. La usan `preparar` (la primera vez) y `sembrar` (cuando las rutas cambiaron y el
+# `sembrado` detectó que los objetivos guardados ya no son los de ahora).
+escribir_objetivos() {
+    redes=$(objetivos | sort -u)
+    [ -n "$redes" ] || return 1
+    como_postgres "psql -q -d %(bd)s -c \"delete from address_lists where list_type = 1\"" >/dev/null 2>&1 || return 1
+    for red in $redes; do
+        net=${red%%/*}
+        mascara=${red#*/}
+        como_postgres "psql -q -d %(bd)s -c \"insert into address_lists (list_type, community_id, zone_uin, proxy_id, addr_type, addr1, addr2, comments) values (1, 0, 0, 0, 0, '$net', '$mascara', 'netlabs: red a vigilar')\"" >/dev/null 2>&1 || return 1
+    done
+}
+
 estado() {
-    [ "$(esquema)" = "si" ] && [ -s "$WEBAPPS/nxmc.war" ] \
-        && [ "$(entra)" = "si" ] \
-        && echo si || echo no
+    # Lo que el motor lee para decidir si hay que PREPARAR. Base, web y acceso son la mitad;
+    # la otra es que los objetivos de descubrimiento sigan siendo los de las rutas de AHORA
+    # (cuarto tiempo). Con sólo la primera mitad, un `apply` que cambiara las rutas daba el
+    # área por buena y NetXMS seguía sondeando las redes viejas (hallazgo P1, PR #14). Si
+    # difieren se contesta `no` y el motor vuelve a preparar, que reescribe los objetivos.
+    if [ "$(esquema)" != "si" ] || [ ! -s "$WEBAPPS/nxmc.war" ] \
+            || [ "$(entra)" != "si" ]; then
+        echo no
+        return 0
+    fi
+    actual=$(objetivos 2>/dev/null | sort -u)
+    if [ -z "$actual" ] || [ "$actual" != "$(objetivos_guardados)" ]; then
+        echo no
+        return 0
+    fi
+    echo si
 }
 
 case "${1:-preparar}" in
@@ -2672,8 +2744,19 @@ estado)
     estado
     ;;
 sembrado)
-    # Lo que lee el motor para decidir si hay que sembrar (regla 6): la marca, y nada más.
-    if [ -f "$MARCA" ]; then echo si; else echo no; fi
+    # Lo que lee el motor para decidir si hay que sembrar (regla 6): la marca Y que los
+    # objetivos guardados sigan siendo los de las rutas de AHORA. Con la marca sola, un
+    # `apply` que cambiara las rutas dejaba a NetXMS sondeando las redes viejas para
+    # siempre: el `estado` no se enteraba (hallazgo P1, PR #14). El cuarto tiempo es esta
+    # comparación: si difieren, se contesta `no` y el motor vuelve a sembrar.
+    if [ ! -f "$MARCA" ]; then echo no; exit 0; fi
+    actual=$(objetivos 2>/dev/null | sort -u)
+    [ -n "$actual" ] || { echo no; exit 0; }
+    if [ "$actual" = "$(objetivos_guardados)" ]; then echo si; else echo no; fi
+    ;;
+objetivos)
+    # Sólo lectura: las redes que este invitado alcanza, en la forma `red/máscara`.
+    objetivos
     ;;
 sembrar)
     # Se pregunta por el API WEB (la puerta de la interfaz), nunca por la consola: `nxadm`
@@ -2689,16 +2772,17 @@ sembrar)
         exit 1
     fi
     # Las redes que el vigilante ALCANZA -- la suya (derivada de su interfaz) y las de sus rutas
-    # estáticas --: el `preparar` ya las dejó escritas como objetivos del descubrimiento activo.
-    # No es un valor de lab; el `preparar` las leyó del propio equipo.
-    base=$(ip -4 -o addr show eth0 2>/dev/null | awk '{print $4}' | head -1 | cut -d/ -f1 | cut -d. -f1-3)
-    if [ -z "$base" ]; then
-        echo "sin dirección en eth0: no se sabe a quién vigilar" >&2
+    # estáticas --: se vuelven a escribir aquí, no sólo en `preparar`. El `sembrado` manda a
+    # sembrar cuando las rutas cambiaron, y si esta rama sólo pusiera la marca, el servidor
+    # seguiría sondeando las redes viejas y la marca mentiría (hallazgo P1, PR #14). No es un
+    # valor de lab: se lee del propio equipo, igual que en `preparar`.
+    escribir_objetivos || {
+        echo "no se pudo volver a declarar las redes a vigilar en la base del servidor" >&2
         exit 1
-    fi
-    # El descubrimiento NO se dispara desde aquí: lo hace el SERVIDOR solo -- el `preparar` le
-    # deja declaradas las redes a vigilar (en la tabla `address_lists`, que es de donde las toma)
-    # y el descubrimiento activo encendido --, y aquí sólo se ESPERA a que sus hallazgos estén en
+    }
+    # El descubrimiento NO se dispara desde aquí: lo hace el SERVIDOR solo -- los objetivos
+    # quedan declarados en la tabla `address_lists`, que es de donde los toma, y el
+    # descubrimiento activo encendido --, y aquí sólo se ESPERA a que sus hallazgos estén en
     # la base. La consola (`nxadm -c "scan"`) era lo que rompía la clave del administrador
     # (medido), así que se fue de aquí.
     i=0
@@ -2811,23 +2895,13 @@ preparar)
     # El RANGO de descubrimiento activo NO va en la variable
     # `NetworkDiscovery.ActiveDiscovery.AddressRange`: medido sobre la fuente de NetXMS 7.0, esa
     # variable NO se lee -- los objetivos del descubrimiento activo salen de la tabla
-    # `address_lists` (list_type=1). Por eso el rango se ESCRIBE ahí. Son VARIAS redes, y varias
-    # caben porque cada una es una FILA: la suya (derivada de la interfaz) más cada destino que el
-    # equipo tiene enrutado (`proto static`, lo que puso el área `routes`). Se quitan las que el
-    # motor no declara (regla 17) y se ponen las declaradas: repetirlo deja el mismo estado.
-    redes="$base.0/24 $(ip -4 route show 2>/dev/null | grep ' via ' | grep -vE '^(default|169\.254)' | grep -v ' proto dhcp ' | awk '{print $1}' | sort -u)"
-    como_postgres "psql -q -d %(bd)s -c \"delete from address_lists where list_type = 1\"" >/dev/null 2>&1 || {
+    # `address_lists` (list_type=1). Por eso el rango se ESCRIBE ahí. El CÓMO vive en UN solo
+    # sitio (`escribir_objetivos`), que es también el que usa `sembrar`: si hubiera dos
+    # escritores, uno podría corregir la máscara y el otro no (hallazgo P2, PR #14).
+    escribir_objetivos || {
         echo "no se pudo fijar las redes a vigilar en la base del servidor" >&2
         exit 1
     }
-    for red in $redes; do
-        net=$(echo "$red" | cut -d/ -f1)
-        mascara=$(echo "$red" | cut -d/ -f2)
-        como_postgres "psql -q -d %(bd)s -c \"insert into address_lists (list_type, community_id, zone_uin, proxy_id, addr_type, addr1, addr2, comments) values (1, 0, 0, 0, 0, '$net', '$mascara', 'netlabs: red a vigilar')\"" >/dev/null 2>&1 || {
-            echo "no se pudo declarar la red '$red' a vigilar en el servidor" >&2
-            exit 1
-        }
-    done
     nueva_web=no
     mkdir -p "$WEBAPPS"
     if [ ! -s "$WEBAPPS/nxmc.war" ]; then

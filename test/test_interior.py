@@ -1948,7 +1948,7 @@ comprobar(
     "las declaradas (regla 17)",
 )
 comprobar(
-    "$base.0/24 $(ip -4 route show" in _PREPARADOR_NETXMS
+    "objetivos()" in _PREPARADOR_NETXMS
     and "grep ' via '" in _PREPARADOR_NETXMS
     and "grep -v ' proto dhcp '" in _PREPARADOR_NETXMS
     and "awk '{print $1}'" in _PREPARADOR_NETXMS,
@@ -1961,6 +1961,141 @@ comprobar(
     "y el intervalo va en SEGUNDOS (3600 = una hora): el motor escribía «1» creyendo que eran "
     "horas, y en NetXMS 7.0 eran 1 SEGUNDO -- una ronda por segundo sobre redes ya no vacías",
 )
+
+# --- Los objetivos del descubrimiento: se EJECUTAN, no se leen como texto ----------------
+# Los dos hallazgos del PR #14 no se arreglan con un comentario: se prueban con los VALORES
+# que el guion de verdad produce. El banco de aquí abajo escribe el guion que el motor deja
+# en el invitado y lo ejecuta con `ip`/`psql` falsos que devuelven las salidas REALES de los
+# comandos. Así se comprueba la red Y la máscara que acaban en `address_lists`.
+import subprocess as _subprocess
+import tempfile as _tempfile
+
+
+def _banco_preparador(rutas):
+    """Un banco con `ip`/`psql`/`su` falsos; devuelve (guion, banco, marca)."""
+    banco = _tempfile.mkdtemp(prefix="netlabs-preparador-")
+    binario = os.path.join(banco, "bin")
+    os.makedirs(binario)
+    webapps = os.path.join(banco, "webapps")
+    os.makedirs(webapps)
+    with open(os.path.join(webapps, "nxmc.war"), "w", encoding="utf-8") as f:
+        f.write("war")
+    with open(os.path.join(banco, "rutas"), "w", encoding="utf-8") as f:
+        f.write("\n".join(rutas) + "\n")
+    with open(os.path.join(banco, "guardados"), "w", encoding="utf-8") as f:
+        f.write("")
+
+    def _falso(nombre, cuerpo):
+        ruta = os.path.join(binario, nombre)
+        with open(ruta, "w", encoding="utf-8") as f:
+            f.write("#!/bin/sh\n" + cuerpo + "\n")
+        os.chmod(ruta, 0o755)
+
+    _falso("ip", r'''case "$*" in
+  *"addr show"*) echo "2: eth0    inet 10.44.0.10/24 brd 10.44.0.255 scope global eth0" ;;
+  *"route show"*) cat "$BANCO/rutas" ;;
+esac''')
+    _falso("su", r'''shift 2
+exec sh -c "$*"''')
+    _falso("psql", r'''printf '%s\n' "$*" >> "$BANCO/psql.log"
+case "$*" in
+  *"count(*) from nodes"*) echo "${NODOS:-3}" ;;
+  *"information_schema.tables"*) echo 1 ;;
+  *"delete from address_lists"*) : > "$BANCO/guardados" ;;
+  *"insert into address_lists"*) echo "$*" | sed -n "s/.*values (1, 0, 0, 0, 0, '\([^']*\)', '\([^']*\)',.*/\1|\2/p" >> "$BANCO/guardados" ;;
+  *"from address_lists"*) cat "$BANCO/guardados" ;;
+  *) exit 0 ;;
+esac''')
+    _falso("curl", "echo 201")
+    _falso("systemctl", "exit 0")
+    _falso("sleep", "exit 0")
+    _falso("nxdbmgr", "exit 0")
+    marca = os.path.join(banco, "sembrado")
+    guion = _PREPARADOR_NETXMS.replace(
+        'MARCA="%s"' % motor.RUTA_MARCA_SEMBRADO, 'MARCA="%s"' % marca
+    ).replace(
+        'WEBAPPS="%s"' % motor.NETXMS_WEBAPPS, 'WEBAPPS="%s"' % webapps
+    )
+    ruta_guion = os.path.join(banco, "netlabs-servicio-netxms")
+    with open(ruta_guion, "w", encoding="utf-8") as f:
+        f.write(guion)
+    return ruta_guion, banco, marca
+
+
+def _corre_preparador(guion, banco, verbo):
+    entorno = dict(os.environ)
+    entorno["PATH"] = os.path.join(banco, "bin") + ":" + entorno.get("PATH", "")
+    entorno["BANCO"] = banco
+    proceso = _subprocess.run(
+        ["sh", guion, verbo], capture_output=True, text=True, env=entorno, timeout=60
+    )
+    return proceso.stdout.strip(), proceso.returncode
+
+
+# P2: una ruta a un HOST sale de `ip route show` SIN `/32`; el destino sin barra es /32 y
+# `addr2` (la máscara) tiene que ser "32", nunca la dirección entera. Se miran los VALORES
+# que el guion escribe, no que el texto contenga cierta cadena.
+_guion_p2, _banco_p2, _ = _banco_preparador([
+    "10.44.0.0/24 dev eth0 proto kernel scope link src 10.44.0.10",
+    "10.44.1.0/24 via 10.44.0.12 dev eth0 proto static",
+    "10.44.5.7 via 10.44.0.12 dev eth0 proto static",
+])
+_salida_p2, _rc_p2 = _corre_preparador(_guion_p2, _banco_p2, "objetivos")
+igual(
+    sorted(_salida_p2.split()),
+    ["10.44.0.0/24", "10.44.1.0/24", "10.44.5.7/32"],
+    "un destino SIN barra se declara /32: la red y la máscara son valores distintos y válidos",
+)
+igual(_rc_p2, 0, "y el verbo de lectura termina bien con una ruta a un host")
+_corre_preparador(_guion_p2, _banco_p2, "sembrar")
+with open(os.path.join(_banco_p2, "psql.log"), encoding="utf-8") as _f:
+    _log_p2 = _f.read()
+comprobar(
+    "'10.44.5.7', '32'" in _log_p2 and "'10.44.0.0', '24'" in _log_p2,
+    "y lo que se INSERTA en `address_lists` es addr1='10.44.5.7', addr2='32' (no la dirección "
+    "entera como máscara): NetXMS espera una máscara en addr2",
+)
+
+# P1: tras un despliegue correcto, si el `apply` cambia las rutas, la LECTURA tiene que
+# notarlo y el motor tiene que volver a sembrar. Se prueba el guion de verdad: marca puesta,
+# objetivos guardados viejos, rutas nuevas.
+_guion_p1, _banco_p1, _ = _banco_preparador([
+    "10.44.1.0/24 via 10.44.0.12 dev eth0 proto static",
+])
+_corre_preparador(_guion_p1, _banco_p1, "sembrar")
+igual(
+    _corre_preparador(_guion_p1, _banco_p1, "sembrado")[0], "si",
+    "tras un despliegue correcto, `sembrado` dice `si`: los objetivos guardados son los de ahora",
+)
+igual(
+    _corre_preparador(_guion_p1, _banco_p1, "estado")[0], "si",
+    "y `estado` también: base, web, acceso y objetivos coinciden",
+)
+with open(os.path.join(_banco_p1, "rutas"), "w", encoding="utf-8") as _f:
+    _f.write("10.44.2.0/24 via 10.44.0.13 dev eth0 proto static\n")
+igual(
+    _corre_preparador(_guion_p1, _banco_p1, "sembrado")[0], "no",
+    "si las rutas cambian, `sembrado` deja de valer: la marca sola mentiría",
+)
+igual(
+    _corre_preparador(_guion_p1, _banco_p1, "estado")[0], "no",
+    "y el paso de LECTURA (`estado`) lo nota: pide volver a preparar en vez de dar el área por buena",
+)
+igual(
+    [o["op"] for o in motor._monitorizacion_canonica({}, {"sembrado": False}, "netxms")],
+    ["sembrar_monitorizacion"],
+    "la decisión pura: con `sembrado` en `no`, el motor pide sembrar (no hay comentario que lo tape)",
+)
+_corre_preparador(_guion_p1, _banco_p1, "sembrar")
+igual(
+    _corre_preparador(_guion_p1, _banco_p1, "sembrado")[0], "si",
+    "y tras sembrar con las rutas nuevas, vuelve a converger: los objetivos guardados son los de ahora",
+)
+igual(
+    _corre_preparador(_guion_p1, _banco_p1, "estado")[0], "si",
+    "y la segunda lectura ya no pide nada: dos pasadas seguidas dejan el mismo estado (regla 6)",
+)
+
 
 # --- El área `latido`: aparecer sin que nadie te pregunte ------------------------------
 # Lo que promete el área es UNA cosa: que el equipo se VEA. No configura nada suyo ni abre

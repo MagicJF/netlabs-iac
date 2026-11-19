@@ -2112,6 +2112,7 @@ def _banco_preparador(rutas, direccion="10.44.0.10/24", codigo_curl="201", codig
 case "$*" in
   *"count(*) from nodes"*) [ -f "$BANCO/falla_nodos" ] && exit 1; cat "$BANCO/nodos" 2>/dev/null || echo "${NODOS:-3}" ;;
   *"information_schema.tables"*) [ -f "$BANCO/falla_esquema" ] && exit 1; echo 1 ;;
+  *"flags, grace_logins"*) cat "$BANCO/puerta" 2>/dev/null || echo "0|5" ;;
   *"delete from address_lists"*) : > "$BANCO/guardados" ;;
   *"insert into address_lists"*) echo "$*" | sed -n "s/.*values (1, 0, 0, 0, 0, '\([^']*\)', '\([^']*\)',.*/\1|\2/p" >> "$BANCO/guardados" ;;
   *"from address_lists"*) cat "$BANCO/guardados" ;;
@@ -2185,6 +2186,18 @@ igual(
     _corre_preparador(_guion_p1, _banco_p1, "estado")[0], "si",
     "y `estado` también: base, web, acceso y objetivos coinciden",
 )
+
+# Y la PUERTA: una base heredada con el flag de cambiar la clave (`flags=8`) y las gracias
+# agotadas deja entrar MIENTRAS queden gracias, así que sólo la lectura de la puerta lo ve.
+# Con el fichero `puerta` del banco se finge ese estado sin rehacer el guion.
+with open(os.path.join(_banco_p1, "puerta"), "w", encoding="utf-8") as _f:
+    _f.write("8|0\n")
+igual(
+    _corre_preparador(_guion_p1, _banco_p1, "estado")[0], "no",
+    "y `estado` dice `no` con la PUERTA cerrada aunque se entre: el flag de cambiar la clave o "
+    "las gracias agotadas se rompen en la pasada siguiente, así que la lectura los mira",
+)
+os.unlink(os.path.join(_banco_p1, "puerta"))
 with open(os.path.join(_banco_p1, "rutas"), "w", encoding="utf-8") as _f:
     _f.write("10.44.2.0/24 via 10.44.0.13 dev eth0 proto static\n")
 igual(

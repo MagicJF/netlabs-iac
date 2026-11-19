@@ -61,8 +61,11 @@
 Desde la máquina que tenga la clave de depuración del nodo:
 
 ```
-# 1) el túnel: el 8000 del vigilante, en tu 8000 local
-ssh -N -L 8000:10.44.0.20:8000 root@<nodo-de-proxmox>
+# 1) el túnel: el 8000 del vigilante, en tu 8000 local. El `-L` se resuelve en el
+#    SALTO FINAL, y el API escucha SÓLO en el loopback de ESE invitado: apuntar a su
+#    dirección de gestión (`10.44.0.20:8000`) da conexión rechazada -- medido --. Por
+#    eso el último salto termina DENTRO del vigilante y desde ahí se pide 127.0.0.1.
+ssh -N -L 8000:127.0.0.1:8000 -J root@<nodo-de-proxmox> root@<vigilante>
 
 # 2) el token (el login es el núcleo del API; las credenciales son las del
 #    administrador del servicio, las mismas con las que el motor entra)

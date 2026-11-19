@@ -3179,6 +3179,22 @@ escribir_objetivos() {
     done
 }
 
+# La PUERTA del administrador, en SÓLO LECTURA: `abierta` si no tiene el flag de cambiar la
+# clave al entrar y le quedan gracias. Se lee junto al resto del estado porque un `entra` con
+# la clave buena dice `si` mientras queden gracias: una base heredada con el flag puesto se
+# daba por CONVERGIDA y se rompía en la pasada siguiente -- preparar no llegaba a abrirla
+# (hallazgo P1 de la relectura, PR #18).
+puerta() {
+    valores=$(como_postgres "psql -tA -d %(bd)s -c \"select flags, grace_logins from users where name = '$ADMIN'\"" 2>/dev/null)
+    case "$valores" in
+        ''|*[!0-9|]*) echo cerrada; return 0 ;;
+    esac
+    flags=${valores%%|*}
+    gracias=${valores##*|}
+    if [ $((flags & 8)) -ne 0 ] || [ "$gracias" -eq 0 ]; then echo cerrada; return 0; fi
+    echo abierta
+}
+
 estado() {
     # Lo que el motor lee para decidir si hay que PREPARAR. Base, web y acceso son la mitad;
     # la otra -- los objetivos del descubrimiento -- SÓLO cuenta si el motor lo ha configurado
@@ -3187,7 +3203,8 @@ estado() {
     # el servicio «sin converger» para siempre (hallazgo P1, PR #13). Con objetivos guardados,
     # un `apply` que cambiara las rutas se nota aquí y el motor vuelve a preparar (PR #14).
     if [ "$(esquema)" != "si" ] || [ ! -s "$WEBAPPS/nxmc.war" ] \
-            || [ "$(entra)" != "si" ] || [ "$(api_web)" != "si" ]; then
+            || [ "$(entra)" != "si" ] || [ "$(api_web)" != "si" ] \
+            || [ "$(puerta)" != "abierta" ]; then
         echo no
         return 0
     fi

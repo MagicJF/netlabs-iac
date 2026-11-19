@@ -267,16 +267,22 @@ abre el nodo no se versiona aquí.
 
 **Qué lee, y qué no.** NetXMS no inventa la topología: la saca de las **tablas de rutas y de
 ARP** que cada equipo le da por SNMP (descubrimiento pasivo) y de las direcciones que
-**contestan** a su sonda (activo). El vigilante vive en `10.44.0.0/24` y **no tiene rutas hacia
-las zonas** (`10.44.1.0/24`, `10.44.10.0/24`…): no las necesita para preguntar por SNMP, que va
-a la dirección de gestión de cada equipo.
+**contestan** a su sonda (descubrimiento activo). Para lo segundo el vigilante necesita DOS
+cosas, y el lab se las da: **camino** —las `routes` a las tres zonas (`10.44.1/2/3.0/24`) por
+la pata de gestión de cada `fw`, que el motor lee para saber hasta dónde llega— y **permiso**
+—un `accept` de **sólo ICMP** desde la red de gestión hacia cada zona, antes del `drop` del
+cortafuegos; sin él la sonda se cae en el `forward`—. Con eso, los invitados de las zonas
+**aparecen como nodo** en la topología. Sin agente SNMP dentro de ellos aparecen con su
+dirección y poco más (una presencia, no información).
 
 **La vigilancia es una marca, no un guion.** El lab declara `snmp: {}` en un equipo («que se le
 pueda preguntar») y `monitorizacion: {}` en el vigilante («este servidor mira»). El **cómo** es
 del motor: enciende el agente, pone **una** comunidad de lectura (la constante del motor, la
-misma con la que el vigilante pregunta), y le **declara al servidor la red que tiene que rondar**
-— la del propio invitado, derivada de su interfaz, nunca un valor declarado — **con el
-descubrimiento activo encendido**: la ronda la hace el servidor **solo**, cada hora y al arrancar,
+misma con la que el vigilante pregunta), y le **declara al servidor las redes que ese invitado
+ALCANZA** —la suya, derivada de su interfaz, y las de sus rutas— como objetivos del
+descubrimiento activo, **en la tabla donde NetXMS de verdad las lee** (el rango del propio
+invitado sale de él, nunca de un valor declarado; ADR 0032) **con el descubrimiento activo
+encendido**: la ronda la hace el servidor **solo**, cada hora y al arrancar,
 y la topología va apareciendo en la web según encuentra los equipos. Y no **toca** la
 comunidad de fábrica (`public`): el área manda dentro de lo que declara, y la segunda pasada no
 produce ninguna operación (regla 6). En el `rt-nucleo`, que no tiene tabla de filtrado, el

@@ -180,9 +180,11 @@ configurar dentro** de cada equipo, y el motor lo converge como una fase más de
   En un Linux, además, **`servicio:`** — el NOMBRE de un servicio de un **vocabulario
   cerrado** (hoy `caddy` y `netxms`) que el motor instala, configura y **comprueba sirviéndolo**
   (ADR 0027 y 0028): el lab declara el nombre, nunca el paquete, su base ni su configuración —
-  y **`monitorizacion:`**, que hace que ese servicio **vigile**: el motor le declara la red por la
-  que el invitado ve a los equipos (derivada de su interfaz) y el descubrimiento activo, y el
-  servidor **ronda solo**; el sembrado espera a que sus hallazgos estén en la base. La
+  y **`monitorizacion:`**, que hace que ese servicio **vigile**: el motor le declara las redes
+  que el invitado ALCANZA —la suya, derivada de su interfaz, y las de sus **rutas**
+  declaradas— como objetivos del descubrimiento activo, y el servidor **ronda solo**; el
+  sembrado espera a que sus hallazgos estén en la base. Lo que sondea sale de una RUTA
+  declarada (ADR 0032): para que el vigilante llegue a una zona, el lab le da el camino. La
   comprobación de que el servicio SIRVE se hace **autenticando por el API web** (la puerta de la
   interfaz), nunca por la consola del servidor.
   Sólo vale junto a un servicio que sepa vigilar (hoy `netxms`; ADR 0029).

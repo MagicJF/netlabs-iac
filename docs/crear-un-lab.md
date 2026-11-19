@@ -139,12 +139,17 @@ Un invitado, por defecto, es un aparato vacío que el motor enciende. `config:` 
 además **hay que entrar en él y configurarlo**, con el vocabulario **cerrado** de su driver:
 
 - **RouterOS** (`config.routeros`): `identity`, `addresses`, `ip_services`, `dhcp_client`,
-  `routes`, `dhcp_server`, `uplink` y `firewall` (la tabla de filtrado entera, en orden:
-  ADR 0019). Se configura **por su REST**, a través del túnel (ADR 0010).
-- **Linux** (`config.linux`): `tunnel`, `address`, `addresses`, `ip_forward`, `dhcp_server`.
-  Se entra **por SSH**, y sólo desde `tasks/interior_ssh.yml`.
+  `routes`, `dhcp_server`, `uplink`, `snmp` y `firewall` (la tabla de filtrado entera, en
+  orden: ADR 0019). Se configura **por su REST**, a través del túnel (ADR 0010).
+- **Linux** (`config.linux`): `tunnel`, `address`, `addresses`, `routes`, `latido`,
+  `ip_forward`, `dhcp_server`, `servicio` y `monitorizacion`. Se entra **por SSH**, y sólo
+  desde `tasks/interior_ssh.yml`. `routes` es **el mismo vocabulario que un RouterOS**
+  (`dst_address` + `gateway`) y es el CAMINO: con él un invitado alcanza redes que no son la
+  suya (p. ej. el vigilante, las zonas detrás de un `fw`). Y es también lo que el motor **LEE**
+  para saber hasta dónde llega: el rango de descubrimiento de `monitorizacion` se **deriva** de
+  las rutas declaradas, no se escribe (ADR 0032).
 - **Pendiente, y se nota que lo está**: `bridges` (RouterOS, una máquina que CONMUTE);
-  `gateway`, `routes`, `dns` y `claves` (Linux). **No están implementadas y el validador las
+  `gateway`, `dns` y `claves` (Linux). **No están implementadas y el validador las
   rechaza.**
 
 ### `uplink`: que el lab salga a internet

@@ -2094,6 +2094,53 @@ LECTURAS_LINUX = {
 SEPARADOR = "---NETLABS---"
 
 
+def _red_propia(direccion):
+    """La red de la dirección de gestión, con la MISMA regla que el guion del invitado: los
+    tres primeros octetos y /24. Se mantiene a propósito, para que la lista declarada y la que
+    el equipo deriva comparen el mismo hecho."""
+    partes = str(direccion or "").split("/")[0].split(".")
+    if len(partes) != 4:
+        return ""
+    return ".".join(partes[:3]) + ".0/24"
+
+
+def objetivos_declarados(declaradas):
+    """Las redes que el invitado alcanza SEGÚN SU DECLARACIÓN: la de su dirección de gestión y
+    los destinos de sus rutas. Es lo que el motor le pasa a `estado`/`sembrado` para que la
+    lectura compare contra lo DECLARADO -- no contra lo que aún hay en el equipo --, y así un
+    `apply` que cambia las rutas pide reescribir los objetivos en la MISMA pasada (hallazgo P1,
+    PR #14).
+
+    Vacío cuando no se puede derivar la declaración: con `address: dhcp` (no se sabe la red de
+    gestión) y también cuando el lab NO declara el área `routes`. En ese segundo caso la tabla
+    del equipo se deja intacta (regla 17), así que `preparar` guarda la red propia Y las rutas
+    que el equipo ya tenía: la expectativa tiene que ser esa misma --la viva--, y devolver vacío
+    hace que el guion compare contra lo que de verdad va a guardar. Con la red propia sola, la
+    comparación no cuadraba NUNCA y el motor volvía a preparar y a sembrar en cada pasada
+    (hallazgo P1 de la relectura, PR #14)."""
+    # Clave AUSENTE = el área no se gestiona: la tabla del equipo se deja intacta, la expectativa
+    # es la viva y la decide el guion (por eso, vacío).
+    # Clave PRESENTE pero VACÍA = el área SÍ se gestiona y no declara ninguna ruta: `preparar`
+    # quitará las que haya y guardará sólo la red propia, así que ésa es la expectativa.
+    # Confundirlas -- mirar el VALOR en vez de la CLAVE -- deja los objetivos VIEJOS en la lista
+    # cuando un lab se queda sin rutas, y el área acaba la pasada con un pendiente (hallazgo P1
+    # de la segunda relectura, PR #14).
+    if "routes" not in declaradas:
+        return []
+    redes = set()
+    direcciones = declaradas.get("address") or []
+    if isinstance(direcciones, list) and direcciones and isinstance(direcciones[0], dict):
+        red = _red_propia(direcciones[0].get("address"))
+        if red:
+            redes.add(red)
+    for ruta in declaradas.get("routes") or []:
+        destino = str((ruta or {}).get("dst_address") or "").strip()
+        if not destino:
+            continue
+        redes.add(destino if "/" in destino else destino + "/32")
+    return sorted(redes)
+
+
 def lecturas_linux(guest):
     """Las lecturas que hay que hacer dentro de un Linux, en orden, por área declarada.
 
@@ -2101,6 +2148,7 @@ def lecturas_linux(guest):
     no opina (regla 17), así que tampoco pregunta.
     """
     declaradas = areas_de(guest)
+    objetivos = objetivos_declarados(declaradas)
     lecturas = []
     for area in areas_a_leer(guest):
         if area == "servicio":
@@ -2108,7 +2156,7 @@ def lecturas_linux(guest):
             lecturas.append({
                 "area": area,
                 "accion": "leer",
-                "comando": lectura_servicio(nombre),
+                "comando": lectura_servicio(nombre, objetivos),
                 "descripcion": (f"si el servicio '{nombre}' está instalado, su unidad viva, "
                                 "sus ficheros puestos y sirviendo lo que promete"),
             })
@@ -2116,10 +2164,13 @@ def lecturas_linux(guest):
             nombre_servicio = str(declaradas.get("servicio") or "")
             vigilancia = (SERVICIOS_LINUX_OPCIONES.get(nombre_servicio) or {}).get("monitorizacion")
             if vigilancia:
+                comando = vigilancia["comando"]
+                if objetivos and vigilancia.get("comando_objetivos"):
+                    comando = vigilancia["comando_objetivos"].format(objetivos=" ".join(objetivos))
                 lecturas.append({
                     "area": area,
                     "accion": "leer",
-                    "comando": vigilancia["comando"],
+                    "comando": comando,
                     "descripcion": (f"si el servidor de vigilancia '{nombre_servicio}' ya sabe a "
                                     "quién tiene que vigilar"),
                 })
@@ -2133,7 +2184,7 @@ def lecturas_linux(guest):
     return lecturas
 
 
-def lectura_servicio(nombre):
+def lectura_servicio(nombre, objetivos=()):
     """La lectura de un Linux cuyo área `servicio` declara `nombre` (un solo viaje).
 
     SIETE bloques separados por la marca de siempre:
@@ -2143,6 +2194,10 @@ def lectura_servicio(nombre):
       4)..n) el CONTENIDO de cada fichero que el motor gobierna, EN EL ORDEN de la tabla,
       n+1) si de verdad SIRVE (el comando del servicio),
       n+2) la comprobación ADICIONAL (o `na` si no la tiene).
+
+    `objetivos` son las redes DECLARADAS que se le pasan a la comprobación adicional como
+    segundo argumento (vacío si no se pueden derivar): es lo que la hace comparar contra la
+    declaración y no contra el equipo, para converger en la misma pasada.
 
     Los dos últimos van SIEMPRE, para que el analizador no necesite saber de qué servicio se
     trata. Un nombre fuera del vocabulario no tiene lectura: el validador lo rechaza antes.
@@ -2157,7 +2212,10 @@ def lectura_servicio(nombre):
         f"systemctl is-enabled {opciones['unidad']} 2>/dev/null || echo disabled",
     ]
     partes += [f"cat {ruta} 2>/dev/null" for ruta in opciones["ficheros"]]
-    partes += [opciones["sirve"], opciones["extra"]]
+    extra = opciones["extra"]
+    if objetivos and opciones.get("extra_objetivos"):
+        extra = opciones["extra_objetivos"].format(objetivos=" ".join(objetivos))
+    partes += [opciones["sirve"], extra]
     return ("; echo " + SEPARADOR + "; ").join(partes)
 
 
@@ -2456,15 +2514,20 @@ SERVICIOS_LINUX_OPCIONES = {
         "sirve": ("curl -fsSL -m 10 --retry 12 --retry-delay 5 --retry-connrefused "
                   "http://127.0.0.1:8080/nxmc/ 2>/dev/null || echo NO-SIRVE"),
         "extra": f"sh {RUTA_PREPARADOR_NETXMS} estado 2>/dev/null || echo no",
+        # La misma comprobación, con la lista DECLARADA de objetivos como segundo argumento:
+        # es la que usa la lectura normal para decidir en la misma pasada (ver
+        # `objetivos_declarados`). Sin argumentos (a mano), el guion deriva las rutas de verdad.
+        "extra_objetivos": f"sh {RUTA_PREPARADOR_NETXMS} estado {{objetivos}} 2>/dev/null || echo no",
         "extra_esperado": "si",
         "preparar": (f"sh {RUTA_PREPARADOR_NETXMS} preparar",),
-        # La VIGILANCIA (área `monitorizacion`): `sembrar` es lo que le dice al servidor
-        # quién hay que vigilar, de UNA vez, recorriendo la red por la que el invitado ve a
-        # los equipos (él mismo la deriva de su interfaz: no es un valor de lab). Deja una
-        # marca, y esa marca es lo que hace la operación idempotente (regla 6): la segunda
-        # pasada lee `si` y no pide nada.
+        # La VIGILANCIA (área `monitorizacion`): `sembrar` marca que el servidor ya vigila,
+        # de UNA vez. El rango lo dejó escrito `preparar` -- las redes que este invitado
+        # alcanza, derivadas de su interfaz y de sus rutas, que él mismo lee: no son un valor
+        # de lab. Deja una marca, y esa marca es lo que hace la operación idempotente (regla
+        # 6): la segunda pasada lee `si` y no pide nada.
         "monitorizacion": {
             "comando": f"sh {RUTA_PREPARADOR_NETXMS} sembrado 2>/dev/null || echo no",
+            "comando_objetivos": f"sh {RUTA_PREPARADOR_NETXMS} sembrado {{objetivos}} 2>/dev/null || echo no",
             "esperado": "si",
         },
         "sembrar": (f"sh {RUTA_PREPARADOR_NETXMS} sembrar",),
@@ -2568,13 +2631,29 @@ PLANTILLA_PREPARADOR_NETXMS = r'''#!/bin/sh
 # PROPÓSITO: dejar NetXMS en estado de arrancar: su base en PostgreSQL con su usuario, su
 #            esquema y su interfaz web desplegada en Tomcat. Lo escribe el motor (netlabs)
 #            desde el área `servicio`; no se edita a mano.
-# USO:       netlabs-servicio-netxms preparar|estado|sembrar|sembrado
+# USO:       netlabs-servicio-netxms preparar|estado|sembrar|sembrado|objetivos
 #            `preparar` es idempotente; `estado` imprime `si` cuando la base ya tiene el
 #            esquema de NetXMS Y el WAR de la web está desplegado (es lo que el motor lee
-#            para decidir si hay que preparar); `sembrar` le dice al servidor a QUIÉN tiene
-#            que vigilar (ronda la red del propio invitado por SNMP) y deja su marca;
-#            `sembrado` imprime `si` si esa marca está.
+#            para decidir si hay que preparar); `sembrar` vuelve a declarar las redes que
+#            este invitado alcanza, comprueba que el servidor YA ha empezado a vigilar y
+#            deja su marca; `sembrado` imprime `si` si esa marca está Y los objetivos
+#            guardados siguen siendo los de las rutas de AHORA (si no, el motor vuelve a
+#            sembrar); `objetivos` imprime, sólo para leer, las redes que este invitado
+#            alcanza en la forma `red/máscara`. El motor puede pasar como SEGUNDO argumento la
+#            lista DECLARADA (lo que el lab dice que alcanza): `estado`/`sembrado` la prefieren
+#            para decidir en la MISMA pasada, aunque las rutas aún no se hayan escrito.
 set -u
+
+# La lista DECLARADA de objetivos, si el motor la pasó (segundo argumento). Es lo que permite
+# converger en UNA pasada: la lectura de `estado`/`sembrado` corre ANTES de que se escriban
+# las rutas, así que si comparase contra las rutas de verdad (las viejas) diría `si` y el
+# motor no pediría reescribir los objetivos hasta la pasada siguiente (hallazgo P1, PR #14).
+# El VERBO es el primer argumento; TODO lo que venga después es la lista DECLARADA de objetivos
+# (el motor la pasa como argumentos separados, no entrecomillada). Se recoge entera -- no sólo el
+# primero -- porque de eso depende que la comparación vea todas las redes y no una sola.
+VERBO="${1:-preparar}"
+[ $# -gt 0 ] && shift
+OBJETIVOS_ESPERADOS="$*"
 
 WEBAPPS="%(webapps)s"
 WAR="%(war)s"
@@ -2661,19 +2740,112 @@ vigilados() {
     como_postgres "psql -tA -d netxms -c 'select count(*) from nodes'" 2>/dev/null | tr -d ' \r'
 }
 
-estado() {
-    [ "$(esquema)" = "si" ] && [ -s "$WEBAPPS/nxmc.war" ] \
-        && [ "$(entra)" = "si" ] \
-        && echo si || echo no
+# Las redes que este invitado ALCANZA y que el servidor tiene que sondear: la suya (derivada
+# de su interfaz) y cada destino de sus rutas estáticas. Se imprime en la forma `red/máscara`,
+# que es la que entiende NetXMS. Un destino SIN `/` es un HOST -- `ip route show` lo imprime
+# así (`10.44.5.7 via 10.44.0.12`) -- y su máscara es `/32`: sin esto, `cut -d/ -f2` devolvía
+# la dirección entera y se escribía como máscara, que no es una máscara (hallazgo P2, PR #14).
+objetivos() {
+    base=$(ip -4 -o addr show eth0 2>/dev/null | awk '{print $4}' | head -1 | cut -d/ -f1 | cut -d. -f1-3)
+    [ -n "$base" ] || return 1
+    printf '%%s\n' "$base.0/24"
+    ip -4 route show 2>/dev/null | grep ' via ' | grep -vE '^(default|169\.254)' \
+        | grep -v ' proto dhcp ' | awk '{print $1}' \
+        | while read -r destino; do
+            case "$destino" in
+                */*) printf '%%s\n' "$destino" ;;
+                *) printf '%%s\n' "$destino/32" ;;
+            esac
+        done
 }
 
-case "${1:-preparar}" in
+# Las redes a COMPARAR: si el motor pasó la lista DECLARADA (lo que el lab dice que el invitado
+# alcanza), se usa ESA; si no, se derivan de las rutas de verdad del invitado. La declarada es
+# la que hace converger en UNA pasada: la lectura corre ANTES de escribir las rutas, así que la
+# comparación contra lo que hay en el equipo vería las viejas y diría `si`; contra la
+# declaración ve el cambio en el mismo `apply`.
+objetivos_comparados() {
+    if [ -n "$OBJETIVOS_ESPERADOS" ]; then
+        for objetivo in $OBJETIVOS_ESPERADOS; do printf '%%s\n' "$objetivo"; done
+    else
+        objetivos
+    fi
+}
+
+# La máscara en la forma en que se COMPARA: un prefijo numérico. NetXMS guarda en `addr2` lo
+# que se le dio, y una máscara puede volver como "24" o como "255.255.255.0"; el cuarto tiempo
+# tiene que comparar el mismo HECHO, no la misma cadena -- si no, un /24 válido se leería como
+# distinto en cada pasada y el motor volvería a sembrar para siempre (regla 6).
+prefijo() {
+    case "$1" in
+        *.*) echo "$1" | awk -F. '{n=0; for(i=1;i<=4;i++){v=$i+0; while(v>0){n+=v%%2; v=int(v/2)}} print n}' ;;
+        *) echo "$1" ;;
+    esac
+}
+
+# Los objetivos que el servidor tiene GUARDADOS en su tabla `address_lists` (list_type=1), en
+# la misma forma `red/máscara`. Es la mitad «lo que hay» del cuarto tiempo: compararlo con
+# `objetivos` es lo que dice si el descubrimiento sigue a las rutas de verdad. Si la consulta
+# falla, sale vacío y la comparación dirá que no -- nunca se da por bueno lo que no se leyó.
+objetivos_guardados() {
+    como_postgres "psql -tA -d %(bd)s -c \"select addr1 || '|' || addr2 from address_lists where list_type = 1\"" 2>/dev/null \
+        | tr -d ' \r' | while IFS='|' read -r red mascara; do
+            [ -n "$red" ] && printf '%%s/%%s\n' "$red" "$(prefijo "$mascara")"
+        done | sort -u
+}
+
+# Escribe en la base los objetivos del descubrimiento activo: una fila por red. Se borra lo
+# que el motor no declara (regla 17) y se ponen las declaradas; repetirlo deja el mismo
+# estado. La usan `preparar` (la primera vez) y `sembrar` (cuando las rutas cambiaron y el
+# `sembrado` detectó que los objetivos guardados ya no son los de ahora).
+escribir_objetivos() {
+    redes=$(objetivos | sort -u)
+    [ -n "$redes" ] || return 1
+    como_postgres "psql -q -d %(bd)s -c \"delete from address_lists where list_type = 1\"" >/dev/null 2>&1 || return 1
+    for red in $redes; do
+        net=${red%%/*}
+        mascara=${red#*/}
+        como_postgres "psql -q -d %(bd)s -c \"insert into address_lists (list_type, community_id, zone_uin, proxy_id, addr_type, addr1, addr2, comments) values (1, 0, 0, 0, 0, '$net', '$mascara', 'netlabs: red a vigilar')\"" >/dev/null 2>&1 || return 1
+    done
+}
+
+estado() {
+    # Lo que el motor lee para decidir si hay que PREPARAR. Base, web y acceso son la mitad;
+    # la otra es que los objetivos de descubrimiento sigan siendo los de las rutas de AHORA
+    # (cuarto tiempo). Con sólo la primera mitad, un `apply` que cambiara las rutas daba el
+    # área por buena y NetXMS seguía sondeando las redes viejas (hallazgo P1, PR #14). Si
+    # difieren se contesta `no` y el motor vuelve a preparar, que reescribe los objetivos.
+    if [ "$(esquema)" != "si" ] || [ ! -s "$WEBAPPS/nxmc.war" ] \
+            || [ "$(entra)" != "si" ]; then
+        echo no
+        return 0
+    fi
+    actual=$(objetivos_comparados 2>/dev/null | sort -u)
+    if [ -z "$actual" ] || [ "$actual" != "$(objetivos_guardados)" ]; then
+        echo no
+        return 0
+    fi
+    echo si
+}
+
+case "$VERBO" in
 estado)
     estado
     ;;
 sembrado)
-    # Lo que lee el motor para decidir si hay que sembrar (regla 6): la marca, y nada más.
-    if [ -f "$MARCA" ]; then echo si; else echo no; fi
+    # Lo que lee el motor para decidir si hay que sembrar (regla 6): la marca Y que los
+    # objetivos guardados sigan siendo los de las rutas de AHORA. Con la marca sola, un
+    # `apply` que cambiara las rutas dejaba a NetXMS sondeando las redes viejas para
+    # siempre: el `estado` no se enteraba (hallazgo P1, PR #14). El cuarto tiempo es esta
+    # comparación: si difieren, se contesta `no` y el motor vuelve a sembrar.
+    if [ ! -f "$MARCA" ]; then echo no; exit 0; fi
+    actual=$(objetivos_comparados 2>/dev/null | sort -u)
+    [ -n "$actual" ] || { echo no; exit 0; }
+    if [ "$actual" = "$(objetivos_guardados)" ]; then echo si; else echo no; fi
+    ;;
+objetivos)
+    # Sólo lectura: las redes que este invitado alcanza, en la forma `red/máscara`.
+    objetivos
     ;;
 sembrar)
     # Se pregunta por el API WEB (la puerta de la interfaz), nunca por la consola: `nxadm`
@@ -2688,23 +2860,26 @@ sembrar)
         fi
         exit 1
     fi
-    # La red por la que ESTE invitado ve a los equipos vigilados: la suya. No es un valor de
-    # lab -- se deriva de su propia interfaz, y el banco de pruebas declara sus redes /24.
-    base=$(ip -4 -o addr show eth0 2>/dev/null | awk '{print $4}' | head -1 | cut -d/ -f1 | cut -d. -f1-3)
-    if [ -z "$base" ]; then
-        echo "sin dirección en eth0: no se sabe a quién vigilar" >&2
+    # Las redes que el vigilante ALCANZA -- la suya (derivada de su interfaz) y las de sus rutas
+    # estáticas --: se vuelven a escribir aquí, no sólo en `preparar`. El `sembrado` manda a
+    # sembrar cuando las rutas cambiaron, y si esta rama sólo pusiera la marca, el servidor
+    # seguiría sondeando las redes viejas y la marca mentiría (hallazgo P1, PR #14). No es un
+    # valor de lab: se lee del propio equipo, igual que en `preparar`.
+    escribir_objetivos || {
+        echo "no se pudo volver a declarar las redes a vigilar en la base del servidor" >&2
         exit 1
-    fi
-    # El descubrimiento NO se dispara desde aquí: lo hace el SERVIDOR solo -- el `preparar` le
-    # deja declarada la red a vigilar y el descubrimiento activo encendido --, y aquí sólo se
-    # ESPERA a que sus hallazgos estén en la base. La consola (`nxadm -c "scan"`) era lo que
-    # rompía la clave del administrador (medido), así que se fue de aquí.
+    }
+    # El descubrimiento NO se dispara desde aquí: lo hace el SERVIDOR solo -- los objetivos
+    # quedan declarados en la tabla `address_lists`, que es de donde los toma, y el
+    # descubrimiento activo encendido --, y aquí sólo se ESPERA a que sus hallazgos estén en
+    # la base. La consola (`nxadm -c "scan"`) era lo que rompía la clave del administrador
+    # (medido), así que se fue de aquí.
     i=0
     while [ "$i" -lt 40 ] && [ "$(vigilados)" = "0" ]; do
         i=$((i + 1)); sleep 3
     done
     if [ "$(vigilados)" = "0" ]; then
-        echo "el servidor de vigilancia no ha añadido un solo equipo todavía: tiene declarada la red $base.0/24 con descubrimiento activo, y la ronda tarda (se le da otra pasada)" >&2
+        echo "el servidor de vigilancia no ha añadido un solo equipo todavía: tiene declaradas las redes que este invitado alcanza (la suya y las de sus rutas) con descubrimiento activo, y la ronda tarda (se le da otra pasada)" >&2
         exit 1
     fi
     mkdir -p "$(dirname "$MARCA")"
@@ -2780,12 +2955,13 @@ preparar)
         # base no dice nada (regla 6: la marca vale porque describe lo que hay).
         rm -f "$MARCA"
     fi
-    # Y la VIGILANCIA: que el servidor PREGUNTE -- descubrimiento activo, con sonda SNMP, sobre
-    # la red que ESTE invitado ve (derivada de su propia interfaz: jamás un valor de lab) -- y
-    # con qué comunidad: la MISMA que los equipos declaran con el área `snmp` (una constante del
-    # motor, no un valor de lab, para que no haya dos sitios que se descoordinen). La ronda la
-    # hace el SERVIDOR solo, cada `Interval` horas y al arrancar: no la dispara la consola, que
-    # dejaba la clave del administrador rota para la web (medido).
+    # Y la VIGILANCIA: que el servidor PREGUNTE -- descubrimiento activo, con sonda SNMP -- sobre
+    # LAS REDES QUE ESTE INVITADO ALCANZA: la suya (derivada de su interfaz) y las que sus rutas
+    # estáticas declaran (el motor las LEE del propio equipo, jamás son un valor de lab), y con
+    # qué comunidad: la MISMA que los equipos declaran con el área `snmp` (una constante del
+    # motor, para que no haya dos sitios que se descoordinen). La ronda la hace el SERVIDOR solo,
+    # al arrancar y cada `Interval` SEGUNDOS: no la dispara la consola, que dejaba la clave del
+    # administrador rota para la web (medido).
     base=$(ip -4 -o addr show eth0 2>/dev/null | awk '{print $4}' | head -1 | cut -d/ -f1 | cut -d. -f1-3)
     if [ -z "$base" ]; then
         echo "sin dirección en eth0: no se sabe qué red vigilar" >&2
@@ -2793,18 +2969,28 @@ preparar)
     fi
     # `nxdbmgr set` deja el valor que se le da; repetirlo no cambia nada. Si no se pudiera
     # escribir, se PARA: un servidor que no pregunta no vigila, y darlo por bueno sería una
-    # promesa sin respaldo.
+    # promesa sin respaldo. Van por aquí SÓLO las variables que NetXMS 7.0 de verdad LEE (medido
+    # sobre su fuente): la comunidad, el tipo de descubrimiento, la sonda SNMP y el intervalo
+    # (en SEGUNDOS; 3600 = una hora).
     for ajuste in "DefaultCommunityString $COMUNIDAD" \
                   "NetworkDiscovery.Type 3" \
                   "NetworkDiscovery.ActiveDiscovery.EnableSNMPProbing 1" \
-                  "NetworkDiscovery.ActiveDiscovery.AddressRange $base.0/24" \
-                  "NetworkDiscovery.ActiveDiscovery.Interval 1" \
-                  "NetworkDiscovery.ActiveDiscovery.Enabled 1"; do
+                  "NetworkDiscovery.ActiveDiscovery.Interval 3600"; do
         nxdbmgr -c /etc/netxmsd.conf set $ajuste >/dev/null 2>&1 || {
             echo "no se pudo dejar el ajuste '$ajuste' en el servidor de vigilancia" >&2
             exit 1
         }
     done
+    # El RANGO de descubrimiento activo NO va en la variable
+    # `NetworkDiscovery.ActiveDiscovery.AddressRange`: medido sobre la fuente de NetXMS 7.0, esa
+    # variable NO se lee -- los objetivos del descubrimiento activo salen de la tabla
+    # `address_lists` (list_type=1). Por eso el rango se ESCRIBE ahí. El CÓMO vive en UN solo
+    # sitio (`escribir_objetivos`), que es también el que usa `sembrar`: si hubiera dos
+    # escritores, uno podría corregir la máscara y el otro no (hallazgo P2, PR #14).
+    escribir_objetivos || {
+        echo "no se pudo fijar las redes a vigilar en la base del servidor" >&2
+        exit 1
+    }
     nueva_web=no
     mkdir -p "$WEBAPPS"
     if [ ! -s "$WEBAPPS/nxmc.war" ]; then

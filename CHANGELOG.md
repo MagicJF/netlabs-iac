@@ -48,6 +48,22 @@ aquí está su entrada; los tres tienen que contar lo mismo, y eso es lo que vig
 
 ### Corregido
 
+- **La ruta por defecto tiene DUEÑO, y lo dice el tipo de equipo (hallazgo P1).** En un router
+  es suya --es su salida-- y el área la pone si falta; en un Linux la puso la plataforma al crear
+  el invitado y el motor **no la toca**: entrar en la comparación la borraba y dejaba al vigilante
+  sin internet antes de instalar nada. La decisión vive en el sitio de llamada, con el parámetro
+  `gobierna_por_defecto` **sin valor por omisión** (nadie puede equivocarse en silencio) y una
+  prueba a nivel de driver para cada dueño. Un lab que declare `0.0.0.0/0` en el interior Linux se
+  caza en la declaración, con el motivo.
+- **Un latido perfecto ya no se reescribe cada pasada (hallazgo P1).** `ansible.builtin.command`
+  recorta el `\n` que cierra el `stdout` y el guion va el ÚLTIMO, así que su salto final se perdía
+  por el camino y la comparación exacta fallaba: el `apply` pedía reescribir y arrancar en cada
+  pasada y su comprobación de cierre no podía pasar. Se normalizan los saltos finales **de los dos
+  lados**, y un guion borrado o un `OnUnitActiveSec` editado a mano siguen sin coincidir.
+- **La recuperación de la clave vuelve a arrancar el servidor (hallazgo P1).** Un backslash suelto
+  pegaba `systemctl start netxms-server` al `psql` --sus palabras pasaban a ser argumentos de
+  `psql`, el servidor no arrancaba-- y la reparación no podía completarse.
+
 - **Cuatro cosas que la relectura del PR cazó, todas con su prueba.** (1) Un lab que sólo declara
   `servicio: netxms` —el 10— ya **no** enciende la vigilancia: los ajustes de descubrimiento
   viven detrás del área `monitorizacion`. (2) Una **caída de la API** (sin respuesta, o un 5xx)

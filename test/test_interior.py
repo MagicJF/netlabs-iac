@@ -2351,7 +2351,7 @@ comprobar(
 # --- El área `routes` de un Linux: el camino, declarado por el lab ----------------------
 igual(
     [o["op"] for o in motor._routes_canonicas(
-        [{"dst_address": "10.44.1.0/24", "gateway": "10.44.0.11"}], {"estaticas": []})],
+        [{"dst_address": "10.44.1.0/24", "gateway": "10.44.0.11"}], {"estaticas": []}, gobierna_por_defecto=False)],
     ["add_route"],
     "una ruta declarada que no está, se pone: es el camino a las zonas que el lab le da al "
     "bastión -- sin él el motor no llega a los invitados que el lab pone detrás de un fw",
@@ -2359,14 +2359,14 @@ igual(
 igual(
     [o["op"] for o in motor._routes_canonicas(
         [{"dst_address": "10.44.1.0/24", "gateway": "10.44.0.11"}],
-        {"estaticas": [{"dst_address": "10.44.1.0/24", "gateway": "10.44.0.11"}]})],
+        {"estaticas": [{"dst_address": "10.44.1.0/24", "gateway": "10.44.0.11"}]}, gobierna_por_defecto=False)],
     [],
     "y puesta, no se toca: la lectura saca el mismo par (destino, pasarela) que se declaró, "
     "así que la segunda pasada no hace nada (regla 6)",
 )
 igual(
     [o["op"] for o in motor._routes_canonicas(
-        [], {"estaticas": [{"dst_address": "10.44.9.0/24", "gateway": "10.44.0.11"}]})],
+        [], {"estaticas": [{"dst_address": "10.44.9.0/24", "gateway": "10.44.0.11"}]}, gobierna_por_defecto=False)],
     ["remove_route"],
     "y dentro de un área declarada, lo que no está en el YAML se quita (regla 17): una ruta "
     "estática que sobra se va -- el área gobierna lo que declara, ni más ni menos",
@@ -2440,23 +2440,26 @@ igual(
 igual(
     [o["op"] for o in motor._routes_canonicas(
         [{"dst_address": "0.0.0.0/0", "gateway": "10.44.0.1"}],
-        {"estaticas": [{"dst_address": "default", "gateway": "10.44.0.1"}]})],
+        {"estaticas": [{"dst_address": "default", "gateway": "10.44.0.1"}]}, gobierna_por_defecto=False)],
     [],
     "una ruta por defecto declarada `0.0.0.0/0` y leída como `default` son la misma ruta",
 )
 igual(
     [o["op"] for o in motor._routes_canonicas(
         [{"dst_address": "10.44.1.5/32", "gateway": "10.44.0.12"}],
-        {"estaticas": [{"dst_address": "10.44.1.5", "gateway": "10.44.0.12"}]})],
+        {"estaticas": [{"dst_address": "10.44.1.5", "gateway": "10.44.0.12"}]}, gobierna_por_defecto=False)],
     [],
     "y una ruta a un HOST (`/32`) y su forma sin barra también: no se borra la que se acaba de poner "
     "(hallazgos P1, PR #13)",
 )
 igual(
     [o["op"] for o in motor._routes_canonicas(
-        [], {"estaticas": [{"dst_address": "default", "gateway": "10.44.0.1"}]})],
-    ["remove_route"],
-    "y una ruta por defecto que ya NO se declara sí se quita (regla 17): ahora el lector la ve",
+        [], {"estaticas": [{"dst_address": "default", "gateway": "10.44.0.1"}]}, gobierna_por_defecto=False)],
+    [],
+    "y una ruta por defecto NO se quita aunque no se declare: en un Linux la pone la plataforma "
+    "al crear el invitado y el motor no la posee -- borrarla lo dejaría sin internet antes de "
+    "instalar nada (hallazgo P1, PR #13). El área gobierna las rutas que SÍ declara, no la salida "
+    "que le dieron",
 )
 
 # 11. La lectura comprueba el `rc` de `ip` ANTES de filtrar: una tabla ilegible no se confunde
@@ -2592,6 +2595,111 @@ for _caso in ("cero", "fallo"):
         "fallida): antes, una consulta fallida dejaba el recuento VACÍO, la cadena vacía no es `0` "
         "y marcaba sin haber confirmado nada (hallazgo P1, PR #13)",
     )
+
+# Y a nivel de DRIVER, que es donde el TIPO DE EQUIPO decide quién posee la ruta por defecto: un
+# Linux al que la plataforma le puso su salida no la pierde aunque el lab no la declare. Se prueba
+# aquí porque el error cómodo al arreglarlo --equivocar el sitio de llamada-- ninguna prueba de la
+# función lo caza: la función recibe el dueño ya decidido (y ya me mordió dos veces, PR #13).
+CONTROL_SOLO_RUTAS = dict(CONTROL, config={"linux": {
+    "routes": [{"dst_address": "10.44.1.0/24", "gateway": "10.44.0.12"}],
+}})
+igual(
+    motor.pasos_de_convergencia(CONTROL_SOLO_RUTAS, IDENTIDAD, DECLARACION, {
+        "alcanzable": True,
+        "areas": motor.leido_linux([
+            {"area": "address", "rc": 0,
+             "encontrado": "2: eth0    inet 10.60.0.10/24 brd 10.60.0.255 scope global eth0\n"},
+            {"area": "routes", "rc": 0,
+             "encontrado": "10.44.1.0/24 via 10.44.0.12 dev eth0\n"
+                           "default via 10.60.0.1 dev eth0\n"},
+        ]),
+    }, PARAMETROS),
+    [],
+    "un Linux CONVERGIDO no genera ni un paso aunque traiga la ruta por defecto de la plataforma: "
+    "quien la posee lo decide el tipo de equipo, en el sitio de llamada",
+)
+igual(
+    [p["parametros"]["operaciones"] for p in motor.pasos_de_convergencia(
+        CONTROL_SOLO_RUTAS, IDENTIDAD, DECLARACION, {
+            "alcanzable": True,
+            "areas": motor.leido_linux([
+                {"area": "address", "rc": 0,
+                 "encontrado": "2: eth0    inet 10.60.0.10/24 brd 10.60.0.255 scope global eth0\n"},
+                {"area": "routes", "rc": 0,
+                 "encontrado": "default via 10.60.0.1 dev eth0\n"},
+            ]),
+        }, PARAMETROS)],
+    [[{"op": "add_route", "dst_address": "10.44.1.0/24", "gateway": "10.44.0.12"}]],
+    "y si le falta la ruta declarada se pone ESA, y sólo esa: la salida de la plataforma ni se "
+    "toca ni se cuenta",
+)
+
+# ---------------------------------------------------------------------------
+# Lo que cazó la TERCERA relectura (PR #13): tres cosas que no se ven leyendo la idea,
+# sólo mirando cómo viaja el dato.
+# ---------------------------------------------------------------------------
+_FICHEROS_LATIDO = list(motor.escrituras_latido("2min").values())
+igual(
+    motor._latido_canonico({"cada": "2min"}, {
+        "activo": True, "habilitado": True,
+        "ficheros_leidos": [_FICHEROS_LATIDO[0], _FICHEROS_LATIDO[1],
+                            _FICHEROS_LATIDO[2].rstrip("\n")],
+    }),
+    [],
+    "un latido ENTERO converge aunque el último fichero llegue sin su salto de línea final: "
+    "`ansible.builtin.command` recorta el que cierra el stdout, y el guion va el último",
+)
+comprobar(
+    bool(motor._latido_canonico({"cada": "2min"}, {
+        "activo": True, "habilitado": True,
+        "ficheros_leidos": [_FICHEROS_LATIDO[0], _FICHEROS_LATIDO[1], "SIN-FICHERO"],
+    })),
+    "pero un guion BORRADO sigue pidiendo reescribirse: normalizar el salto no afloja el área",
+)
+igual(
+    motor._routes_canonicas(
+        [], {"estaticas": [{"dst_address": "default", "gateway": "10.44.0.254"}]},
+        gobierna_por_defecto=False,
+    ),
+    [],
+    "la ruta POR DEFECTO de un Linux NO se borra: la pone la plataforma al crearlo y no es de "
+    "esta área -- si entrara en la comparación, se la quitaría y lo dejaría sin internet",
+)
+igual(
+    motor._routes_canonicas(
+        [{"dst_address": "10.44.1.0/24", "gateway": "10.44.0.12"}],
+        {"estaticas": [{"dst_address": "10.44.1.0/24", "gateway": "10.44.0.12"},
+                       {"dst_address": "default", "gateway": "10.44.0.254"}]},
+        gobierna_por_defecto=False,
+    ),
+    [],
+    "y con las rutas de las zonas declaradas tampoco sobra nada: el caso del lab 08",
+)
+igual(
+    motor._routes_canonicas(
+        [{"dst_address": "0.0.0.0/0", "gateway": "10.60.0.1"}],
+        {"estaticas": []},
+        gobierna_por_defecto=True,
+    ),
+    [{"op": "add_route", "dst_address": "0.0.0.0/0", "gateway": "10.60.0.1"}],
+    "en un ROUTER la ruta por defecto sí se posee: es su salida, y se pone si falta -- la "
+    "misma área, dos dueños, y el dueño lo dice el tipo de equipo",
+)
+igual(
+    motor.objetivos_declarados({
+        "address": [{"interface": "eth0", "address": "10.44.0.20/24"}],
+        "routes": [{"dst_address": "0.0.0.0/0", "gateway": "10.44.0.254"}],
+    }),
+    ["10.44.0.0/24"],
+    "la expectativa del descubrimiento no se inventa una ruta por defecto: el sembrado no la "
+    "guarda, así que las dos listas tienen que aplicar la MISMA regla",
+)
+_i_psql = motor.PLANTILLA_PREPARADOR_NETXMS.find("where id=1")
+comprobar(
+    _i_psql != -1 and "\\\n" not in motor.PLANTILLA_PREPARADOR_NETXMS[_i_psql:_i_psql + 140],
+    "el `psql` de la recuperación y `systemctl start netxms-server` son DOS comandos: un "
+    "backslash suelto pegaba el arranque al `psql` y el servidor no arrancaba",
+)
 
 if FALLOS:
     print(f"\nRESULTADO: {len(FALLOS)} fallo(s).")

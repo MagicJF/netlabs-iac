@@ -856,6 +856,32 @@ def _validar_linux(declarado, etiqueta, rol, errores):
             )
 
 
+    # `routes` (Linux): las rutas que el motor GOBIERNA dentro del invitado. Cada una necesita
+    # destino y pasarela, y la POR DEFECTO no se declara: la pone la plataforma al crear el
+    # invitado (la pasarela de su pata de gestión) y el motor no la posee -- declararla sería
+    # pedirle algo que no va a hacer, y algo que su borrado no debe tocar nunca, porque dejaría
+    # al invitado sin salida a internet antes de instalar nada (hallazgo P1, PR #13). En un
+    # router es otra cosa: ahí la ruta por defecto es del equipo y se declara con normalidad,
+    # y esa es la razón de que esta guarda viva aquí y no en la del driver de RouterOS.
+    if "routes" in declarado:
+        rutas = declarado.get("routes")
+        if not isinstance(rutas, list):
+            errores.append(f"`{etiqueta}` ({rol}): `routes` es una LISTA de rutas")
+        else:
+            for indice, ruta in enumerate(rutas):
+                if (not isinstance(ruta, dict) or not ruta.get("dst_address")
+                        or not ruta.get("gateway")):
+                    errores.append(
+                        f"`{etiqueta}` ({rol}): `routes[{indice}]` necesita `dst_address` y "
+                        "`gateway`"
+                    )
+                elif str(ruta.get("dst_address")).strip() in ("0.0.0.0/0", "default"):
+                    errores.append(
+                        f"`{etiqueta}` ({rol}): `routes[{indice}]` declara la ruta POR DEFECTO "
+                        "(`0.0.0.0/0`): ésa la pone la plataforma al crear el invitado y el motor "
+                        "no la gobierna. Declara sólo las rutas que quieras poseer."
+                    )
+
     # `latido` (Linux): una MARCA (`latido: {}`), como `monitorizacion`, con UN valor
     # opcional: cada cuánto da el toque. La cadencia es un valor DEL LAB (el motor no la
     # adivina, regla 7), así que se valida aquí y no se deja pasar: un temporizador con una

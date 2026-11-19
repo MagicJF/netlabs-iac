@@ -989,7 +989,19 @@ def _destino_normalizado(destino):
     return texto
 
 
-def _routes_canonicas(declarado, leido):
+def _es_ruta_por_defecto(destino):
+    """¿Esta ruta es la POR DEFECTO? (`default` o `0.0.0.0/0`, que son el mismo hecho.)
+
+    La ruta por defecto NO es de esta área: la pone la plataforma al crear el invitado --la
+    pasarela de su pata de gestión-- y el motor no la posee. Si entrara en la comparación, un
+    lab que no la declara --todos-- la vería como «sobra» y se la quitaría al invitado,
+    dejándolo sin salida a internet antes de instalar nada (hallazgo P1, PR #13). El esquema
+    además la rechaza si se declara: no se puede poseer lo que no se pone.
+    """
+    return _destino_normalizado(destino) in ("0.0.0.0/0", "default")
+
+
+def _routes_canonicas(declarado, leido, gobierna_por_defecto):
     """Diferencia del área `rutas`: sólo las ESTÁTICAS. Las conectadas las pone el
     sistema y la dinámica del DHCP es residuo (`reiniciar_invitado`).
 
@@ -998,13 +1010,19 @@ def _routes_canonicas(declarado, leido):
     `_destino_normalizado`): `default`/`0.0.0.0/0` y host sin barra/con `/32` son el
     MISMO hecho, y tratarlos como distintos rompía la convergencia.
     """
+    # `gobierna_por_defecto` NO tiene valor por omisión a propósito: la ruta por defecto es del
+    # EQUIPO en un router --su salida, declarada y suya-- y de la PLATAFORMA en un Linux, donde
+    # Proxmox le pone la pasarela al crear el invitado y el motor no la posee. Misma área, dos
+    # dueños; un valor por omisión aquí sería justo la forma de equivocarse en silencio.
     deseadas = {
         (_destino_normalizado(r.get("dst_address")), str(r.get("gateway")))
         for r in (declarado or [])
+        if gobierna_por_defecto or not _es_ruta_por_defecto(r.get("dst_address"))
     }
     actuales = {
         (_destino_normalizado(r.get("dst_address")), str(r.get("gateway")))
         for r in ((leido or {}).get("estaticas") or [])
+        if gobierna_por_defecto or not _es_ruta_por_defecto(r.get("dst_address"))
     }
     operaciones = []
     for destino, pasarela in sorted(deseadas - actuales):
@@ -1154,9 +1172,16 @@ def _latido_canonico(declarado, leido):
     actual = leido or {}
     esperados = list(escrituras_latido(_cadencia_latido(declarado)).values())
     leidos = actual.get("ficheros_leidos") or []
+    # Se comparan SIN los saltos de línea del final, a propósito: `ansible.builtin.command`
+    # recorta el `\n` que cierra el `stdout`, y el guion va el ÚLTIMO, así que su salto final
+    # se pierde por el camino. Sin normalizar, unos ficheros PERFECTOS pedían reescribirse y
+    # arrancarse en cada pasada, y el `apply` fallaba su comprobación de cierre (hallazgo P1,
+    # PR #13). Normalizar aquí no afloja lo que el área vigila: un fichero borrado, o un
+    # `OnUnitActiveSec` editado a mano, siguen sin coincidir.
     if actual.get("activo") and actual.get("habilitado") and (
         len(leidos) == len(esperados)
-        and all(str(a or "") == str(b or "") for a, b in zip(leidos, esperados))
+        and all(str(a or "").rstrip("\n") == str(b or "").rstrip("\n")
+                for a, b in zip(leidos, esperados))
     ):
         return []
     return [
@@ -1692,7 +1717,12 @@ def pasos_de_convergencia(guest, identidad, declaracion, leido, parametros):
         elif area == "addresses":
             operaciones = _addresses_canonicas(declaradas[area], actual)
         elif area == "routes":
-            operaciones = _routes_canonicas(declaradas[area], actual)
+            # El dueño de la ruta por defecto lo decide el TIPO DE EQUIPO (ADR 0026), no el
+            # nombre del área: en un router es suya --es su salida-- y en un Linux es de la
+            # plataforma, que se la puso al crear el invitado.
+            operaciones = _routes_canonicas(
+                declaradas[area], actual, gobierna_por_defecto=(tipo == "routeros")
+            )
         elif area == "uplink":
             operaciones = _uplink_canonico(declaradas[area], actual, parametros)
         elif area == "firewall":
@@ -2174,7 +2204,8 @@ LECTURAS_LINUX = {
         # plan escribía sin conocer el estado real (hallazgo P1, PR #13). Cero coincidencias SÍ
         # es legítimo (un Linux sin rutas estáticas), y por eso el filtro no arrastra el `rc`.
         "comando": ("r=$(mktemp); ip -4 route show > \"$r\" || { rm -f \"$r\"; exit 1; }; "
-                    "grep ' via ' \"$r\" | grep -vE '^169\\.254' | grep -v ' proto dhcp '; "
+                    "grep ' via ' \"$r\" | grep -vE '^169\\.254' | grep -v ' proto dhcp ' "
+                    "| grep -vE '^(default|0\\.0\\.0\\.0/0)( |$)'; "
                     "rm -f \"$r\"; true"),
         "descripcion": "sus rutas estáticas (las que el motor gobierna)",
     },
@@ -2287,6 +2318,12 @@ def objetivos_declarados(declaradas):
     for ruta in declaradas.get("routes") or []:
         destino = str((ruta or {}).get("dst_address") or "").strip()
         if not destino:
+            continue
+        # La ruta por defecto NO es del área --la pone la plataforma al crear el invitado-- y
+        # el sembrado tampoco la guarda: meterla aquí haría que las dos listas no cuadraran
+        # NUNCA y el área repetiría preparar y sembrar en cada pasada. La misma regla en los
+        # dos lados, lo declarado y lo guardado (hallazgo P1, PR #13).
+        if _es_ruta_por_defecto(destino):
             continue
         redes.add(destino if "/" in destino else destino + "/32")
     return sorted(redes)
@@ -2909,7 +2946,7 @@ reponer_clave() {
     systemctl stop netxms-server >/dev/null 2>&1
     sleep 2
     buena=$(cat "$CLAVE_BUENA")
-    como_postgres "psql -q -d %(bd)s -c \"update users set password='$buena' where id=1\"" \
+    como_postgres "psql -q -d %(bd)s -c \"update users set password='$buena' where id=1\""
     systemctl start netxms-server >/dev/null 2>&1
 }
 

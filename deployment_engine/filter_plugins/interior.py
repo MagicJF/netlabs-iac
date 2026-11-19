@@ -2094,6 +2094,37 @@ LECTURAS_LINUX = {
 SEPARADOR = "---NETLABS---"
 
 
+def _red_propia(direccion):
+    """La red de la dirección de gestión, con la MISMA regla que el guion del invitado: los
+    tres primeros octetos y /24. Se mantiene a propósito, para que la lista declarada y la que
+    el equipo deriva comparen el mismo hecho."""
+    partes = str(direccion or "").split("/")[0].split(".")
+    if len(partes) != 4:
+        return ""
+    return ".".join(partes[:3]) + ".0/24"
+
+
+def objetivos_declarados(declaradas):
+    """Las redes que el invitado alcanza SEGÚN SU DECLARACIÓN: la de su dirección de gestión y
+    los destinos de sus rutas. Es lo que el motor le pasa a `estado`/`sembrado` para que la
+    lectura compare contra lo DECLARADO -- no contra lo que aún hay en el equipo --, y así un
+    `apply` que cambia las rutas pide reescribir los objetivos en la MISMA pasada (hallazgo P1,
+    PR #14). Vacío si no se puede derivar (p. ej. `address: dhcp`): entonces el guion cae a las
+    rutas de verdad, que es el comportamiento de siempre."""
+    redes = set()
+    direcciones = declaradas.get("address") or []
+    if isinstance(direcciones, list) and direcciones and isinstance(direcciones[0], dict):
+        red = _red_propia(direcciones[0].get("address"))
+        if red:
+            redes.add(red)
+    for ruta in declaradas.get("routes") or []:
+        destino = str((ruta or {}).get("dst_address") or "").strip()
+        if not destino:
+            continue
+        redes.add(destino if "/" in destino else destino + "/32")
+    return sorted(redes)
+
+
 def lecturas_linux(guest):
     """Las lecturas que hay que hacer dentro de un Linux, en orden, por área declarada.
 
@@ -2101,6 +2132,7 @@ def lecturas_linux(guest):
     no opina (regla 17), así que tampoco pregunta.
     """
     declaradas = areas_de(guest)
+    objetivos = objetivos_declarados(declaradas)
     lecturas = []
     for area in areas_a_leer(guest):
         if area == "servicio":
@@ -2108,7 +2140,7 @@ def lecturas_linux(guest):
             lecturas.append({
                 "area": area,
                 "accion": "leer",
-                "comando": lectura_servicio(nombre),
+                "comando": lectura_servicio(nombre, objetivos),
                 "descripcion": (f"si el servicio '{nombre}' está instalado, su unidad viva, "
                                 "sus ficheros puestos y sirviendo lo que promete"),
             })
@@ -2116,10 +2148,13 @@ def lecturas_linux(guest):
             nombre_servicio = str(declaradas.get("servicio") or "")
             vigilancia = (SERVICIOS_LINUX_OPCIONES.get(nombre_servicio) or {}).get("monitorizacion")
             if vigilancia:
+                comando = vigilancia["comando"]
+                if objetivos and vigilancia.get("comando_objetivos"):
+                    comando = vigilancia["comando_objetivos"].format(objetivos=" ".join(objetivos))
                 lecturas.append({
                     "area": area,
                     "accion": "leer",
-                    "comando": vigilancia["comando"],
+                    "comando": comando,
                     "descripcion": (f"si el servidor de vigilancia '{nombre_servicio}' ya sabe a "
                                     "quién tiene que vigilar"),
                 })
@@ -2133,7 +2168,7 @@ def lecturas_linux(guest):
     return lecturas
 
 
-def lectura_servicio(nombre):
+def lectura_servicio(nombre, objetivos=()):
     """La lectura de un Linux cuyo área `servicio` declara `nombre` (un solo viaje).
 
     SIETE bloques separados por la marca de siempre:
@@ -2143,6 +2178,10 @@ def lectura_servicio(nombre):
       4)..n) el CONTENIDO de cada fichero que el motor gobierna, EN EL ORDEN de la tabla,
       n+1) si de verdad SIRVE (el comando del servicio),
       n+2) la comprobación ADICIONAL (o `na` si no la tiene).
+
+    `objetivos` son las redes DECLARADAS que se le pasan a la comprobación adicional como
+    segundo argumento (vacío si no se pueden derivar): es lo que la hace comparar contra la
+    declaración y no contra el equipo, para converger en la misma pasada.
 
     Los dos últimos van SIEMPRE, para que el analizador no necesite saber de qué servicio se
     trata. Un nombre fuera del vocabulario no tiene lectura: el validador lo rechaza antes.
@@ -2157,7 +2196,10 @@ def lectura_servicio(nombre):
         f"systemctl is-enabled {opciones['unidad']} 2>/dev/null || echo disabled",
     ]
     partes += [f"cat {ruta} 2>/dev/null" for ruta in opciones["ficheros"]]
-    partes += [opciones["sirve"], opciones["extra"]]
+    extra = opciones["extra"]
+    if objetivos and opciones.get("extra_objetivos"):
+        extra = opciones["extra_objetivos"].format(objetivos=" ".join(objetivos))
+    partes += [opciones["sirve"], extra]
     return ("; echo " + SEPARADOR + "; ").join(partes)
 
 
@@ -2456,6 +2498,10 @@ SERVICIOS_LINUX_OPCIONES = {
         "sirve": ("curl -fsSL -m 10 --retry 12 --retry-delay 5 --retry-connrefused "
                   "http://127.0.0.1:8080/nxmc/ 2>/dev/null || echo NO-SIRVE"),
         "extra": f"sh {RUTA_PREPARADOR_NETXMS} estado 2>/dev/null || echo no",
+        # La misma comprobación, con la lista DECLARADA de objetivos como segundo argumento:
+        # es la que usa la lectura normal para decidir en la misma pasada (ver
+        # `objetivos_declarados`). Sin argumentos (a mano), el guion deriva las rutas de verdad.
+        "extra_objetivos": f"sh {RUTA_PREPARADOR_NETXMS} estado {{objetivos}} 2>/dev/null || echo no",
         "extra_esperado": "si",
         "preparar": (f"sh {RUTA_PREPARADOR_NETXMS} preparar",),
         # La VIGILANCIA (área `monitorizacion`): `sembrar` marca que el servidor ya vigila,
@@ -2465,6 +2511,7 @@ SERVICIOS_LINUX_OPCIONES = {
         # 6): la segunda pasada lee `si` y no pide nada.
         "monitorizacion": {
             "comando": f"sh {RUTA_PREPARADOR_NETXMS} sembrado 2>/dev/null || echo no",
+            "comando_objetivos": f"sh {RUTA_PREPARADOR_NETXMS} sembrado {{objetivos}} 2>/dev/null || echo no",
             "esperado": "si",
         },
         "sembrar": (f"sh {RUTA_PREPARADOR_NETXMS} sembrar",),
@@ -2576,8 +2623,21 @@ PLANTILLA_PREPARADOR_NETXMS = r'''#!/bin/sh
 #            deja su marca; `sembrado` imprime `si` si esa marca está Y los objetivos
 #            guardados siguen siendo los de las rutas de AHORA (si no, el motor vuelve a
 #            sembrar); `objetivos` imprime, sólo para leer, las redes que este invitado
-#            alcanza en la forma `red/máscara`.
+#            alcanza en la forma `red/máscara`. El motor puede pasar como SEGUNDO argumento la
+#            lista DECLARADA (lo que el lab dice que alcanza): `estado`/`sembrado` la prefieren
+#            para decidir en la MISMA pasada, aunque las rutas aún no se hayan escrito.
 set -u
+
+# La lista DECLARADA de objetivos, si el motor la pasó (segundo argumento). Es lo que permite
+# converger en UNA pasada: la lectura de `estado`/`sembrado` corre ANTES de que se escriban
+# las rutas, así que si comparase contra las rutas de verdad (las viejas) diría `si` y el
+# motor no pediría reescribir los objetivos hasta la pasada siguiente (hallazgo P1, PR #14).
+# El VERBO es el primer argumento; TODO lo que venga después es la lista DECLARADA de objetivos
+# (el motor la pasa como argumentos separados, no entrecomillada). Se recoge entera -- no sólo el
+# primero -- porque de eso depende que la comparación vea todas las redes y no una sola.
+VERBO="${1:-preparar}"
+[ $# -gt 0 ] && shift
+OBJETIVOS_ESPERADOS="$*"
 
 WEBAPPS="%(webapps)s"
 WAR="%(war)s"
@@ -2683,6 +2743,19 @@ objetivos() {
         done
 }
 
+# Las redes a COMPARAR: si el motor pasó la lista DECLARADA (lo que el lab dice que el invitado
+# alcanza), se usa ESA; si no, se derivan de las rutas de verdad del invitado. La declarada es
+# la que hace converger en UNA pasada: la lectura corre ANTES de escribir las rutas, así que la
+# comparación contra lo que hay en el equipo vería las viejas y diría `si`; contra la
+# declaración ve el cambio en el mismo `apply`.
+objetivos_comparados() {
+    if [ -n "$OBJETIVOS_ESPERADOS" ]; then
+        for objetivo in $OBJETIVOS_ESPERADOS; do printf '%%s\n' "$objetivo"; done
+    else
+        objetivos
+    fi
+}
+
 # La máscara en la forma en que se COMPARA: un prefijo numérico. NetXMS guarda en `addr2` lo
 # que se le dio, y una máscara puede volver como "24" o como "255.255.255.0"; el cuarto tiempo
 # tiene que comparar el mismo HECHO, no la misma cadena -- si no, un /24 válido se leería como
@@ -2731,7 +2804,7 @@ estado() {
         echo no
         return 0
     fi
-    actual=$(objetivos 2>/dev/null | sort -u)
+    actual=$(objetivos_comparados 2>/dev/null | sort -u)
     if [ -z "$actual" ] || [ "$actual" != "$(objetivos_guardados)" ]; then
         echo no
         return 0
@@ -2739,7 +2812,7 @@ estado() {
     echo si
 }
 
-case "${1:-preparar}" in
+case "$VERBO" in
 estado)
     estado
     ;;
@@ -2750,7 +2823,7 @@ sembrado)
     # siempre: el `estado` no se enteraba (hallazgo P1, PR #14). El cuarto tiempo es esta
     # comparación: si difieren, se contesta `no` y el motor vuelve a sembrar.
     if [ ! -f "$MARCA" ]; then echo no; exit 0; fi
-    actual=$(objetivos 2>/dev/null | sort -u)
+    actual=$(objetivos_comparados 2>/dev/null | sort -u)
     [ -n "$actual" ] || { echo no; exit 0; }
     if [ "$actual" = "$(objetivos_guardados)" ]; then echo si; else echo no; fi
     ;;

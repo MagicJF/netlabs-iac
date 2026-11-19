@@ -1778,8 +1778,12 @@ igual(
 )
 igual(
     _LECTURA_VIGILANCIA[0]["comando"],
-    motor.SERVICIOS_LINUX_OPCIONES["netxms"]["monitorizacion"]["comando"],
-    "y se pregunta por el comando del SERVICIO declarado, no por uno genérico",
+    motor.SERVICIOS_LINUX_OPCIONES["netxms"]["monitorizacion"]["comando_objetivos"].format(
+        objetivos=" ".join(motor.objetivos_declarados(motor.areas_de(EQUIPO_VIGILANTE)))
+    ),
+    "y se pregunta por el comando del SERVICIO declarado, con la lista DECLARADA de objetivos "
+    "como argumento: así la lectura decide en la MISMA pasada, aunque las rutas aún no se hayan "
+    "escrito (hallazgo P1, PR #14)",
 )
 igual(
     motor.leido_linux([{"area": "monitorizacion", "rc": 0, "encontrado": "si"}]),
@@ -2022,12 +2026,12 @@ esac''')
     return ruta_guion, banco, marca
 
 
-def _corre_preparador(guion, banco, verbo):
+def _corre_preparador(guion, banco, verbo, *extra):
     entorno = dict(os.environ)
     entorno["PATH"] = os.path.join(banco, "bin") + ":" + entorno.get("PATH", "")
     entorno["BANCO"] = banco
     proceso = _subprocess.run(
-        ["sh", guion, verbo], capture_output=True, text=True, env=entorno, timeout=60
+        ["sh", guion, verbo, *extra], capture_output=True, text=True, env=entorno, timeout=60
     )
     return proceso.stdout.strip(), proceso.returncode
 
@@ -2094,6 +2098,64 @@ igual(
 igual(
     _corre_preparador(_guion_p1, _banco_p1, "estado")[0], "si",
     "y la segunda lectura ya no pide nada: dos pasadas seguidas dejan el mismo estado (regla 6)",
+)
+
+# P1, la parte que faltaba (hallazgo del revisor): la lectura corre ANTES de que se escriban las
+# rutas. Si `estado`/`sembrado` comparasen contra las rutas de VERDAD, verían las viejas, dirían
+# `si`, el `apply` no pediría reescribir los objetivos y el área acabaría la pasada con un
+# pendiente: haría falta OTRA pasada. El motor le pasa la lista DECLARADA como argumento y la
+# lectura decide con ella, así que converge en UNA sola pasada.
+igual(
+    motor.objetivos_declarados({
+        "address": [{"interface": "eth0", "address": "10.44.0.20/24"}],
+        "routes": [{"dst_address": "10.44.1.0/24", "gateway": "10.44.0.12"},
+                   {"dst_address": "10.44.5.7", "gateway": "10.44.0.12"}],
+    }),
+    ["10.44.0.0/24", "10.44.1.0/24", "10.44.5.7/32"],
+    "la lista DECLARADA de objetivos es la red de gestión y los destinos de las rutas (un host, /32)",
+)
+igual(
+    motor.objetivos_declarados({"address": "dhcp", "routes": [{"dst_address": "10.0.0.0/8"}]}),
+    ["10.0.0.0/8"],
+    "con `address: dhcp` no se puede derivar la red de gestión: se pasa sólo lo que sí se sabe",
+)
+igual(
+    motor.objetivos_declarados({"address": [{"interface": "eth0", "address": "dhcp"}]}),
+    [],
+    "y si no se puede derivar NADA, la lista va vacía: el guion cae a las rutas de verdad de siempre",
+)
+_guion_una, _banco_una, _ = _banco_preparador([
+    "10.44.0.0/24 dev eth0 proto kernel scope link src 10.44.0.10",
+    "10.44.1.0/24 via 10.44.0.12 dev eth0 proto static",
+])
+_corre_preparador(_guion_una, _banco_una, "sembrar")
+_DECLARADA_NUEVA = "10.44.0.0/24 10.44.1.0/24 10.44.2.0/24"
+# Se pasa IGUAL que el motor: la lista como ARGUMENTOS SEPARADOS, no entrecomillada (así se
+# cazó que sólo se leía el primero).
+igual(
+    _corre_preparador(_guion_una, _banco_una, "sembrado", *_DECLARADA_NUEVA.split())[0], "no",
+    "declarada una ruta NUEVA, `sembrado` contesta `no` AUNQUE las rutas del equipo todavía sean "
+    "las viejas: es lo que hace que el motor lo pida en la MISMA pasada",
+)
+igual(
+    _corre_preparador(_guion_una, _banco_una, "estado", *_DECLARADA_NUEVA.split())[0], "no",
+    "y el paso de LECTURA (`estado`) también: pide volver a preparar en vez de dar el área por buena",
+)
+# El `apply` de verdad: primero se escriben las rutas declaradas (área `routes`) y después se
+# siembra (área `monitorizacion`, que va después). Todo en la MISMA pasada.
+with open(os.path.join(_banco_una, "rutas"), "w", encoding="utf-8") as _f:
+    _f.write("10.44.0.0/24 dev eth0 proto kernel scope link src 10.44.0.10\n"
+             "10.44.1.0/24 via 10.44.0.12 dev eth0 proto static\n"
+             "10.44.2.0/24 via 10.44.0.13 dev eth0 proto static\n")
+_corre_preparador(_guion_una, _banco_una, "sembrar")
+igual(
+    _corre_preparador(_guion_una, _banco_una, "sembrado", *_DECLARADA_NUEVA.split())[0], "si",
+    "escritas las rutas nuevas y sembrado, la lectura con la declarada ya dice `si`: el área "
+    "convergió en UNA sola pasada, sin necesidad de otra",
+)
+igual(
+    _corre_preparador(_guion_una, _banco_una, "sembrado")[0], "si",
+    "y la lectura A MANO (sin argumento) coincide: la lista derivada del equipo es la declarada",
 )
 
 

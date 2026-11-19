@@ -100,7 +100,7 @@ CLAVE_EN_TEXTO = re.compile(
 # Una dirección IPv4 con máscara, y un rango `a-b` de un pool DHCP.
 IP_PATRON = re.compile(r"^\d{1,3}(\.\d{1,3}){3}(/\d{1,2})?$")
 # La cadencia del latido: número y unidad, tal y como los lee systemd (`30s`, `2min`, `1h`).
-CADENCIA_PATRON = re.compile(r"^[0-9]+(s|min|h|d)$")
+CADENCIA_PATRON = re.compile(r"^([0-9]+)(s|min|h|d)$")
 
 # El área `tunnel` no declara credenciales ni direcciones de casa: eso es entorno
 # (secrets.yml). Lo único que puede traer son los dos valores que un lab de verdad
@@ -871,10 +871,23 @@ def _validar_linux(declarado, etiqueta, rol, errores):
             )
         else:
             cada = (latido or {}).get("cada")
-            if cada is not None and not CADENCIA_PATRON.match(str(cada)):
+            cadencia = CADENCIA_PATRON.match(str(cada)) if cada is not None else None
+            if cada is not None and not cadencia:
                 errores.append(
                     f"`{etiqueta}` ({rol}): 'latido.cada' espera una cadencia "
                     f"(número y unidad: `30s`, `2min`, `1h`), y se declaró {cada!r}."
+                )
+            # Un CERO no es una cadencia: systemd lo lee como «borra la expresión del
+            # temporizador», así que el latido no se repetiría nunca y el equipo se caería
+            # de la tabla del router sin que ningún check se queje. Se caza aquí porque el
+            # lab no puede pedir en silencio un latido que no late (regla 15: el vocabulario
+            # es del motor, y lo que el motor admite lo dice él).
+            elif cadencia and int(cadencia.group(1)) == 0:
+                errores.append(
+                    f"`{etiqueta}` ({rol}): 'latido.cada' no puede ser CERO ({cada!r}): en "
+                    "systemd un cero BORRA la expresión del temporizador, así que el latido "
+                    "no se repetiría y el invitado se caería de la tabla del router sin que "
+                    "nada lo diga."
                 )
             sobran = sorted(set(latido or {}) - {"cada"})
             if sobran:

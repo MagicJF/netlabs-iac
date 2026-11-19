@@ -615,6 +615,29 @@ comprobar(
     ),
     "un `servicio` en blanco se caza igual: el espacio no es un nombre del vocabulario",
 )
+# Y la CADENCIA del latido: un cero no es una cadencia. systemd lo lee como «borra la
+# expresión del temporizador», así que el latido no se repetiría nunca y el invitado se
+# caería de la tabla del router sin que nada lo diga (hallazgo del revisor). Se caza con su
+# motivo -- y una cadencia de verdad sigue pasando, que un validador que caza de más es otro
+# bug.
+comprobar(
+    dice(
+        errores_de(
+            lambda d: d["containers"][0]["config"]["linux"].__setitem__("latido", {"cada": "0s"})
+        ),
+        "CERO",
+    ),
+    "una cadencia de CERO en el latido se caza: en systemd un cero BORRA el temporizador",
+)
+comprobar(
+    not dice(
+        errores_de(
+            lambda d: d["containers"][0]["config"]["linux"].__setitem__("latido", {"cada": "2min"})
+        ),
+        "CERO",
+    ),
+    "y una cadencia de verdad (`2min`) pasa: el que caza no caza de más",
+)
 
 if FALLOS:
     print(f"\nRESULTADO: {len(FALLOS)} fallo(s).")

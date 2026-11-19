@@ -105,6 +105,25 @@ boquete a mano).
 - **Un agente SNMP en cada invitado de zona** (ADR 0030 §4): no hace falta para que el nodo
   aparezca; queda para cuando se quiera información, no presencia.
 
+## Lo que la relectura cambió (y por qué)
+
+Tres cosas estaban mal, y las tres tienen ya su prueba:
+
+- **La red se derivaba del último octeto, no del prefijo.** Se calculaba `x.y.z.0/24` siempre:
+  un invitado en un `/16` no veía a sus pares fuera de ese `/24`, y uno en un `/25` peinaba
+  direcciones de fuera de su red. Ahora la red sale de la dirección **completa** y su prefijo.
+- **Los objetivos no seguían a la declaración.** La lectura comparaba contra lo que había en el
+  equipo, así que cambiar las rutas de un lab ya desplegado no se notaba y el vigilante seguía
+  sondeando las redes **viejas**. Ahora el motor calcula los objetivos **declarados** y se los
+  pasa a `estado`/`sembrado`, que corren antes de escribir las rutas: un `apply` que cambia las
+  rutas reescribe los objetivos en la MISMA pasada.
+- **La expectativa y lo que se escribe tienen que decir lo mismo.** Si el lab **no** declara el
+  área `routes`, la tabla del equipo se deja intacta (regla 17) y lo que se guarda es «la red
+  propia MÁS las rutas que ya tenía»: la expectativa es esa misma, la viva. Y «clave ausente»
+  no es «clave presente pero vacía»: `routes: []` significa que el área **sí** se gestiona y va
+  a borrar las rutas, así que ahí la expectativa es la red propia. Confundir las dos dejaba los
+  objetivos viejos en la lista para siempre y el área acababa cada pasada con un pendiente.
+
 ## Cómo se sabrá que funciona
 
 - **Prueba pura del motor** (`test/test_interior.py`): el sembrado ya no menciona

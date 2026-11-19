@@ -106,6 +106,21 @@ está), y la web no serviría jamás: el motor pediría recargar para siempre.
 - **Nada de fuera del área**: no se borran paquetes ajenos, y un Linux sin `servicio` no ve
   diferencia alguna.
 
+## Lo que la relectura cambió (y por qué)
+
+- **Instalar el servicio NO enciende la vigilancia.** Los ajustes de descubrimiento se movieron
+  detrás del área `monitorizacion`: un lab que sólo declara `servicio: netxms` —el 10— instala
+  el servidor y **no** empieza a peinar su red cada hora.
+- **Una caída de la API ya no puede borrar la base.** Si el login no responde o contesta un 5xx,
+  eso **no** es un rechazo de credenciales: se distingue (`si` / `rechaza` / `no-contesta`) y
+  `preparar` aborta sin `DROP DATABASE`. La inicialización automática queda para una base nueva
+  o un esquema vacío **de verdad**: una consulta que falla no es un esquema vacío. Y la marca de
+  sembrado exige un recuento válido y mayor que cero — una consulta rota no cierra el área.
+- **Las rutas que el invitado necesita sobreviven al reinicio** (se persisten además de
+  aplicarse), las rutas a un host se comparan normalizadas (con y sin `/32`, y `default` con
+  `0.0.0.0/0`), y una comunidad SNMP se repara **por sus permisos** —no por su nombre— si lleva
+  la marca del motor.
+
 ## Cómo se comprueba
 
 - **`test/test_interior.py`**: el contrato del 0027 sigue verde para `caddy` (fresco → cuatro

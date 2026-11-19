@@ -48,6 +48,30 @@ aquí está su entrada; los tres tienen que contar lo mismo, y eso es lo que vig
 
 ### Corregido
 
+- **Cuatro cosas que la relectura del PR cazó, todas con su prueba.** (1) Un lab que sólo declara
+  `servicio: netxms` —el 10— ya **no** enciende la vigilancia: los ajustes de descubrimiento
+  viven detrás del área `monitorizacion`. (2) Una **caída de la API** (sin respuesta, o un 5xx)
+  ya no se confunde con un rechazo de credenciales, así que `preparar` no puede borrar una base
+  poblada con un `DROP DATABASE`; la consulta que falla no es un esquema vacío, y la marca de
+  sembrado exige un recuento válido y mayor que cero. (3) Las rutas de un invitado Linux
+  **sobreviven al reinicio**, y las rutas a un host se comparan normalizadas (`/32` y
+  `10.44.1.5` son la misma; `default` y `0.0.0.0/0`, también). (4) La red del descubrimiento se
+  deriva del prefijo **completo**, no de un `/24` supuesto, y la lectura comprueba el `rc` de
+  `ip route` antes de creerse una tabla vacía.
+- **Los objetivos del vigilante comparan contra la DECLARACIÓN, no contra el equipo (ADR 0032).**
+  Si no, cambiar las rutas de un lab ya desplegado no se notaba —la marca de sembrado seguía
+  valiendo— y el vigilante seguía sondeando las redes **viejas**. Y «clave ausente» no es «clave
+  presente pero vacía»: `routes: []` declara el área y va a borrar las rutas, así que ahí la
+  expectativa es la red propia.
+- **La clave del motor se deja al CREAR, y si falta se para diciéndolo (ADR 0033).** Proxmox
+  admite `ssh-public-keys` sólo en el endpoint de creación (comprobado en su código: no está en
+  el esquema de configuración), así que un invitado que existía de antes sin ella no se puede
+  arreglar por la API: el motor reconoce la firma —«Permission denied (publickey)», `rc` 255—
+  y para con la causa y el remedio en vez de dejar un error que no explica nada.
+- **Un latido con cadencia CERO se caza en la declaración.** En systemd un cero BORRA la
+  expresión del temporizador: el latido no se repetiría y el invitado se caería de la topología
+  sin que nada lo dijera. El lector del latido compara además los **tres** artefactos (guion,
+  unidad y temporizador), no sólo el comentario.
 - **El plan cuenta como usadas las direcciones que reparte la propia pasada.** Dos invitados con
   pata de gestión creados en el MISMO plan derivaban la misma dirección del bridge del nodo (el
   bastión y un publicador salían los dos por la `10.10.10.254`, que además es la del propio

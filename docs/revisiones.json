@@ -185,12 +185,18 @@
   },
   "docs/decisiones/0028-el-area-servicio-aprende-netxms.md": {
     "citados": {
-      "deployment_engine/filter_plugins/interior.py": "0bb2579869b8489aad6dfb354554d3039e45c1cc66730aefa100dfbfd451892d"
+      "deployment_engine/filter_plugins/interior.py": "2d9123ae5e968a177d0b2056c7d7c34a856b5f79b10d70c5057f51eccdb75e92"
     }
   },
   "docs/decisiones/0032-el-rango-de-vigilancia-se-deriva-de-las-rutas.md": {
     "citados": {
-      "deployment_engine/filter_plugins/interior.py": "a297bd86096705a9240555b3d42d0bfd3979c78a7f7ce65808daf7533ce54e47"
+      "deployment_engine/filter_plugins/interior.py": "2d9123ae5e968a177d0b2056c7d7c34a856b5f79b10d70c5057f51eccdb75e92"
+    }
+  },
+  "docs/decisiones/0033-la-clave-se-deja-al-crear.md": {
+    "citados": {
+      "deployment_engine/tasks/interior_ssh.yml": "5c9a2d40892e6cd12e270941b349a26f227b7b6973bc83efaf1bdec9f1464412",
+      "deployment_engine/tools/plan.py": "38ca01ebc4f1b68e0df4240801e30e53ace770f93c4eb47c9b08ed4896c838a2"
     }
   },
   "docs/encargo-capa-de-configuracion.md": {

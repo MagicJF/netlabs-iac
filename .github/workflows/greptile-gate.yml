@@ -79,6 +79,9 @@ jobs:
           max_reintentos = int(os.environ.get("MAX_REINTENTOS", "2"))
           nombre = os.environ["NOMBRE_DEL_CHECK"]
           autor_greptile = os.environ["AUTOR_DE_GREPTILE"].lower()
+          # La marca con la que Greptile abre SU resumen (el comentario que puntúa y que EDITA
+          # en su sitio): sirve para elegirlo entre sus demás comentarios sin depender del orden.
+          MARCA_DEL_RESUMEN = "<!-- greptile_summary -->"
 
           def api(ruta, datos=None, metodo="GET"):
               peticion = urllib.request.Request(
@@ -123,6 +126,18 @@ jobs:
           de_greptile = [c for c in comentarios
                          if (c["user"]["login"] or "").lower() == autor_greptile]
 
+          # El RESUMEN se casa por su MARCA (`<!-- greptile_summary -->`), no por ser el último:
+          # Greptile publica además comentarios de revisión y de hallazgos fuera del diff, y
+          # quedarse con el último POR FECHA DE CREACIÓN leía uno de ésos -- sin puntuación -- y
+          # el candao se quedaba en «todavía no lleva puntuación» con el PR ya revisado a 5/5.
+          # Reproducido con datos reales (PR #15, 2026-11-19): el resumen se creó a las 23:59 y
+          # se EDITÓ a las 16:01 del día siguiente, mientras el de fuera del diff se creó a las
+          # 06:58 -- sin nota --; `[-1]` se quedaba con el segundo. La marca no se puede falsear
+          # por accidente: quien quiera aprobar código sin revisar tendría que imitar el resumen
+          # entero, y para eso ya está el candado por identidad exacta del autor.
+          resumenes = [c for c in de_greptile if MARCA_DEL_RESUMEN in (c["body"] or "")]
+          elegido = resumenes[-1] if resumenes else de_greptile[-1]
+
           def publicar(estado, descripcion):
               api(f"statuses/{sha}", {"state": estado, "context": nombre,
                                      "description": descripcion[:140]}, "POST")
@@ -132,7 +147,7 @@ jobs:
               publicar("pending", "todavía sin resumen de Greptile en el PR")
               raise SystemExit(0)
 
-          cuerpo = de_greptile[-1]["body"] or ""
+          cuerpo = elegido["body"] or ""
 
           # 3. La puntuación, del cuerpo.
           m = re.search(r"Confidence Score:\s*(\d+(?:\.\d+)?)\s*/\s*5", cuerpo, re.IGNORECASE)

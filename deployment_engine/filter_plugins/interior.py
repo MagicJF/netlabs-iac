@@ -2971,29 +2971,17 @@ respuesta_de_la_web() {
 #                    mirar. Una caída de conexión NO es un rechazo de credenciales (hallazgo
 #                    P1, PR #13).
 entra() {
+    # Pregunta al API y NO TOCA NADA: a esta función la llama la LECTURA (el motor lee antes de
+    # decidir), y una lectura que reinicia el servicio o reescribe la clave deja de ser una
+    # lectura: `verify` cambiaría el mundo que dice comprobar (hallazgo P1 del revisor, PR #16).
+    # La cura vive en `preparar`, que es quien escribe: allí, un `rechaza` prueba el camino
+    # BARATO (devolver el hash que `init` dejó) y sólo si eso tampoco deja entrar, rehace la base.
     i=0
-    repuesto=no
     while [ "$i" -lt 20 ]; do
         codigo=$(respuesta_de_la_web)
         [ "$codigo" = "201" ] && { echo si; return 0; }
         case "$codigo" in
-            4*)
-                # Un 4xx es «contesta y no acepta la clave». Y aquí hay una TRAMPA medida: el
-                # servidor REESCRIBE el hash al entrar y a partir de ahí todo login contesta 403,
-                # así que la primera lectura de una pasada deja la clave rota para la siguiente y
-                # el área `servicio` se quedaba «sin converger» para siempre: el segundo `apply`
-                # fallaba aunque no hubiera nada que hacer (regla 6, hallazgo P2 del revisor,
-                # reproducido con DOS applies seguidos). La respuesta de ANTES de reponer ya no
-                # vale, así que se repone -- UNA vez -- y se vuelve a preguntar AQUÍ MISMO:
-                # `entra` es el llamante que pregunta, y por eso puede decidir con la respuesta
-                # de después. Si aun así no entra, se dice `rechaza` y el motor ya decide.
-                if [ "$repuesto" = "no" ] && reponer_clave; then
-                    repuesto=si
-                    i=0
-                    sleep 2
-                    continue
-                fi
-                echo rechaza; return 0 ;;
+            4*) echo rechaza; return 0 ;;
         esac
         i=$((i + 1)); sleep 3
     done
@@ -3009,8 +2997,6 @@ entra() {
 # volver a PREGUNTAR (hallazgo P1, PR #13).
 reponer_clave() {
     [ -s "$CLAVE_BUENA" ] || return 1
-    systemctl stop netxms-server >/dev/null 2>&1
-    sleep 2
     # TRAMPA MEDIDA: el hash LLEVA `$` (`$argon2id$v=19$...`) y `como_postgres` lo pasa por
     # `su postgres -c`, que es un SEGUNDO shell. Metido dentro de su cadena, `$argon2id` y `$v`
     # los expandía ESE shell a vacío: la contraseña quedaba escrita como basura, el servidor la
@@ -3019,9 +3005,20 @@ reponer_clave() {
     # Por eso el valor NO viaja dentro de ninguna orden: `printf` lo escribe tal cual (la marca de
     # formato no re-expande nada) a un fichero que psql lee con `-f`, y ese fichero se borra en el
     # acto. El fichero es para `postgres`, que es quien lo abre: dueño y modo, explícitos.
+    #
+    # El fichero va PRIMERO y el servicio se para DESPUÉS: si algo falla aquí, el servicio no se
+    # ha tocado y sigue como estaba. Y si se para, se arranca SIEMPRE -- el `systemctl start` no
+    # depende de que las órdenes de en medio hayan salido bien: un `set -e` de facto que dejara
+    # NetXMS apagado sería peor que no reponer nada (hallazgo P1 del revisor, PR #16).
     clave_sql=$(mktemp) || return 1
-    printf "update users set password = '%%s' where id=1;\n" "$(cat "$CLAVE_BUENA")" > "$clave_sql"
-    chown postgres "$clave_sql" && chmod 600 "$clave_sql"
+    if ! printf "update users set password = '%%s' where id=1;\n" "$(cat "$CLAVE_BUENA")" > "$clave_sql"; then
+        rm -f "$clave_sql"; return 1
+    fi
+    if ! chown postgres "$clave_sql" || ! chmod 600 "$clave_sql"; then
+        rm -f "$clave_sql"; return 1
+    fi
+    systemctl stop netxms-server >/dev/null 2>&1
+    sleep 2
     como_postgres "psql -q -d %(bd)s -f $clave_sql"
     rm -f "$clave_sql"
     systemctl start netxms-server >/dev/null 2>&1

@@ -1958,12 +1958,25 @@ comprobar(
 comprobar(
     "4*)" in _PREPARADOR_NETXMS
     and _PREPARADOR_NETXMS.index("4*)") < _PREPARADOR_NETXMS.index("echo rechaza")
-    and 'if [ "$repuesto" = "no" ] && reponer_clave; then' in _PREPARADOR_NETXMS
-    and _PREPARADOR_NETXMS.count("repuesto=no") == 1,
+    and "repuesto" not in _PREPARADOR_NETXMS,
     "y una caída de conexión (000) o un 5xx NUNCA se toman por un rechazo de credenciales: sólo "
-    "un 4xx -- el servidor CONTESTA y no acepta la clave -- llega al camino de rehacer la base, "
-    "y antes de eso se repone la clave UNA sola vez y se vuelve a preguntar (hallazgo P1, PR #13; "
-    "el 403 que deja el primer login es lo que el segundo apply del ciclo destapa, regla 6)",
+    "un 4xx -- el servidor CONTESTA y no acepta la clave -- llega al camino de rehacer la base",
+)
+comprobar(
+    "reponer_clave" not in _PREPARADOR_NETXMS.split("entra() {")[1].split("\n}")[0]
+    and "reponer_clave" in _PREPARADOR_NETXMS.split("preparar)")[1],
+    "y la cura NO vive en `entra`, que es lo que llama la LECTURA: una lectura que reinicia el "
+    "servicio o reescribe la clave deja de ser una lectura, y `verify` cambiaría el mundo que dice "
+    "comprobar (hallazgo P1 del revisor, PR #16). Vive en `preparar`, que es quien escribe: allí un "
+    "`rechaza` prueba el camino barato y sólo si eso no basta se rehace la base",
+)
+comprobar(
+    _PREPARADOR_NETXMS.index("clave_sql=$(mktemp)")
+    < _PREPARADOR_NETXMS.index("systemctl stop netxms-server")
+    and _PREPARADOR_NETXMS.count("systemctl start netxms-server") >= 1,
+    "y reponer la clave tiene el ORDEN que no deja al vigilante apagado: el fichero se escribe "
+    "ANTES de parar el servicio -- si falla, no se ha tocado nada -- y el `systemctl start` va "
+    "después y sin condición, para que un fallo de en medio no lo deje caído (hallazgo P1, PR #16)",
 )
 comprobar(
     'salida=$(curl' in _PREPARADOR_NETXMS

@@ -39,6 +39,13 @@ aquí está su entrada; los tres tienen que contar lo mismo, y eso es lo que vig
   (medido: de 9 equipos vigilados a 3). Ahora el valor no viaja dentro de ninguna orden: `printf`
   lo escribe a un fichero que psql lee con `-f`, y el fichero se borra en el acto. El patrón viejo,
   reproducido en shell, escribía `password='='=19=65536''`; la prueba de regresión lo caza.
+- **Lo que cazó el revisor en el PR #16, y era verdad:** (a) la cura vivía dentro de `entra`, que
+  es lo que llama la LECTURA, así que `verify` reiniciaba el servicio y le reescribía la clave: una
+  lectura que cambia el mundo que dice comprobar. Se movió a `preparar`, que es quien escribe —allí
+  un `rechaza` prueba el camino barato y sólo si eso no basta se rehace la base—; (b) el fichero
+  temporal se creaba DESPUÉS de parar el servicio, así que un fallo suyo dejaba NetXMS apagado:
+  ahora el fichero va primero y el arranque es incondicional. Y la prueba de la consola LLAMA a la
+  creación en vez de leer su código.
 - **Y funcionó, medido:** con el `destroy → apply → verify` sale **CORRECTO** y **12/12** invitados
   leídos por dentro y coincidentes. La única pasada que se paró fue un corte de la conexión al
   RELEER un invitado (el motor lo trata como «no llegué» y PARA, en vez de dar por bueno lo que no

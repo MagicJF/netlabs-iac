@@ -661,12 +661,14 @@ def _parametros_creacion(guest, lab, declaracion, estado, parametros):
                 modulo_interior.necesita_pata_de_gestion(guest)
                 or modulo_interior.el_motor_entra(guest)):
             creado["ssh-public-keys"] = parametros["tunnel_clave_publica"]
-        # Y su consola tiene que dar una SHELL, no un `login`. Es por donde el motor le
-        # pone el arranque del túnel, UNA vez (§5): con el `cmode` de fábrica (`tty`)
-        # la consola pide usuario y contraseña, y la línea se quedaría escrita en un
-        # prompt de login sin que nadie la leyera. Medido en el código de PVE:
-        # `cmode: shell` entrega la shell de root directamente en la consola.
-        if modulo_interior.tiene_tunnel(guest):
+        # Y su consola tiene que dar una SHELL, no un `login`. Se decide con la MISMA condición
+        # que la expectativa (`necesita_pata_de_gestion`): si aquí se usara otra -- y usaba
+        # `tiene_tunnel` --, un invitado con pata de gestión y sin túnel, como el `monitor` del
+        # 08, nacía con el `tty` de fábrica mientras el plan esperaba `shell`, y el apply
+        # siguiente escribía un cambio que el primero debió dejar hecho: la segunda pasada NO
+        # era `changed=0` (regla 6; hallazgo P2 del revisor, reproducido leyendo las dos
+        # condiciones y atado con una prueba que las compara).
+        if modulo_interior.necesita_pata_de_gestion(guest):
             creado["cmode"] = "shell"
         return creado
 

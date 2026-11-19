@@ -22,13 +22,16 @@
 #              docs/decisiones/0026-un-equipo-una-responsabilidad... y el §5 del README
 
 import copy
+import inspect
 import os
 import sys
 
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(RAIZ, "deployment_engine", "tools"))
+sys.path.insert(0, os.path.join(RAIZ, "deployment_engine", "filter_plugins"))
 
 import plan as modulo  # noqa: E402
+import interior as modulo_interior  # noqa: E402  (el predicado de la consola: el MISMO que usa la creación)
 
 FALLOS = []
 
@@ -282,6 +285,52 @@ for guest, puentes in ((DOS_PATAS, ["vmb_gestion", "vmb_lan"]),):
 comprobar(
     comprobado,
     "los bridges que crear escribe y los que comparar espera son los MISMOS: una sola fuente",
+)
+
+# La creación y la expectativa tienen que decir lo MISMO sobre `cmode`. Con condiciones distintas
+# -- y eran `tiene_tunnel` y `necesita_pata_de_gestion` -- un invitado con pata de gestión y sin
+# túnel, como el `monitor` del 08, nacía con el `tty` de fábrica mientras el plan esperaba
+# `shell`: el apply siguiente escribía un cambio que el primero debió dejar hecho, y la segunda
+# pasada dejaba de ser `changed=0` (regla 6; hallazgo P2 del revisor, reproducido leyendo las dos
+# condiciones). La prueba LLAMA a la creación -- no lee su código -- sustituyendo el único tramo
+# que necesita mirar el mundo (el reparto de direcciones) para poder llamarla con un invitado de
+# mentira; el ciclo real lo comprueba además de punta a punta con DOS `apply` seguidos.
+_MONITOR_08 = {
+    "rol": "monitor", "nombre": "srv-monitor", "tipo": "lxc", "stage": 1, "vmid": 110,
+    "cores": 2, "memory": 2048, "disk": 8, "bridge": "vmb_fw_gestion",
+    "address": "10.44.0.20/24", "descripcion": "lab=08 rol=monitor",
+    "servicio": "netxms", "config": {"linux": {"servicio": {"nombre": "netxms"}}},
+}
+_PARAMETROS = {"ostemplate_lxc": "local:vztmpl/debian.tar.zst", "tunnel_clave_publica": ""}
+_REPARTIR_DE_VERDAD = modulo._redes_del_guest
+modulo._redes_del_guest = lambda *argumentos, **opciones: {}
+try:
+    _creado_con_pata = modulo._parametros_creacion(_MONITOR_08, "08", {}, {}, _PARAMETROS)
+    _sin_pata = dict(_MONITOR_08, config={}, servicio="")
+    _creado_sin_pata = modulo._parametros_creacion(_sin_pata, "08", {}, {}, _PARAMETROS)
+finally:
+    modulo._redes_del_guest = _REPARTIR_DE_VERDAD
+comprobar(
+    modulo_interior.necesita_pata_de_gestion(_MONITOR_08) is True
+    and modulo_interior.necesita_pata_de_gestion(_sin_pata) is False
+    and _creado_con_pata.get("cmode") == "shell"
+    and _creado_con_pata.get("cmode") == modulo._esperado_del_guest(_MONITOR_08).get("cmode")
+    and "cmode" not in _creado_sin_pata
+    and "cmode" not in modulo._esperado_del_guest(_sin_pata),
+    "la consola del invitado la decide la MISMA condición que la expectativa "
+    "(`necesita_pata_de_gestion`) llamada de verdad: lo que CREA el invitado y lo que ESPERA de "
+    "él dicen lo mismo, y el que no publica servicio ni lleva interior no nace con consola ninguna",
+)
+igual(
+    modulo._esperado_del_guest(_MONITOR_08).get("cmode"),
+    "shell",
+    "y un invitado con pata de gestión y sin túnel -- el `monitor` del 08 -- espera `shell` de "
+    "verdad: es la otra mitad del contrato que la creación tiene que cumplir en la misma pasada",
+)
+comprobar(
+    not modulo_interior.tiene_tunnel(_MONITOR_08),
+    "el caso que se está atando no lleva túnel: es justo el que se escapaba entre las dos "
+    "condiciones",
 )
 
 if FALLOS:

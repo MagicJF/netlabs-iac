@@ -120,6 +120,15 @@ está), y la web no serviría jamás: el motor pediría recargar para siempre.
   aplicarse), las rutas a un host se comparan normalizadas (con y sin `/32`, y `default` con
   `0.0.0.0/0`), y una comunidad SNMP se repara **por sus permisos** —no por su nombre— si lleva
   la marca del motor.
+- **Y el rechazo de credenciales dejó de ser una condena** (medido, y costó medio día verlo):
+  reponer la clave buena escribía la contraseña **corrupta**, porque el hash lleva `$`
+  (`$argon2id$v=19$…`) y viajaba dentro de la cadena de `como_postgres` — que es `su postgres -c`,
+  un **segundo shell**—: ahí `$argon2id` se expandía a vacío. El login no se recuperaba nunca, así
+  que el `DROP DATABASE` acababa siendo la salida de todos los días, con el descubrimiento dentro
+  (de 9 equipos vigilados a 3). Ahora el valor no viaja dentro de ninguna orden —`printf` a un
+  fichero que psql lee con `-f`— y la base sólo se rehace cuando de verdad hay que rehacerla. Ojo
+  con el fichero que guarda la clave: si es de una pasada vieja, reponerlo repone basura y no
+  arregla nada; por eso se refresca al rehacer la base.
 
 ## Cómo se comprueba
 

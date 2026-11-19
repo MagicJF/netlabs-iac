@@ -1935,6 +1935,20 @@ comprobar(
     "reponer se VUELVE A PREGUNTAR: decidir con la respuesta vieja no vale (hallazgo P1, PR #13)",
 )
 comprobar(
+    "clave_sql=$(mktemp)" in _PREPARADOR_NETXMS
+    and "-f $clave_sql" in _PREPARADOR_NETXMS
+    and 'chown postgres "$clave_sql"' in _PREPARADOR_NETXMS
+    and 'buena=$(cat "$CLAVE_BUENA")' not in _PREPARADOR_NETXMS
+    and "password='$buena'" not in _PREPARADOR_NETXMS,
+    "y el valor de la clave NO viaja DENTRO de ninguna orden: `como_postgres` mete la cadena en "
+    "`su postgres -c`, que es un SEGUNDO shell, y un hash que lleva `$` ($argon2id$v=19$…) salía "
+    "de ahí con sus `$` expandidos a vacío -- la clave quedaba escrita como basura, el servidor "
+    "la rechazaba y todo login contestaba 403: el área `servicio` no convergía NUNCA y la única "
+    "salida aparente era tirar la base (medido; el patrón viejo reproducido en shell: "
+    "password='='=19=65536''). Se escribe con `printf` -- que no re-expande -- a un fichero que "
+    "psql lee con `-f`, y el fichero se borra en el acto",
+)
+comprobar(
     'if [ "$esquema_actual" != "si" ] || [ "$se_entra" = "rechaza" ]; then' in _PREPARADOR_NETXMS
     and "no-contesta" in _PREPARADOR_NETXMS,
     "y la sonda del API distingue TRES casos -- `si` / `rechaza` / `no-contesta` -- y sólo "
@@ -1942,11 +1956,27 @@ comprobar(
     "tiraba el descubrimiento entero (medido)",
 )
 comprobar(
-    'case "$codigo" in\n            4*) echo rechaza' in _PREPARADOR_NETXMS
-    or '4*) echo rechaza' in _PREPARADOR_NETXMS,
+    "4*)" in _PREPARADOR_NETXMS
+    and _PREPARADOR_NETXMS.index("4*)") < _PREPARADOR_NETXMS.index("echo rechaza")
+    and "repuesto" not in _PREPARADOR_NETXMS,
     "y una caída de conexión (000) o un 5xx NUNCA se toman por un rechazo de credenciales: sólo "
-    "un 4xx -- el servidor CONTESTA y no acepta la clave -- abre el camino de rehacer la base "
-    "(hallazgo P1, PR #13)",
+    "un 4xx -- el servidor CONTESTA y no acepta la clave -- llega al camino de rehacer la base",
+)
+comprobar(
+    "reponer_clave" not in _PREPARADOR_NETXMS.split("entra() {")[1].split("\n}")[0]
+    and "reponer_clave" in _PREPARADOR_NETXMS.split("preparar)")[1],
+    "y la cura NO vive en `entra`, que es lo que llama la LECTURA: una lectura que reinicia el "
+    "servicio o reescribe la clave deja de ser una lectura, y `verify` cambiaría el mundo que dice "
+    "comprobar (hallazgo P1 del revisor, PR #16). Vive en `preparar`, que es quien escribe: allí un "
+    "`rechaza` prueba el camino barato y sólo si eso no basta se rehace la base",
+)
+comprobar(
+    _PREPARADOR_NETXMS.index("clave_sql=$(mktemp)")
+    < _PREPARADOR_NETXMS.index("systemctl stop netxms-server")
+    and _PREPARADOR_NETXMS.count("systemctl start netxms-server") >= 1,
+    "y reponer la clave tiene el ORDEN que no deja al vigilante apagado: el fichero se escribe "
+    "ANTES de parar el servicio -- si falla, no se ha tocado nada -- y el `systemctl start` va "
+    "después y sin condición, para que un fallo de en medio no lo deje caído (hallazgo P1, PR #16)",
 )
 comprobar(
     'salida=$(curl' in _PREPARADOR_NETXMS
@@ -2351,7 +2381,7 @@ comprobar(
 # --- El área `routes` de un Linux: el camino, declarado por el lab ----------------------
 igual(
     [o["op"] for o in motor._routes_canonicas(
-        [{"dst_address": "10.44.1.0/24", "gateway": "10.44.0.11"}], {"estaticas": []}, gobierna_por_defecto=False)],
+        [{"dst_address": "10.44.1.0/24", "gateway": "10.44.0.11"}], {"estaticas": []}, gobierna_por_defecto=False, persistir=False)],
     ["add_route"],
     "una ruta declarada que no está, se pone: es el camino a las zonas que el lab le da al "
     "bastión -- sin él el motor no llega a los invitados que el lab pone detrás de un fw",
@@ -2359,14 +2389,14 @@ igual(
 igual(
     [o["op"] for o in motor._routes_canonicas(
         [{"dst_address": "10.44.1.0/24", "gateway": "10.44.0.11"}],
-        {"estaticas": [{"dst_address": "10.44.1.0/24", "gateway": "10.44.0.11"}]}, gobierna_por_defecto=False)],
+        {"estaticas": [{"dst_address": "10.44.1.0/24", "gateway": "10.44.0.11"}]}, gobierna_por_defecto=False, persistir=False)],
     [],
     "y puesta, no se toca: la lectura saca el mismo par (destino, pasarela) que se declaró, "
     "así que la segunda pasada no hace nada (regla 6)",
 )
 igual(
     [o["op"] for o in motor._routes_canonicas(
-        [], {"estaticas": [{"dst_address": "10.44.9.0/24", "gateway": "10.44.0.11"}]}, gobierna_por_defecto=False)],
+        [], {"estaticas": [{"dst_address": "10.44.9.0/24", "gateway": "10.44.0.11"}]}, gobierna_por_defecto=False, persistir=False)],
     ["remove_route"],
     "y dentro de un área declarada, lo que no está en el YAML se quita (regla 17): una ruta "
     "estática que sobra se va -- el área gobierna lo que declara, ni más ni menos",
@@ -2440,21 +2470,21 @@ igual(
 igual(
     [o["op"] for o in motor._routes_canonicas(
         [{"dst_address": "0.0.0.0/0", "gateway": "10.44.0.1"}],
-        {"estaticas": [{"dst_address": "default", "gateway": "10.44.0.1"}]}, gobierna_por_defecto=False)],
+        {"estaticas": [{"dst_address": "default", "gateway": "10.44.0.1"}]}, gobierna_por_defecto=False, persistir=False)],
     [],
     "una ruta por defecto declarada `0.0.0.0/0` y leída como `default` son la misma ruta",
 )
 igual(
     [o["op"] for o in motor._routes_canonicas(
         [{"dst_address": "10.44.1.5/32", "gateway": "10.44.0.12"}],
-        {"estaticas": [{"dst_address": "10.44.1.5", "gateway": "10.44.0.12"}]}, gobierna_por_defecto=False)],
+        {"estaticas": [{"dst_address": "10.44.1.5", "gateway": "10.44.0.12"}]}, gobierna_por_defecto=False, persistir=False)],
     [],
     "y una ruta a un HOST (`/32`) y su forma sin barra también: no se borra la que se acaba de poner "
     "(hallazgos P1, PR #13)",
 )
 igual(
     [o["op"] for o in motor._routes_canonicas(
-        [], {"estaticas": [{"dst_address": "default", "gateway": "10.44.0.1"}]}, gobierna_por_defecto=False)],
+        [], {"estaticas": [{"dst_address": "default", "gateway": "10.44.0.1"}]}, gobierna_por_defecto=False, persistir=False)],
     [],
     "y una ruta por defecto NO se quita aunque no se declare: en un Linux la pone la plataforma "
     "al crear el invitado y el motor no la posee -- borrarla lo dejaría sin internet antes de "
@@ -2603,35 +2633,84 @@ for _caso in ("cero", "fallo"):
 CONTROL_SOLO_RUTAS = dict(CONTROL, config={"linux": {
     "routes": [{"dst_address": "10.44.1.0/24", "gateway": "10.44.0.12"}],
 }})
+# La lectura del área `routes` de un Linux, tal y como la devuelve el motor: la tabla EN MARCHA
+# en el primer bloque y, detrás, los DOS artefactos que la reponen al arrancar y si la unidad
+# está habilitada. Construirla aquí es lo que hace que la prueba mire lo que el motor mira.
+def _leido_rutas_linux(lineas_rutas, ficheros=None, habilitada=True):
+    partes = ["\n".join(lineas_rutas)]
+    partes += list(ficheros) if ficheros is not None else ["SIN-FICHERO", "SIN-FICHERO"]
+    partes.append("enabled" if habilitada else "disabled")
+    return motor.leido_linux([
+        {"area": "address", "rc": 0,
+         "encontrado": "2: eth0    inet 10.60.0.10/24 brd 10.60.0.255 scope global eth0\n"},
+        {"area": "routes", "rc": 0, "encontrado": motor.SEPARADOR.join(partes)},
+    ])
+
+
+_RUTAS_CONTROL = [{"dst_address": "10.44.1.0/24", "gateway": "10.44.0.12"}]
+# Los dos artefactos EN EL ORDEN EN QUE LOS DEVUELVE LA LECTURA -- el guion primero, la unidad
+# después --, no en el que los tenga dentro `rutas_persistentes`: fiarse de ese orden fue el fallo
+# que dejó al `monitor` del 08 sin converger jamás, y esta prueba lo tenía igual de escondido.
+_FICHEROS_RUTAS = motor.rutas_persistentes(_RUTAS_CONTROL)
+_FICHEROS_RUTAS = [_FICHEROS_RUTAS[motor.RUTA_RUTAS],
+                   _FICHEROS_RUTAS["/etc/systemd/system/" + motor.UNIDAD_RUTAS]]
 igual(
     motor.pasos_de_convergencia(CONTROL_SOLO_RUTAS, IDENTIDAD, DECLARACION, {
         "alcanzable": True,
-        "areas": motor.leido_linux([
-            {"area": "address", "rc": 0,
-             "encontrado": "2: eth0    inet 10.60.0.10/24 brd 10.60.0.255 scope global eth0\n"},
-            {"area": "routes", "rc": 0,
-             "encontrado": "10.44.1.0/24 via 10.44.0.12 dev eth0\n"
-                           "default via 10.60.0.1 dev eth0\n"},
-        ]),
+        "areas": _leido_rutas_linux(["10.44.1.0/24 via 10.44.0.12 dev eth0",
+                                     "default via 10.60.0.1 dev eth0"], _FICHEROS_RUTAS),
     }, PARAMETROS),
     [],
-    "un Linux CONVERGIDO no genera ni un paso aunque traiga la ruta por defecto de la plataforma: "
-    "quien la posee lo decide el tipo de equipo, en el sitio de llamada",
+    "un Linux CONVERGIDO no genera ni un paso: ni por la tabla, ni por los ficheros que la "
+    "repiten al arrancar, ni por la ruta por defecto que le puso la plataforma",
 )
 igual(
     [p["parametros"]["operaciones"] for p in motor.pasos_de_convergencia(
         CONTROL_SOLO_RUTAS, IDENTIDAD, DECLARACION, {
             "alcanzable": True,
-            "areas": motor.leido_linux([
-                {"area": "address", "rc": 0,
-                 "encontrado": "2: eth0    inet 10.60.0.10/24 brd 10.60.0.255 scope global eth0\n"},
-                {"area": "routes", "rc": 0,
-                 "encontrado": "default via 10.60.0.1 dev eth0\n"},
-            ]),
+            "areas": _leido_rutas_linux(["default via 10.60.0.1 dev eth0"]),
         }, PARAMETROS)],
-    [[{"op": "add_route", "dst_address": "10.44.1.0/24", "gateway": "10.44.0.12"}]],
-    "y si le falta la ruta declarada se pone ESA, y sólo esa: la salida de la plataforma ni se "
-    "toca ni se cuenta",
+    [[{"op": "add_route", "dst_address": "10.44.1.0/24", "gateway": "10.44.0.12"},
+      {"op": "write_routes"}]],
+    "y si le faltan la ruta y los ficheros, se pone ESA ruta y se dejan escritos los dos "
+    "artefactos: la tabla sola no sobrevive a un reinicio",
+)
+igual(
+    [p["parametros"]["operaciones"] for p in motor.pasos_de_convergencia(
+        CONTROL_SOLO_RUTAS, IDENTIDAD, DECLARACION, {
+            "alcanzable": True,
+            "areas": _leido_rutas_linux(["10.44.1.0/24 via 10.44.0.12 dev eth0"],
+                                        _FICHEROS_RUTAS, habilitada=False),
+        }, PARAMETROS)],
+    [[{"op": "write_routes"}]],
+    "y con la tabla PERFECTA y la unidad deshabilitada se repara igual: el fallo que cazó el "
+    "revisor era justo ése -- la tabla ya coincidía y el apply no tocaba nada, así que un "
+    "reinicio se llevaba el camino a las zonas y el vigilante se quedaba ciego",
+)
+igual(
+    motor._routes_canonicas(
+        _RUTAS_CONTROL,
+        {"estaticas": _RUTAS_CONTROL, "habilitada": True, "ficheros_leidos": _FICHEROS_RUTAS},
+        gobierna_por_defecto=False, persistir=True,
+    ),
+    [],
+    "con la tabla y los ficheros en su sitio, el área de rutas de un Linux no tiene nada que hacer",
+)
+igual(
+    [o["op"] for o in motor._routes_canonicas(
+        _RUTAS_CONTROL,
+        {"estaticas": _RUTAS_CONTROL, "habilitada": False, "ficheros_leidos": []},
+        gobierna_por_defecto=False, persistir=True)],
+    ["write_routes"],
+    "y con los ficheros perdidos pide reponerlos AUNQUE la tabla ya coincida",
+)
+igual(
+    [o["op"] for o in motor._routes_canonicas(
+        _RUTAS_CONTROL,
+        {"estaticas": _RUTAS_CONTROL, "habilitada": False, "ficheros_leidos": []},
+        gobierna_por_defecto=True, persistir=False)],
+    [],
+    "y en un ROUTER no: ahí su configuración la guarda el equipo, no el motor",
 )
 
 # Y la red del guion, EJECUTADA de verdad. El revisor dijo que el guion «descarta el prefijo y
@@ -2676,8 +2755,7 @@ comprobar(
 igual(
     motor._routes_canonicas(
         [], {"estaticas": [{"dst_address": "default", "gateway": "10.44.0.254"}]},
-        gobierna_por_defecto=False,
-    ),
+        gobierna_por_defecto=False, persistir=False),
     [],
     "la ruta POR DEFECTO de un Linux NO se borra: la pone la plataforma al crearlo y no es de "
     "esta área -- si entrara en la comparación, se la quitaría y lo dejaría sin internet",
@@ -2687,8 +2765,7 @@ igual(
         [{"dst_address": "10.44.1.0/24", "gateway": "10.44.0.12"}],
         {"estaticas": [{"dst_address": "10.44.1.0/24", "gateway": "10.44.0.12"},
                        {"dst_address": "default", "gateway": "10.44.0.254"}]},
-        gobierna_por_defecto=False,
-    ),
+        gobierna_por_defecto=False, persistir=False),
     [],
     "y con las rutas de las zonas declaradas tampoco sobra nada: el caso del lab 08",
 )
@@ -2696,8 +2773,7 @@ igual(
     motor._routes_canonicas(
         [{"dst_address": "0.0.0.0/0", "gateway": "10.60.0.1"}],
         {"estaticas": []},
-        gobierna_por_defecto=True,
-    ),
+        gobierna_por_defecto=True, persistir=False),
     [{"op": "add_route", "dst_address": "0.0.0.0/0", "gateway": "10.60.0.1"}],
     "en un ROUTER la ruta por defecto sí se posee: es su salida, y se pone si falta -- la "
     "misma área, dos dueños, y el dueño lo dice el tipo de equipo",

@@ -18,6 +18,44 @@ aquí está su entrada; los tres tienen que contar lo mismo, y eso es lo que vig
 
 ## [No publicado]
 
+### Arreglado
+
+- **La persistencia de las rutas se repara aunque la tabla ya coincida.** Un invitado Linux con
+  rutas declaradas y los ficheros que las reponen al arrancar perdidos —o su unidad
+  deshabilitada— se daba por convergido, y el primer reinicio se llevaba el camino a las zonas
+  (y al vigilante con él). Ahora el área lee también esos ficheros y, si faltan, los reescribe
+  sin tocar la tabla. Se reproduce en `test/test_interior.py`; lo cazó el revisor (P1, PR #13).
+- **La consola del invitado se decide con una sola condición.** La creación la ponía en `shell`
+  sólo a los invitados con túnel mientras el plan la esperaba en todo el que tenga pata de
+  gestión, así que un invitado como el `monitor` del 08 nacía en `tty` y el `apply` siguiente
+  escribía un cambio que el primero debía haber dejado hecho: la segunda pasada no era
+  `changed=0` (regla 6). Las dos condiciones se atan en `test/test_plan.py` y el ciclo lo
+  comprueba con DOS `apply` seguidos (P2, PR #13).
+- **La clave del vigilante se reponía ROTA, y con ella caía el ciclo entero.** `reponer_clave`
+  metía el hash dentro de la cadena de `como_postgres`, que es `su postgres -c`: un SEGUNDO shell.
+  El hash lleva `$` (`$argon2id$v=19$…`) y ese segundo shell expandía `$argon2id` y `$v` a vacío,
+  así que escribía basura. El servidor la rechazaba, todo login contestaba 403, `entra` acababa en
+  `rechaza` y la única salida que quedaba era rehacer la base — con el descubrimiento dentro
+  (medido: de 9 equipos vigilados a 3). Ahora el valor no viaja dentro de ninguna orden: `printf`
+  lo escribe a un fichero que psql lee con `-f`, y el fichero se borra en el acto. El patrón viejo,
+  reproducido en shell, escribía `password='='=19=65536''`; la prueba de regresión lo caza.
+- **Lo que cazó el revisor en el PR #16, y era verdad:** (a) la cura vivía dentro de `entra`, que
+  es lo que llama la LECTURA, así que `verify` reiniciaba el servicio y le reescribía la clave: una
+  lectura que cambia el mundo que dice comprobar. Se movió a `preparar`, que es quien escribe —allí
+  un `rechaza` prueba el camino barato y sólo si eso no basta se rehace la base—; (b) el fichero
+  temporal se creaba DESPUÉS de parar el servicio, así que un fallo suyo dejaba NetXMS apagado:
+  ahora el fichero va primero y el arranque es incondicional. Y la prueba de la consola LLAMA a la
+  creación en vez de leer su código.
+- **Y funcionó, medido:** con el `destroy → apply → verify` sale **CORRECTO** y **12/12** invitados
+  leídos por dentro y coincidentes. La única pasada que se paró fue un corte de la conexión al
+  RELEER un invitado (el motor lo trata como «no llegué» y PARA, en vez de dar por bueno lo que no
+  puede confirmar); el reintento de `apply` —idempotente— la cerró. Antes de esto el mismo lab no
+  podía salir verde: cada login rechazado acababa rehaciendo la base.
+- **Dos piezas, y la segunda se midió a mano:** (a) el valor ya no se corrompe (arriba); (b) la
+  clave que se guarda para reponer se REFRESCA cuando la base se rehace. Restaurar una clave
+  guardada por una pasada vieja repone basura y no arregla nada — eso es exactamente lo que se
+  midió en el invitado que arrastraba las pasadas anteriores, con el arreglo (a) ya puesto.
+
 ### Añadido
 
 - **El `latido`: aparecer en la topología sin agente y sin abrir camino (ADR 0031).** Un

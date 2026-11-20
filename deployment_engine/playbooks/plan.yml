@@ -78,6 +78,7 @@
           tunnel_usuario: "{{ pve_tunnel_usuario | default('') }}"
           tunnel_puerto_base: "{{ engine_tunnel_puerto_base }}"
           tunnel_rest_puerto_base: "{{ engine_tunnel_rest_puerto_base }}"
+          tunnel_web_puerto_base: "{{ engine_tunnel_web_puerto_base }}"
           # El prefijo de las MAC: la identidad de un invitado con varias interfaces
           # sale de aquí (una MAC por interfaz, derivada del vmid; ver
           # `identidad_mac_de_interface`).

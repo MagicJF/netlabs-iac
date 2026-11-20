@@ -562,6 +562,17 @@ def _validar_interior(guest, etiqueta, rol, errores):
             "vocabulario es cerrado: una primitiva nueva se añade al motor, con ADR."
         )
 
+    # El área `terminal` no se sostiene sola: el terminal SSH embebido lo presta un SERVICIO
+    # (el vigilante), así que declararla sin `servicio: netxms` sería pedir una consola que no
+    # existe. Se dice aquí, antes de tocar nada, en vez de dejar que la convergencia falle a
+    # mitad (ADR 0035).
+    if "terminal" in declarado and str(declarado.get("servicio") or "") != "netxms":
+        errores.append(
+            f"`{etiqueta}` ({rol}): declara el área 'terminal' pero su `servicio` es "
+            f"'{declarado.get('servicio') or ''}'. El terminal SSH lo presta el vigilante "
+            "NetXMS: o se declara `servicio: netxms` en el mismo equipo, o no hay terminal."
+        )
+
     # Y el TIPO manda sobre las áreas (ADR 0026): un equipo hace UNA cosa. Va DESPUÉS del
     # vocabulario a propósito -- primero se dice si el área existe, y sólo si existe se
     # discute si le toca a este equipo. Un motivo por área, no un «no puedes».

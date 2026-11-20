@@ -197,6 +197,9 @@ engine_tunnel_puerto_base: 20000
 # ejecuta en la máquina del motor en vez de delegado al puesto (medido: 4,4 s -> ~0,3 s
 # por llamada). DERIVADO del vmid, como el del túnel; la banda no pisa la de arriba.
 engine_tunnel_rest_puerto_base: 21000
+# La banda de las webs publicadas (el inventario): 22000 + vmid, para no pisar ni el túnel
+# (20000+) ni el REST (21000+). ADR 0036.
+engine_tunnel_web_puerto_base: 22000
 # Ruta, dentro del nodo de control, del par de claves del túnel. Fuera del
 # repositorio (nunca se versiona una clave privada) y fuera de `~/.ssh/config`.
 # La clave del túnel es UNA POR LAB, y no por capricho: en el `authorized_keys` del nodo

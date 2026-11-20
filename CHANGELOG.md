@@ -20,6 +20,28 @@ aquí está su entrada; los tres tienen que contar lo mismo, y eso es lo que vig
 
 ### Añadido
 
+- **NetBox como servicio del lab, y su web publicada por el túnel.** `servicio: netbox` entra en
+  el vocabulario cerrado: el motor instala el inventario en su propio invitado (Django sobre
+  PostgreSQL y Redis, gunicorn y nginx), lo deja SIRVIENDO en su 8080 y publica esa web en casa
+  por el túnel del bastión, en un puerto derivado del vmid (banda 22000+, sin pisar la del túnel
+  ni la del REST). El lab no declara paquete, base, puerto ni versión. ADR 0036.
+- **La sonda del túnel mira también las webs publicadas, y reconstruirlo REINICIA la sesión.**
+  Un túnel al que le faltaba un reenvío se daba por bueno (sólo se sondeaba la consola y el
+  REST), y `enable --now` no reiniciaba una sesión ya viva: un puerto publicado que se añadía a
+  un lab desplegado no aparecía nunca y el motor decía que había convergido. Ahora la sonda
+  cubre la banda 22000+ y el arranque del túnel hace `restart`.
+- **El SSH de un RouterOS se deja admitiendo CONTRASEÑA cuando el servicio `ssh` queda abierto.**
+  Desde 7.x `password-authentication` viene en `yes-if-no-key`, y como el motor importa su clave
+  en el equipo, su sshd ofrecía SÓLO publickey: el vigilante no podía entrar con la contraseña
+  del nodo y el terminal contestaba 502 «Connect to remote system failed». Ahora el área
+  `ip_services` lee `/ip/ssh` y lo deja en `yes` (ADR 0035).
+- **El terminal SSH del vigilante: una consola a cada RouterOS, dentro de su web.** El área
+  `terminal` (en un Linux con `servicio: netxms`) deja el vigilante listo para prestar el terminal
+  embebido: agente con `ssh.nsm`, la capacidad de agente en el nodo del propio servidor —sin ella
+  el API contesta 502 «Cannot connect to SSH proxy agent»— y un nodo por `rt` con su credencial y
+  su proxy. La credencial no pasa por la línea de órdenes: va a un fichero 0600 y el paso se
+  diariza tapado. ADR 0035; el lab 04 declara `terminal: {}` en su bastión, que es el único que
+  alcanza las dos LANs.
 - **El API REST de NetXMS se carga de verdad, y se queda dentro.** `servicio: netxms` escribía la
   configuración del servidor sin el módulo `webapi`, así que el API contestaba al `login` (el que
   usa el motor) y sus recursos —`/v1/objects`, `/v1/alarms`…— daban **404**: el API de la

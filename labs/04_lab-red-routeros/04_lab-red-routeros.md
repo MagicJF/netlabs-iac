@@ -30,6 +30,8 @@ graph LR
     i_borde --- b_vmb_lan1
     i_control[["ctl-1<br/>10.40.0.10/24<br/>etapa 1"]]:::ctl
     i_control --- b_vmb_gestion
+    i_inventario[("srv-inventario<br/>10.40.0.20/24<br/>etapa 2")]:::srv
+    i_inventario --- b_vmb_gestion
     i_nucleo(["rt-nucleo<br/>10.40.1.11/24<br/>etapa 2"]):::rt
     i_nucleo --- b_vmb_lan1
     i_nucleo --- b_vmb_lan2
@@ -53,7 +55,8 @@ En el diagrama, la **forma** y el **color** de cada equipo dicen qué es (el tip
 | rol | tipo | plataforma | stage | cores | memory (MB) | disk (GB) | bridge | address |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | borde | rt (enruta y sale) | VM (qemu) | 1 | 2 | 512 | 1 | vmb_gestion + vmb_lan1 | 10.40.0.11/24 |
-| control | ctl (control del lab) | LXC | 1 | 1 | 512 | 4 | vmb_gestion | 10.40.0.10/24 |
+| control | ctl (control del lab) | LXC | 1 | 2 | 2048 | 8 | vmb_gestion | 10.40.0.10/24 |
+| inventario | srv (servidor) | LXC | 2 | 2 | 4096 | 16 | vmb_gestion | 10.40.0.20/24 |
 | nucleo | rt (enruta y sale) | VM (qemu) | 2 | 1 | 512 | 1 | vmb_lan1 + vmb_lan2 | 10.40.1.11/24 |
 | servidor | srv (servidor) | LXC | 2 | 1 | 512 | 4 | vmb_lan1 | dhcp |
 | puesto-1 | ws (puesto de trabajo) | LXC | 3 | 1 | 512 | 4 | vmb_lan1 | dhcp |
@@ -72,7 +75,7 @@ En el diagrama, la **forma** y el **color** de cada equipo dicen qué es (el tip
 | stage | roles |
 | --- | --- |
 | 1 | borde, control |
-| 2 | nucleo, servidor |
+| 2 | inventario, nucleo, servidor |
 | 3 | puesto-1, puesto-2 |
 
 ## Identidad: la deriva el motor, no la declara el lab
@@ -81,6 +84,7 @@ En el diagrama, la **forma** y el **color** de cada equipo dicen qué es (el tip
 | --- | --- | --- | --- | --- |
 | borde | rt (enruta y sale) | rt-borde | — | — |
 | control | ctl (control del lab) | ctl-1 | — | — |
+| inventario | srv (servidor) | srv-inventario | — | — |
 | nucleo | rt (enruta y sale) | rt-nucleo | — | — |
 | servidor | srv (servidor) | srv-1 | — | — |
 | puesto-1 | ws (puesto de trabajo) | ws-1 | — | — |
@@ -97,6 +101,7 @@ guion hasta que exista un despliegue real.
 | --- | --- | --- | --- | --- |
 | borde | rt (enruta y sale) | admin | `admin` / la de `secrets.yml` → `routeros_clave` (HTTP Basic) | REST por el túnel del bastión (`21000`+vmid); su consola, por la serial del nodo |
 | control | ctl (control del lab) | root | clave del lab (`~/.ssh/netlabs_tunnel_04_lab-red-routeros_ed25519`), sin contraseña | SSH a `127.0.0.1`:(`20000`+vmid): él ES el bastión, se entra directo por su túnel |
+| inventario | srv (servidor) | root | clave del lab (`~/.ssh/netlabs_tunnel_04_lab-red-routeros_ed25519`), sin contraseña | SSH por el bastión (salta por su túnel), a su dirección en el lab |
 | nucleo | rt (enruta y sale) | admin | `admin` / la de `secrets.yml` → `routeros_clave` (HTTP Basic) | REST por el túnel del bastión (`21000`+vmid); su consola, por la serial del nodo |
 | servidor | srv (servidor) | root | clave del lab (`~/.ssh/netlabs_tunnel_04_lab-red-routeros_ed25519`), sin contraseña | SSH por el bastión (salta por su túnel), a su dirección en el lab |
 | puesto-1 | ws (puesto de trabajo) | root | clave del lab (`~/.ssh/netlabs_tunnel_04_lab-red-routeros_ed25519`), sin contraseña | SSH por el bastión (salta por su túnel), a su dirección en el lab |
@@ -238,3 +243,50 @@ está en los `stages` de la declaración, y el plan lo respeta (regla 18).
   invitado dinámico por el host y sus concesiones (§6.3) y la del interior por áreas (§11)
   son el tramo siguiente; el ciclo verde de hoy lo es sin ellas, y eso se dice, no se
   maquilla.
+
+### El terminal de los dos routers, dentro de la web del vigilante (20-nov-2026, ADR 0035)
+
+Este lab tiene **dos** `rt`, así que es el primero donde una consola única tiene algo que
+enseñar. El bastión declara `servicio: netxms` y `terminal: {}`: el motor instala el
+vigilante **en el propio `ctl-1`**, y es el equipo correcto para hacerlo porque es el único
+con interfaz en la red de gestión **y** en la del primer CHR — el vigilante abre las sesiones
+por su cuenta, sin pedirle rutas al operador.
+
+Lo que costó entenderlo, y que ahora está escrito en el código: **el terminal no lo presta
+el servidor**. La sesión SSH la abre un agente con el subagente `ssh.nsm`, y el servidor sólo
+transporta bytes. Tres piezas, y sin cualquiera de ellas el API contesta **502 «Cannot
+connect to SSH proxy agent»** con todo lo demás en su sitio:
+
+1. el agente carga `ssh.nsm` **en `[CORE]`** (al final del fichero la línea cae en
+   `[FILEMGR]` y no se carga);
+2. el nodo del propio vigilante lleva `NC_IS_NATIVE_AGENT` (`0x2`) además de `NC_IS_SSH`
+   (`0x80`) — el motor hace `OR` sobre el nodo que ya viene marcado como gestión local;
+3. cada router es un **nodo** con `ssh_login`/`ssh_password`/`ssh_port` y `ssh_proxy = 0`
+   («el agente de este servidor»).
+
+Capacidades y credenciales se leen **al arrancar**: por eso la escritura termina en un
+reinicio, y sólo cuando algo cambió. La credencial no viaja en la línea de órdenes —va a
+`/etc/netlabs/terminal.env` (0600), y el paso se diariza con `comando_diario`—: el diario
+cuenta lo que se hizo, no el secreto.
+
+### El inventario (NetBox), y su web en casa (20-nov-2026, ADR 0036)
+
+El lab declara `servicio: netbox` en un invitado propio (`srv-inventario`, 2 núcleos y 4 GB):
+NetBox es Django sobre PostgreSQL y Redis, con gunicorn delante y nginx sirviendo, y meterlo
+al lado del vigilante en 2 GB es pedirle al kernel que elija a quién matar.
+
+No hay paquete de NetBox en Debian y la vía cómoda —`netbox-docker`— pide *nesting* y un
+contenedor privilegiado, que este motor no crea. Así que el preparador hace lo que haría una
+persona: instala el andamiaje, clona la versión fija en `/opt/netbox`, monta el entorno
+virtual, escribe la configuración, crea la base y el administrador, y levanta gunicorn y
+nginx. **Cada pieza deja su marca**, y por eso la segunda pasada no reinstala nada.
+
+Lo que hace que esto sea «accesible desde fuera» sin abrir un camino nuevo: el túnel del
+bastión ya reenvía el puerto 80 de cada RouterOS, y ahora reenvía también el **8080 del
+inventario**, en su propia banda de puertos y **derivado de su vmid** como todo lo demás. La
+web contesta en el nodo de control del hogar; ponerle un nombre público es asunto del proxy
+que ya vive allí, no del motor.
+
+Y un detalle que costó una tarde: la comprobación de que NetBox *sirve* pide la página de
+**login**, no el proceso. Un gunicorn vivo al que no se puede entrar no es un servicio que
+sirva — la misma lección del WAR del vigilante.

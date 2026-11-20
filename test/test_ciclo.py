@@ -210,6 +210,17 @@ def caso_9_la_espera_no_se_conforma_con_el_ciclo_anterior():
         comprobar("con --desde 0 sí vale el que haya",
                   resultado.returncode == 0 and "VERDE" in resultado.stdout,
                   f"rc={resultado.returncode} {resultado.stdout.strip()}")
+        # Y un ciclo que YA está corriendo de verdad se acepta aunque haya empezado antes:
+        # es justo el que se quería esperar.
+        with open(os.path.join(carpeta, ciclo.ESTADO), "w", encoding="utf-8") as f:
+            json.dump({"estado": "corriendo", "inicio": "2026-11-20T10:00:00", "pid": os.getpid(),
+                       "fase_actual": "apply", "fases": []}, f)
+        resultado = correr(["--tope", "3", "--intervalo", "0.5", "--latido", "0"])
+        # Se acepta como «el ciclo al que espero»: por eso la espera es «corriendo» hasta el
+        # tope, y no «no hay ningún ciclo» ni el `ok` del anterior.
+        comprobar("un ciclo que ya está en marcha (proceso vivo) se acepta: la espera es a ÉL",
+                  resultado.returncode == 3 and "corriendo" in (resultado.stdout + resultado.stderr),
+                  f"rc={resultado.returncode} {resultado.stdout.strip()} {resultado.stderr.strip()}")
     finally:
         shutil.rmtree(base, ignore_errors=True)
 

@@ -304,8 +304,10 @@ El vigilante de este lab se visita desde fuera en
 
 1. `*.matadepera.eu` resuelve al nodo;
 2. el nodo manda `:80` y `:443` al **proxy de la zona** (10.10.10.2), que termina el TLS con
-   su certificado y tiene un bloque por lab: `04.netxms.matadepera.eu → 10.40.0.10:8080`;
-3. el proxy llega al bastión porque el **nodo tiene una dirección en el bridge de gestión**
+   su certificado y tiene un bloque por lab: `04.netxms.matadepera.eu → 10.40.0.20:8080`, que
+   es el **vigilante** (`ctl-2`, el `monitor`), no el bastión: el bastión ya no corre el
+   vigilante (ADR 0029);
+3. el proxy llega al bridge de gestión porque el **nodo tiene una dirección en él**
    (`10.40.0.254/24`, la unidad `netlabs-publicacion` del nodo); sin ella saldría a la calle y
    volvería. No confundirla con el `address:` del bridge en la declaración (10.40.0.1): ése es
    la puerta que se le DICE a los invitados, y el motor no la pone en el nodo.

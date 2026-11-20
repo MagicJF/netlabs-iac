@@ -141,12 +141,18 @@ def main():
         else:
             datos = ciclo.leer_estado(ruta_estado)
             if datos and desde is not None:
-                # El estado es de un ciclo anterior: se sigue esperando al nuevo.
+                # El estado es de un ciclo anterior: se sigue esperando al nuevo. La excepción
+                # es un ciclo que YA está corriendo de verdad (estado «corriendo» y su proceso
+                # vivo): ése es el que se quería esperar cuando se lanza `esperar` sobre algo
+                # en marcha, y rechazarlo sería esperar al vacío.
                 try:
                     inicio_ciclo = datetime.datetime.fromisoformat(str(datos.get("inicio"))).timestamp()
                 except ValueError:
                     inicio_ciclo = None
-                if inicio_ciclo is None or inicio_ciclo < desde:
+                anterior = inicio_ciclo is None or inicio_ciclo < desde
+                en_marcha = (datos.get("estado") == "corriendo"
+                             and ciclo.proceso_vivo(datos.get("pid")))
+                if anterior and not en_marcha:
                     datos = None
             codigo, texto = veredicto(datos)
             if codigo is not None:

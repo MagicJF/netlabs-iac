@@ -2891,8 +2891,8 @@ LAB_TERMINAL = {"guests": [
 VIGIA = LAB_TERMINAL["guests"][0]
 TERMINAL_AL_DIA = {
     "agente": "active", "sshnsm": True, "capacidad": True, "tcpproxy": True,
-    "nodos": [{"ip": "10.60.1.1", "login": "admin", "puerto": "22"},
-              {"ip": "10.60.2.1", "login": "admin", "puerto": "22"}],
+    "nodos": [{"ip": "10.60.1.1", "login": "admin", "puerto": "22", "proxy": "0", "clave": "si"},
+              {"ip": "10.60.2.1", "login": "admin", "puerto": "22", "proxy": "0", "clave": "si"}],
 }
 
 igual(motor._terminal_canonica({}, TERMINAL_AL_DIA, LAB_TERMINAL), [],
@@ -2975,6 +2975,65 @@ comprobar("restart netxms-server" in _guion_terminal and "terminal-estado" in _g
 comprobar('intento_sql" -lt 3' in _guion_terminal,
           "si tras el reinicio el servidor sigue sin ver los nodos, el par escribir+reiniciar "
           "se repite (no se da por hecho con una sola escritura)")
+
+# Un nodo puede tener la dirección y el login buenos y AUN ASÍ no abrir: puerto distinto,
+# proxy puesto en otro agente o la clave vieja. Con sólo la dirección y el login, el área
+# decía «al día» y el terminal fallaba en silencio (hallazgo P1 de Greptile, PR #20).
+for _campo, _malo, _palabra in (("puerto", "2022", "puerto 22"),
+                                ("proxy", "3", "agente del vigilante"),
+                                ("clave", "no", "clave del motor")):
+    _nodos = [dict(n) for n in TERMINAL_AL_DIA["nodos"]]
+    _nodos[0][_campo] = _malo
+    _ops_nodo = motor._terminal_canonica({}, dict(TERMINAL_AL_DIA, nodos=_nodos), LAB_TERMINAL)
+    comprobar(
+        len(_ops_nodo) == 1 and _palabra in _ops_nodo[0]["motivo"],
+        f"un nodo con {_campo} mal ({_malo}) no se da por al día y el motivo lo nombra "
+        f"(obtenido {_ops_nodo!r})",
+    )
+
+# La credencial del terminal se guarda en `/etc/netlabs/terminal.env` y el agente la lee con
+# `.`: sin comillas simples, una clave con `$` o con comillas se expande al cargarla y el
+# agente recibe OTRA cosa -- el nodo queda con una clave que no es la declarada.
+_env = [c for c in _cmds if "terminal.env" in (c.get("comando") or "")]
+comprobar(len(_env) == 1, f"la credencial del terminal se escribe en UN paso (obtenido {len(_env)})")
+import base64 as _b64
+import re as _re
+_carga = _b64.b64decode(_re.search(r"echo (\S+) \| base64 -d", _env[0]["comando"]).group(1)).decode()
+comprobar("SSH_PASSWORD='clave-inventada'" in _carga,
+          f"la carga del terminal va entre comillas simples, para que el shell no la toque "
+          f"(obtenido {_carga!r})")
+_clave_rara = motor.escrituras_linux(
+    _ops, VIGIA, LAB_TERMINAL, {"guests": []},
+    {"routeros_usuario": "admin", "routeros_clave": "a'b$(id)"})
+_carga_rara = _b64.b64decode(_re.search(
+    r"echo (\S+) \| base64 -d",
+    [c for c in _clave_rara if "terminal.env" in (c.get("comando") or "")][0]["comando"]).group(1)).decode()
+comprobar("SSH_PASSWORD='a'\\''b$(id)'" in _carga_rara,
+          f"una clave con comilla y con `$` se escribe escapada y NO se expande al cargarla "
+          f"(obtenido {_carga_rara!r})")
+
+# Y el SQL que lleva la clave no puede quedarse en un /tmp previsible creado con la máscara
+# del sistema: nace 0600 y con nombre único.
+comprobar("umask 077 && mktemp /tmp/netlabs-terminal.XXXXXX" in _guion_terminal,
+          "el SQL de la credencial se escribe en un fichero que nace 0600 y con nombre único "
+          "(no en /tmp/netlabs-terminal.sql, que se crea con la máscara del sistema)")
+comprobar("/tmp/netlabs-terminal.sql" not in _guion_terminal,
+          "no queda ninguna escritura en la ruta previsible de /tmp")
+
+# El agente lee sus banderas al arrancar: si el fichero ya está bien pero el proceso es
+# anterior, hay que reiniciar igual. Con sólo `cmp -s` el paso no reiniciaba nunca y el área
+# repetía el fallo en cada pasada (hallazgo P1 de Greptile, PR #20).
+comprobar("rehacer" in _cmds[0]["comando"] and "etimes" in _cmds[0]["comando"],
+          "la escritura de la configuración reinicia también cuando el proceso del agente es "
+          "ANTERIOR al fichero (no sólo cuando el fichero cambia)")
+
+# El estado tiene que traer puerto, proxy y el sí/no de la clave: si la lectura no los pide,
+# la comparación de arriba no puede verlos nunca.
+comprobar("ssh_port, ssh_proxy" in _guion_terminal and "ssh_password = '" in _guion_terminal,
+          "la lectura del terminal trae puerto, proxy y si la clave guardada es la de ahora "
+          "(la clave se compara en la base: el diario no lleva credenciales)")
+comprobar("SSH_PASSWORD" in _guion_terminal and "-f -" in _guion_terminal,
+          "la consulta del terminal va por la entrada de psql, no en la línea de órdenes")
 
 if FALLOS:
     print(f"\nRESULTADO: {len(FALLOS)} fallo(s).")

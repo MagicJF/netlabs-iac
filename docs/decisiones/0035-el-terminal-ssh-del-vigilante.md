@@ -100,3 +100,23 @@
 - **El alta de nodos usa `psql`** para los campos `ssh_*`, porque el API REST no
   los documenta. Es la misma vía que ya se usa para la clave del administrador
   (ADR 0033): se mide, se escribe y se lee de vuelta con la lectura del área.
+
+## Lo que se corrigió al mirarlo de cerca
+
+Cuatro cosas que la primera versión daba por buenas y no lo eran; las cuatro las
+enseñó la revisión (Greptile, PR #20) y las cuatro se reprodujeron antes de tocar
+nada:
+
+- **La credencial se cargaba con `.` y sin comillas.** Una clave con `$` o con
+  comillas se expandía al cargar el fichero y el agente recibía **otra** cosa. Ahora
+  los valores van entre comillas simples, con las internas cerradas y reabiertas.
+- **El SQL de la credencial pasaba por `/tmp/netlabs-terminal.sql`.** Previsible y
+  creado con la máscara del sistema (022). Ahora nace 0600 y con nombre único.
+- **La lectura no pedía puerto, proxy ni la clave.** Con la dirección y el login
+  buenos, un nodo con el puerto mal o la clave vieja pasaba por «al día» y el
+  terminal no abría. Ahora se comparan los cuatro campos, y la clave se contesta
+  como un sí/no en la propia base: el diario no lleva credenciales.
+- **`cmp -s` no bastaba para reiniciar el agente.** Sus banderas se leen al arrancar:
+  si el fichero ya estaba bien pero el proceso era **anterior**, el paso no lo
+  reiniciaba y el área repetía el fallo en cada pasada. Ahora se reinicia también
+  en ese caso (`ps -o etimes` contra la fecha del fichero).

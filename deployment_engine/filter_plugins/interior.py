@@ -2576,7 +2576,14 @@ def leido_linux(lecturas):
                 trozos = linea.split("=", 1)[1].split("|")
                 if len(trozos) >= 2:
                     nodos.append({"ip": trozos[0], "login": trozos[1],
-                                  "puerto": (trozos[2] if len(trozos) > 2 else "22")})
+                                  "puerto": (trozos[2] if len(trozos) > 2 else "22"),
+                                  # El proxy va en el nodo (`ssh_proxy`): 0 = «el agente del
+                                  # propio servidor», que es el único que sabe llegar a los dos
+                                  # routers.
+                                  "proxy": (trozos[3] if len(trozos) > 3 else ""),
+                                  # La clave se compara en la base y sólo viaja el sí/no: el
+                                  # diario no puede llevar la credencial (regla 12).
+                                  "clave": (trozos[4] if len(trozos) > 4 else "")})
             leido["terminal"] = {
                 "agente": _valor(lineas, "agente"),
                 "sshnsm": _valor(lineas, "sshnsm") == "si",
@@ -3348,7 +3355,17 @@ terminal_estado() {
         echo 'tcpproxy=no'
     fi
     printf 'capacidad=%%s\n' "$(como_postgres "psql -tA -d %(bd)s -c \"select case when capabilities & 2 = 2 then 'si' else 'no' end from nodes where capabilities & 16 = 16 limit 1\"")"
-    como_postgres "psql -tA -F '|' -d %(bd)s -c \"select primary_ip, ssh_login, ssh_port from nodes where ssh_login is not null and ssh_login <> ''\"" | sed 's/^/nodo=/'
+    # Y de cada equipo, TODO lo que hace falta para que el terminal abra: la dirección, el
+    # login, el PUERTO, el PROXY y si la clave guardada es la de ahora. El puerto y el proxy se
+    # comparan porque un nodo con la dirección y el login buenos pero el puerto mal pasa por
+    # «al día» y el terminal no abre. La clave no se imprime: se contesta sí/no comparándola en
+    # la base (hallazgo P1 de Greptile, PR #20).
+    . /etc/netlabs/terminal.env 2>/dev/null
+    clave_terminal_sql=$(printf '%%s' "$SSH_PASSWORD" | sed "s/'/''/g")
+    # La consulta va por la ENTRADA de psql y no en la línea de órdenes: así no hay que anidar
+    # comillas (que es donde se rompen estas líneas) y la clave no aparece en ningún argv.
+    consulta="select primary_ip, ssh_login, ssh_port, ssh_proxy, case when ssh_password = '$clave_terminal_sql' then 'si' else 'no' end from nodes where ssh_login is not null and ssh_login <> ''"
+    printf '%%s\n' "$consulta" | como_postgres "psql -tA -F '|' -d %(bd)s -f -" | sed 's/^/nodo=/'
 }
 
 # La escritura: recibe `ip:nombre` por cada equipo que el lab declara y deja el nodo listo.
@@ -3416,8 +3433,14 @@ terminal_converger() {
     # Y la capacidad del nodo del vigilante: es el bit que decide si hay agente detrás.
     sql="$sql update nodes set capabilities = capabilities | 130 where capabilities & 16 = 16;"
     [ "$fallo" = 0 ] || { echo 'no se pudo dejar algún nodo del terminal: se reintenta' >&2; exit 1; }
-    printf '%%s\n' "$sql" > /tmp/netlabs-terminal.sql
-    chown postgres /tmp/netlabs-terminal.sql 2>/dev/null
+    # El SQL LLEVA LA CLAVE: se escribe en un fichero que nace 0600 y con nombre único, no en
+    # un /tmp previsible que se crea con la máscara del sistema (022 = lo lee cualquiera) y
+    # que se queda ahí durante los reintentos (hallazgo P1 de Greptile, PR #20).
+    sql_ficha=$(umask 077 && mktemp /tmp/netlabs-terminal.XXXXXX) || { echo 'no se pudo crear el fichero temporal del terminal' >&2; exit 1; }
+    trap 'rm -f "$sql_ficha"' EXIT INT TERM
+    printf '%%s\n' "$sql" > "$sql_ficha"
+    chown postgres "$sql_ficha" 2>/dev/null
+    chmod 600 "$sql_ficha" 2>/dev/null
     # El SQL se aplica sin fiarse de la tabla cruda: se comprueba LO QUE EL SERVIDOR LEE. El
     # servidor vivo mantiene los objetos en memoria y puede reescribir la fila que se acaba
     # de tocar, así que contar antes de reiniciar mide el estado que va a tirar (medido el
@@ -3430,7 +3453,7 @@ terminal_converger() {
     salida_sql=""
     while [ "$intento_sql" -lt 3 ] && [ "$aplicado" = 0 ]; do
         intento_sql=$((intento_sql + 1))
-        salida_sql=$(como_postgres "psql -q -d %(bd)s -f /tmp/netlabs-terminal.sql" 2>&1)
+        salida_sql=$(como_postgres "psql -q -d %(bd)s -f $sql_ficha" 2>&1)
         case "$salida_sql" in
             *ERROR*|*FATAL*) echo "la base del vigilante rechazó el terminal: $salida_sql" >&2 ;;
         esac
@@ -3456,7 +3479,7 @@ terminal_converger() {
         done
         [ "$vistos" -ge "$esperados" ] && aplicado=1
     done
-    rm -f /tmp/netlabs-terminal.sql
+    rm -f "$sql_ficha"
     [ "$aplicado" = 1 ] \
         || { echo "el vigilante no ve los $esperados nodo(s) del terminal tras ${intento_sql} intento(s) (ve ${vistos:-0}); la base dijo: ${salida_sql:-nada}" >&2; exit 1; }
     echo 'si'
@@ -3847,6 +3870,16 @@ def _terminal_canonica(declarado, leido, declaracion):
             motivos.append(f"el equipo {equipo['ip']} no está dado de alta")
         elif str(nodo.get("login") or "") != USUARIO_TERMINAL:
             motivos.append(f"el equipo {equipo['ip']} no lleva el usuario del motor")
+        else:
+            # Puerto, proxy y clave: con la dirección y el login buenos, un nodo con el puerto
+            # mal o sin la clave de ahora pasaba por «al día» y el terminal no abría (hallazgo
+            # P1 de Greptile, PR #20).
+            if str(nodo.get("puerto") or "") != "22":
+                motivos.append(f"el equipo {equipo['ip']} no lleva el puerto 22")
+            if str(nodo.get("proxy") or "") != "0":
+                motivos.append(f"el equipo {equipo['ip']} no va por el agente del vigilante")
+            if str(nodo.get("clave") or "") != "si":
+                motivos.append(f"el equipo {equipo['ip']} no tiene guardada la clave del motor")
     if not motivos:
         return []
     return [{"op": "preparar_terminal", "equipos": equipos, "motivo": "; ".join(motivos)}]
@@ -3978,10 +4011,19 @@ def escrituras_linux(operaciones, guest, declaracion, identidad, parametros):
                 # mismo instante: sus banderas se leen al arrancar, así que un fichero nuevo
                 # sobre un proceso viejo seguiría contestando «TCP proxy function is disabled».
                 # Antes se escribía a ciegas y el segundo comando no reiniciaba nunca.
-                "comando": (f"nuevo=$(mktemp) && echo {_b64(CONTENIDO_AGENTE)} | base64 -d > \"$nuevo\" && "
-                            f"if cmp -s \"$nuevo\" {RUTA_AGENTE}; then rm -f \"$nuevo\"; else "
-                            f"cat \"$nuevo\" > {RUTA_AGENTE} && rm -f \"$nuevo\" && "
-                            "systemctl restart netxms-agent >/dev/null 2>&1; fi"),
+                # Se escribe sólo si cambia, pero se REINICIA también cuando el fichero ya está
+                # bien y el proceso que CORRE es anterior a él: sus banderas se leen al arrancar,
+                # y con el `cmp` solo el paso no reiniciaba nunca y el área repetía el fallo en
+                # cada pasada (hallazgo P1 de Greptile, PR #20).
+                "comando": (f"nuevo=$(mktemp) && echo {_b64(CONTENIDO_AGENTE)} | base64 -d > \"$nuevo\"; "
+                            f"cambia=0; if cmp -s \"$nuevo\" {RUTA_AGENTE}; then rm -f \"$nuevo\"; "
+                            f"else cat \"$nuevo\" > {RUTA_AGENTE}; rm -f \"$nuevo\"; cambia=1; fi; "
+                            "rehacer=0; if [ \"$cambia\" = 1 ]; then rehacer=1; else "
+                            "pid=$(systemctl show -p MainPID --value netxms-agent 2>/dev/null); "
+                            "seg=$(ps -o etimes= -p \"$pid\" 2>/dev/null | tr -d ' '); "
+                            "if [ -z \"$seg\" ] || [ \"$seg\" = '-' ]; then rehacer=1; "
+                            f"elif [ $(( $(date +%s) - $seg )) -lt $(stat -c %Y {RUTA_AGENTE}) ]; then rehacer=1; fi; fi; "
+                            "if [ \"$rehacer\" = 1 ]; then systemctl restart netxms-agent >/dev/null 2>&1 || true; fi"),
             })
             comandos.append({
                 "area": "terminal", "accion": "escribir", "declarado": "active",
@@ -3990,8 +4032,16 @@ def escrituras_linux(operaciones, guest, declaracion, identidad, parametros):
                             "systemctl is-active --quiet netxms-agent "
                             "|| systemctl start netxms-agent >/dev/null 2>&1 || true"),
             })
-            entorno = "\n".join([f"SSH_LOGIN={usuario}", f"SSH_PASSWORD={clave}",
-                                 "SSH_PUERTO=22"]) + "\n"
+            # Cada valor va entre comillas SIMPLES y con las comillas internas cerradas y
+            # reabiertas ('\''), que es la única forma de que el shell no toque el literal: sin
+            # comillas, una clave con `$HOME` se expande al hacer `. terminal.env` y NetXMS
+            # recibe otra cosa (hallazgo P1 de Greptile, PR #20).
+            def _literal(valor):
+                return "'" + str(valor).replace("'", "'\\''") + "'"
+
+            entorno = "\n".join([f"SSH_LOGIN={_literal(usuario)}",
+                                 f"SSH_PASSWORD={_literal(clave)}",
+                                 f"SSH_PUERTO={_literal(22)}"]) + "\n"
             comandos.append({
                 "area": "terminal", "accion": "escribir", "declarado": "0600",
                 "descripcion": "dejar la credencial del terminal en un fichero que sólo root lee",

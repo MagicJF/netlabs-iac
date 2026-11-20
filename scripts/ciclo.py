@@ -26,6 +26,7 @@
 # existe `scripts/esperar.py`, que sale en el instante en que el ciclo termina.
 
 import argparse
+import fcntl
 import json
 import os
 import signal
@@ -47,6 +48,25 @@ MARCA_FIN = "=== CICLO FIN"
 TOPE_FASE_POR_DEFECTO = 2700
 # Segundos que se le dan a una fase para morir educadamente antes del SIGKILL.
 GRACIA_AL_MATAR = 15
+
+# La fase en curso y la señal recibida. Con la fase anotada, un SIGTERM al ciclo no deja
+# huérfano el `ansible-playbook` de dentro: se mata su GRUPO (arranca con sesión propia) y el
+# ciclo termina escribiendo su estado, en vez de morir dejando el mundo a medias sin decirlo
+# (hallazgo P1 de Greptile, PR #20).
+FASE_EN_CURSO = {"proceso": None}
+INTERRUMPIDO = {"senal": 0}
+
+
+def _al_recibir_senal(numero, _marco):
+    """SIGTERM/SIGINT: se anota y se corta la fase; el cierre lo hace `main`."""
+    INTERRUMPIDO["senal"] = numero
+    proceso = FASE_EN_CURSO.get("proceso")
+    if proceso is not None and proceso.poll() is None:
+        try:
+            os.killpg(proceso.pid, signal.SIGTERM)
+        except OSError:
+            pass
+
 
 ESTADO = "ciclo-estado.json"
 HISTORIAL = "ciclo-historial.jsonl"
@@ -178,6 +198,21 @@ def _eco(diario, texto):
     diario.flush()
 
 
+def tomar_cerrojo(ruta):
+    """Toma el cerrojo del lab sin bloquearse. Devuelve (fichero, None) o (None, motivo).
+
+    El cerrojo es lo único que decide «ya hay un ciclo»: el JSON dice quién corre, pero dos
+    procesos que arrancan juntos leen «libre» los dos. `flock` no tiene esa ventana.
+    """
+    fichero = open(ruta, "w", encoding="utf-8")
+    try:
+        fcntl.flock(fichero, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        fichero.close()
+        return None, f"ya hay un ciclo en vuelo para este lab (cerrojo {ruta})"
+    return fichero, None
+
+
 def _fase(nombre, argumentos, diario, tope):
     """Ejecuta UNA fase del ciclo. Devuelve (rc, segundos, motivo_de_corte).
 
@@ -195,6 +230,7 @@ def _fase(nombre, argumentos, diario, tope):
         orden, cwd=RAIZ, stdout=diario, stderr=subprocess.STDOUT,
         start_new_session=True,  # grupo propio: se puede matar la fase entera, no sólo el wrapper
     )
+    FASE_EN_CURSO["proceso"] = proceso
     motivo = ""
     try:
         codigo = proceso.wait(timeout=tope or None)
@@ -214,6 +250,8 @@ def _fase(nombre, argumentos, diario, tope):
                 pass
             proceso.wait()
         codigo = 124  # el mismo código que `timeout(1)`: se distingue de un fallo de Ansible
+    finally:
+        FASE_EN_CURSO["proceso"] = None
     return codigo, time.time() - inicio, motivo
 
 
@@ -247,6 +285,20 @@ def main():
 
     carpeta = _ruta_logs(lab)
     os.makedirs(carpeta, exist_ok=True)
+
+    # Cerrojo del lab. El estado en JSON dice quién corre, pero entre dos procesos que
+    # arrancan a la vez no hay carrera que el JSON pueda ganar -- los dos leen «libre» y los
+    # dos siguen. `flock` sí: el segundo se niega en el acto. Se toma ANTES de mirar el JSON
+    # y se suelta al salir (el descriptor se cierra con el proceso) (hallazgo P1 de Greptile,
+    # PR #20).
+    ruta_cerrojo = os.path.join(carpeta, "ciclo.lock")
+    cerrojo, motivo_cerrojo = tomar_cerrojo(ruta_cerrojo)
+    if cerrojo is None:
+        return _fallo(motivo_cerrojo)
+
+    # Y una señal al ciclo corta la fase, no se queda a medias en silencio.
+    signal.signal(signal.SIGTERM, _al_recibir_senal)
+    signal.signal(signal.SIGINT, _al_recibir_senal)
     ruta_estado = os.path.join(carpeta, ESTADO)
     sello = time.strftime("%Y%m%dT%H%M%S")
     ruta_diario = os.path.join(carpeta, f"ciclo-{sello}.log")
@@ -292,6 +344,11 @@ def main():
             datos["rc"] = codigo
             datos["total_s"] = round(time.time() - inicio, 1)
             _eco(diario, f"=== CICLO FASE {fase} rc={codigo} {round(segundos)}s ===")
+            if INTERRUMPIDO["senal"]:
+                datos["estado"] = "interrumpido"
+                datos["motivo"] = f"el ciclo recibió la señal {INTERRUMPIDO['senal']}"
+                _eco(diario, f"--- CICLO INTERRUMPIDO por la señal {INTERRUMPIDO['senal']}")
+                break
             if codigo != 0:
                 datos["estado"] = "fallo"
                 if motivo:

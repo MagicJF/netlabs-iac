@@ -119,6 +119,59 @@ def caso_6_el_ciclo_se_niega_antes_de_tocar_nada():
               resultado.stderr.strip())
 
 
+def caso_7_el_cerrojo_no_deja_pasar_dos_ciclos():
+    """Dos ciclos a la vez se pisan los vmids: el segundo tiene que negarse EN EL ACTO.
+
+    El JSON de estado no basta: dos procesos que arrancan juntos leen «libre» los dos. Se
+    prueba con el cerrojo de verdad, no con una copia de la regla.
+    """
+    carpeta = tempfile.mkdtemp(prefix="ciclo-cerrojo-")
+    ruta = os.path.join(carpeta, "ciclo.lock")
+    primero, motivo = ciclo.tomar_cerrojo(ruta)
+    comprobar("el primero toma el cerrojo", primero is not None and motivo is None, str(motivo))
+
+    # El segundo es OTRO proceso: el cerrojo es del fichero, no del intérprete.
+    guion = os.path.join(RAIZ, "scripts", "ciclo.py")
+    resultado = subprocess.run(
+        [sys.executable, "-c",
+         "import sys; sys.path.insert(0, %r); import ciclo; "
+         "f, m = ciclo.tomar_cerrojo(%r); print('TOMA' if f else m)" % (
+             os.path.join(RAIZ, "scripts"), ruta)],
+        capture_output=True, text=True)
+    comprobar("el segundo se niega y dice por qué",
+              "cerrojo" in resultado.stdout and "TOMA" not in resultado.stdout,
+              resultado.stdout.strip() + resultado.stderr.strip())
+
+    primero.close()  # el descriptor se cierra: el cerrojo se suelta
+    tercero, motivo3 = ciclo.tomar_cerrojo(ruta)
+    comprobar("al soltarlo, el siguiente entra",
+              tercero is not None and motivo3 is None, str(motivo3))
+    if tercero:
+        tercero.close()
+
+
+def caso_8_una_senal_corta_la_fase_no_la_deja_huerfana():
+    """Un SIGTERM al ciclo tiene que matar el `ansible-playbook` de dentro.
+
+    Si no, el proceso que orquesta se corta, la fase sigue hablando con Proxmox y el mundo
+    queda a medias sin que nadie lo sepa.
+    """
+    hijo = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"],
+                            start_new_session=True)
+    try:
+        ciclo.FASE_EN_CURSO["proceso"] = hijo
+        ciclo._al_recibir_senal(15, None)
+        hijo.wait(timeout=10)
+        comprobar("la señal mata la fase en curso", hijo.returncode is not None)
+        comprobar("y se anota la señal recibida", ciclo.INTERRUMPIDO["senal"] == 15,
+                  str(ciclo.INTERRUMPIDO))
+    finally:
+        ciclo.FASE_EN_CURSO["proceso"] = None
+        ciclo.INTERRUMPIDO["senal"] = 0
+        if hijo.poll() is None:
+            hijo.kill()
+
+
 def main():
     print("=" * 62)
     print("TESTS DE LA ORQUESTACIÓN DEL CICLO (sin Ansible, sin Proxmox)")
@@ -129,6 +182,8 @@ def main():
     caso_4_quien_espera_distingue_corriendo_de_cortado()
     caso_5_el_pid_se_pregunta_sin_matar_nada()
     caso_6_el_ciclo_se_niega_antes_de_tocar_nada()
+    caso_7_el_cerrojo_no_deja_pasar_dos_ciclos()
+    caso_8_una_senal_corta_la_fase_no_la_deja_huerfana()
     print()
     print("=" * 62)
     if FALLOS:

@@ -15,7 +15,8 @@
 # VER:         AGENTS.md §El agente no espera: se le avisa; README.md §Cómo se usa
 #
 # Uso:
-#   python3 scripts/esperar.py --lab 04_lab-red-routeros          # hasta que el ciclo cierre
+#   python3 scripts/esperar.py --lab 04_lab-red-routeros          # hasta que cierre el ciclo NUEVO
+#   python3 scripts/esperar.py --lab X --desde 0                  # el que ya esté corriendo
 #   python3 scripts/esperar.py --pid 12345                        # hasta que el proceso muera
 #   python3 scripts/esperar.py --fichero /tmp/x.log --patron '^PLAY RECAP'
 #
@@ -23,8 +24,10 @@
 # (ciclo fallido o proceso muerto), 3 si se agotó el tope y 2 si la invocación no vale.
 
 import argparse
+import datetime
 import os
 import re
+import stat
 import sys
 import time
 
@@ -42,7 +45,9 @@ def veredicto(datos):
     muerto es esperar para siempre.
     """
     if datos is None:
-        return USO, "no hay ningún ciclo registrado para ese lab: lánzalo con scripts/ciclo.py"
+        # «Todavía no hay ciclo» NO es una invocación inválida: es la primera vuelta de una
+        # espera legítima (se acaba de lanzar el ciclo y aún no ha escrito su estado).
+        return None, "todavía no hay ningún ciclo registrado para ese lab"
     estado = datos.get("estado")
     reparto = " ".join(f"{fase['nombre']}={int(fase.get('segundos', 0))}s"
                        for fase in datos.get("fases", []))
@@ -67,6 +72,9 @@ def main():
     grupo.add_argument("--pid", type=int, help="espera a que ese proceso muera")
     grupo.add_argument("--fichero", help="espera a que aparezca un patrón en ese fichero")
     analizador.add_argument("--patron", help="expresión regular a buscar (con --fichero)")
+    analizador.add_argument("--desde", default="ahora",
+                            help="sólo vale un ciclo INICIADO a partir de este momento: "
+                                 "ISO, 'ahora' (por defecto) o 0 para aceptar el que haya")
     analizador.add_argument("--tope", type=int, default=1800, help="segundos de tope (por defecto 1800)")
     analizador.add_argument("--intervalo", type=float, default=2.0, help="segundos entre sondeos (por defecto 2)")
     analizador.add_argument("--latido", type=int, default=60,
@@ -74,9 +82,33 @@ def main():
     argumentos = analizador.parse_args()
 
     if argumentos.fichero and not argumentos.patron:
-        return _fallo("--fichero necesita --patron")
+        return _uso("--fichero necesita --patron")
     if argumentos.patron and not argumentos.fichero:
-        return _fallo("--patron necesita --fichero")
+        return _uso("--patron necesita --fichero")
+    if argumentos.fichero:
+        # Una FIFO sin escritor deja `open()` bloqueado para siempre: el tope no llegaría a
+        # mirarse nunca. Se espera sobre ficheros normales, y se dice si no lo es.
+        try:
+            modo = os.stat(argumentos.fichero).st_mode
+        except OSError:
+            modo = None
+        if modo is not None and not stat.S_ISREG(modo):
+            return _uso(f"--fichero tiene que ser un fichero normal, no un tubo ni un dispositivo "
+                        f"({argumentos.fichero})")
+
+    # `--desde`: con qué ciclo se conforma uno. Por defecto «ahora», porque el uso sancionado es
+    # «lanzo el ciclo y espero»: sin esto, una espera que arranca un segundo antes de que el
+    # ciclo nuevo escriba su estado lee el `ok` del ciclo ANTERIOR y da por bueno lo que todavía
+    # no ha empezado (hallazgo P1 de Greptile, PR #20). `--desde 0` acepta el que haya.
+    desde = None
+    if argumentos.desde and str(argumentos.desde) not in ("0", "no", "ninguno"):
+        if str(argumentos.desde).lower() == "ahora":
+            desde = time.time()
+        else:
+            try:
+                desde = datetime.datetime.fromisoformat(str(argumentos.desde)).timestamp()
+            except ValueError:
+                return _uso(f"--desde no se entiende: {argumentos.desde!r} (ISO o 'ahora')")
 
     patron = re.compile(argumentos.patron) if argumentos.patron else None
     ruta_estado = None
@@ -107,7 +139,16 @@ def main():
                 return VERDE
             ultimo_texto = f"sin '{argumentos.patron}' en {argumentos.fichero}"
         else:
-            codigo, texto = veredicto(ciclo.leer_estado(ruta_estado))
+            datos = ciclo.leer_estado(ruta_estado)
+            if datos and desde is not None:
+                # El estado es de un ciclo anterior: se sigue esperando al nuevo.
+                try:
+                    inicio_ciclo = datetime.datetime.fromisoformat(str(datos.get("inicio"))).timestamp()
+                except ValueError:
+                    inicio_ciclo = None
+                if inicio_ciclo is None or inicio_ciclo < desde:
+                    datos = None
+            codigo, texto = veredicto(datos)
             if codigo is not None:
                 etiqueta = {VERDE: "OK   ", ROJO: "FALLA"}.get(codigo, "FALLA")
                 print(f"{etiqueta} esperar: {texto} ({round(time.time() - inicio)}s)", flush=True)
@@ -131,6 +172,11 @@ def main():
 def _fallo(mensaje):
     print(f"FALLA esperar: {mensaje}", file=sys.stderr, flush=True)
     return TOPE
+
+
+def _uso(mensaje):
+    print(f"FALLA esperar: {mensaje}", file=sys.stderr, flush=True)
+    return USO
 
 
 if __name__ == "__main__":

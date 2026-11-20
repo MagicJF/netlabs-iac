@@ -3360,7 +3360,11 @@ terminal_estado() {
     # comparan porque un nodo con la dirección y el login buenos pero el puerto mal pasa por
     # «al día» y el terminal no abre. La clave no se imprime: se contesta sí/no comparándola en
     # la base (hallazgo P1 de Greptile, PR #20).
-    . /etc/netlabs/terminal.env 2>/dev/null
+    # Si el fichero de credenciales todavía NO existe (a un vigilante ya instalado se le acaba
+    # de declarar el área), cargarlo no puede tumbar la lectura: sin él simplemente no se puede
+    # comparar la clave, y el área tiene que poder escribirla. Un `.` fallido con `set -e`
+    # cortaba el script y el driver se paraba ANTES de reparar (hallazgo P1 de Greptile, PR #20).
+    if [ -r /etc/netlabs/terminal.env ]; then . /etc/netlabs/terminal.env; fi
     clave_terminal_sql=$(printf '%%s' "$SSH_PASSWORD" | sed "s/'/''/g")
     # La consulta va por la ENTRADA de psql y no en la línea de órdenes: así no hay que anidar
     # comillas (que es donde se rompen estas líneas) y la clave no aparece en ningún argv.
@@ -4015,9 +4019,13 @@ def escrituras_linux(operaciones, guest, declaracion, identidad, parametros):
                 # bien y el proceso que CORRE es anterior a él: sus banderas se leen al arrancar,
                 # y con el `cmp` solo el paso no reiniciaba nunca y el área repetía el fallo en
                 # cada pasada (hallazgo P1 de Greptile, PR #20).
-                "comando": (f"nuevo=$(mktemp) && echo {_b64(CONTENIDO_AGENTE)} | base64 -d > \"$nuevo\"; "
+                # Y con guardia: si el temporal no se pudo crear o quedó vacío, NO se toca el
+                # fichero vivo -- con `;` se escribía vacío encima y el agente se quedaba sin
+                # configuración (segundo hallazgo P1, PR #20).
+                "comando": (f"nuevo=$(mktemp) || exit 1; echo {_b64(CONTENIDO_AGENTE)} | base64 -d > \"$nuevo\" || {{ rm -f \"$nuevo\"; exit 1; }}; "
+                            "if [ ! -s \"$nuevo\" ]; then rm -f \"$nuevo\"; echo 'no se pudo preparar la configuracion del agente' >&2; exit 1; fi; "
                             f"cambia=0; if cmp -s \"$nuevo\" {RUTA_AGENTE}; then rm -f \"$nuevo\"; "
-                            f"else cat \"$nuevo\" > {RUTA_AGENTE}; rm -f \"$nuevo\"; cambia=1; fi; "
+                            f"else if cp \"$nuevo\" {RUTA_AGENTE}; then rm -f \"$nuevo\"; cambia=1; else rm -f \"$nuevo\"; exit 1; fi; fi; "
                             "rehacer=0; if [ \"$cambia\" = 1 ]; then rehacer=1; else "
                             "pid=$(systemctl show -p MainPID --value netxms-agent 2>/dev/null); "
                             "seg=$(ps -o etimes= -p \"$pid\" 2>/dev/null | tr -d ' '); "

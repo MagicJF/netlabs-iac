@@ -3035,6 +3035,24 @@ comprobar("ssh_port, ssh_proxy" in _guion_terminal and "ssh_password = '" in _gu
 comprobar("SSH_PASSWORD" in _guion_terminal and "-f -" in _guion_terminal,
           "la consulta del terminal va por la entrada de psql, no en la línea de órdenes")
 
+# Un vigilante que YA existía y al que se le declara el área `terminal` no tiene todavía
+# `/etc/netlabs/terminal.env`: cargarlo con `.` a secas y `set -e` cortaba la lectura y el
+# driver se paraba ANTES de escribir la credencial (el área no se podía reparar nunca).
+comprobar("if [ -r /etc/netlabs/terminal.env ]; then . /etc/netlabs/terminal.env; fi" in _guion_terminal,
+          "la lectura carga el fichero de credenciales sólo si existe (si falta, el área tiene "
+          "que poder crearlo en vez de morir leyendo)")
+comprobar("faltan las credenciales del terminal" not in _guion_terminal.split("terminal_estado()")[1].split("\n}")[0],
+          "y la LECTURA no se muere si el fichero falta: sólo la escritura de nodos lo exige "
+          "(para esa, la credencial ya se habrá dejado antes)")
+
+# Si el temporal del agente no se pudo crear (o quedó vacío), el fichero VIVO no se toca: con
+# `;` en vez de `&&` se escribía vacío encima y el agente arrancaba sin configuración.
+comprobar("cp \"$nuevo\"" in _cmds[0]["comando"] and "[ ! -s \"$nuevo\" ]" in _cmds[0]["comando"],
+          "la configuración del agente se copia al fichero vivo sólo si el temporal salió bien "
+          "(un mktemp fallido no puede vaciar /etc/nxagentd.conf)")
+comprobar("cat \"$nuevo\" > " not in _cmds[0]["comando"],
+          "no queda la escritura que truncaba el fichero vivo del agente")
+
 if FALLOS:
     print(f"\nRESULTADO: {len(FALLOS)} fallo(s).")
     sys.exit(1)

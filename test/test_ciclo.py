@@ -85,8 +85,10 @@ def caso_3_la_marca_de_fin_lleva_lo_que_hace_falta_para_disparar():
 
 
 def caso_4_quien_espera_distingue_corriendo_de_cortado():
-    comprobar("sin estado no se puede esperar (y se dice)",
-              esperar.veredicto(None)[0] == esperar.USO)
+    # «Sin estado» no es una invocación inválida: es la primera vuelta de una espera legítima
+    # (el ciclo se acaba de lanzar y todavía no ha escrito su estado). Se sigue esperando.
+    comprobar("sin estado todavía no se sabe: sigue esperando",
+              esperar.veredicto(None)[0] is None)
     codigo, _ = esperar.veredicto({"estado": "corriendo", "pid": os.getpid(), "fases": []})
     comprobar("corriendo con el proceso vivo: sigue esperando", codigo is None)
     codigo, texto = esperar.veredicto(
@@ -172,6 +174,71 @@ def caso_8_una_senal_corta_la_fase_no_la_deja_huerfana():
             hijo.kill()
 
 
+
+def caso_9_la_espera_no_se_conforma_con_el_ciclo_anterior():
+    """Un `--lab` recién lanzado no puede leer el `ok` del ciclo ANTERIOR y dar el paso por bueno.
+
+    Se prueba por el camino real (el CLI), con un estado viejo escrito en un lab de mentira: la
+    espera tiene que agotar el tope, no contestar verde.
+    """
+    import shutil
+    base = tempfile.mkdtemp(prefix="esperar-")
+    lab = "lab_de_prueba_esperar"
+    carpeta = os.path.join(base, "labs", lab, "logs")
+    os.makedirs(carpeta)
+    try:
+        # El estado de un ciclo que terminó hace un rato y en verde.
+        viejo = {"estado": "ok", "inicio": "2026-11-20T10:00:00", "fin": "2026-11-20T10:10:00",
+                 "total_s": 600, "rc": 0, "fases": [{"nombre": "apply", "segundos": 600}],
+                 "fase_actual": None, "log": "x"}
+        with open(os.path.join(carpeta, ciclo.ESTADO), "w", encoding="utf-8") as f:
+            json.dump(viejo, f)
+        def correr(extra):
+            guion = (
+                "import sys; sys.path.insert(0, %r); import esperar, ciclo; ciclo.RAIZ = %r; "
+                "sys.argv = ['esperar', '--lab', %r, '--tope', '3', '--intervalo', '0.5', "
+                "'--latido', '0'] + %r; sys.exit(esperar.main())"
+                % (os.path.join(RAIZ, "scripts"), base, lab, extra))
+            return subprocess.run([sys.executable, "-c", guion], capture_output=True, text=True)
+
+        resultado = correr([])
+        comprobar("con un estado anterior se agota el tope (no se da por bueno)",
+                  resultado.returncode == 3 and "tope" in resultado.stderr,
+                  f"rc={resultado.returncode} {resultado.stdout.strip()} {resultado.stderr.strip()}")
+
+        resultado = correr(["--desde", "0"])
+        comprobar("con --desde 0 sí vale el que haya",
+                  resultado.returncode == 0 and "VERDE" in resultado.stdout,
+                  f"rc={resultado.returncode} {resultado.stdout.strip()}")
+    finally:
+        shutil.rmtree(base, ignore_errors=True)
+
+
+def caso_10_una_invocacion_invalida_sale_con_2():
+    guion = os.path.join(RAIZ, "scripts", "esperar.py")
+    resultado = subprocess.run([sys.executable, guion, "--fichero", "/etc/hostname"],
+                               capture_output=True, text=True)
+    comprobar("--fichero sin --patron es uso inválido (2), no tope agotado (3)",
+              resultado.returncode == 2, f"rc={resultado.returncode} {resultado.stderr.strip()}")
+    resultado = subprocess.run([sys.executable, guion, "--patron", "x"],
+                               capture_output=True, text=True)
+    comprobar("--patron sin --fichero también es uso inválido",
+              resultado.returncode == 2, f"rc={resultado.returncode} {resultado.stderr.strip()}")
+
+    # Una FIFO sin escritor dejaría `open()` bloqueado y el tope no se miraría nunca.
+    base = tempfile.mkdtemp(prefix="esperar-fifo-")
+    fifo = os.path.join(base, "tubo")
+    os.mkfifo(fifo)
+    try:
+        resultado = subprocess.run([sys.executable, guion, "--fichero", fifo, "--patron", "x",
+                                    "--tope", "2"], capture_output=True, text=True, timeout=15)
+        comprobar("una FIFO se rechaza en el acto (no se cuelga abriéndola)",
+                  resultado.returncode == 2 and "fichero normal" in resultado.stderr,
+                  f"rc={resultado.returncode} {resultado.stderr.strip()}")
+    finally:
+        import shutil
+        shutil.rmtree(base, ignore_errors=True)
+
 def main():
     print("=" * 62)
     print("TESTS DE LA ORQUESTACIÓN DEL CICLO (sin Ansible, sin Proxmox)")
@@ -184,6 +251,8 @@ def main():
     caso_6_el_ciclo_se_niega_antes_de_tocar_nada()
     caso_7_el_cerrojo_no_deja_pasar_dos_ciclos()
     caso_8_una_senal_corta_la_fase_no_la_deja_huerfana()
+    caso_9_la_espera_no_se_conforma_con_el_ciclo_anterior()
+    caso_10_una_invocacion_invalida_sale_con_2()
     print()
     print("=" * 62)
     if FALLOS:

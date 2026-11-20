@@ -31,7 +31,7 @@ tercera copia: no se crea.*
 | `docs/decisiones/NNNN-*.md` | ADR: decisión + porqué, no se regenera | a mano |
 | `docs/*.md` (crear-un-lab, tunnel-del-bastion, informes, encargos) | prosa de trabajo: guía, informe o registro de una fase; no se regenera | a mano |
 | `docs/revisiones.json` | sellado por hash de los docs (caducidad) | `./lab check docs --sellar` |
-| `scripts/` | herramientas de DESARROLLO (p. ej. perfilar un verbo). El motor no las usa | a mano |
+| `scripts/` | herramientas de DESARROLLO: perfilar un verbo, lanzar un ciclo (`ciclo.py`) y esperar con condición y tope (`esperar.py`). El motor no las usa | a mano |
 | `test/` | pruebas del asignador; `test/fixtures/` = clústeres simulados | a mano |
 
 `./lab` es el **único** punto de entrada, y se ejecuta **desde la raíz del repo**:
@@ -198,6 +198,8 @@ Un fichero con dos escritores es el que envejece mal. `labs/<lab>/<lab>.md` tien
 | tocaste `tools/plan.py` (lo que el plan da por bueno) | `python3 test/test_plan.py` y `python3 test/test_regresion_planes.py` |
 | tocaste un driver del interior (`routeros`/`linux`) | `./lab check access` + `python3 test/test_interior.py` y `test/test_routeros.py` |
 | vas a decir "hecho" | `./lab check` verde y la evidencia pegada en la respuesta |
+| vas a iterar (un ciclo de desarrollo) | `python3 scripts/ciclo.py --lab <lab>` en segundo plano y el aviso `=== CICLO FIN` dispara el paso siguiente (ver §El agente no espera) |
+| tocaste `scripts/ciclo.py` o `scripts/esperar.py` | `python3 test/test_ciclo.py` y `./lab check` |
 | vas a subir a GitHub | ciclo `destroy → apply → verify` verde + `./lab check` (ver §Commits y subida a GitHub) |
 
 `./lab check [nombre]` corre todo: `links`, `docs`, `refs`, `access`,
@@ -205,6 +207,32 @@ Un fichero con dos escritores es el que envejece mal. `labs/<lab>/<lab>.md` tien
 más `version` (que es del **repositorio**, no del motor: vive en `./lab`).
 Un check que no puede fallar no es un check: para cada uno hay que haberlo visto
 gritar rompiendo a propósito lo que vigila.
+
+## El agente no espera: se le avisa
+
+Un `sleep` de duración fija para aguardar un trabajo es una apuesta: o duerme de más
+(minutos tirados) o de menos (mira antes de que acabe). La distinción que manda no es
+«espera sí / espera no», es **condición con tope** contra **duración a ciegas**. ADR 0036.
+
+- **Dentro del motor la espera ya es la buena**: `esperar_tarea.yml` sondea el UPID cada
+  2–15 s hasta que deja de correr, y `sonda.yml` espera a que un escalón conteste antes de
+  tocar el siguiente (regla 18). Eso se queda: es espera real, acotada, y deja su línea en
+  el diario.
+- **En la capa que orquesta no hay `sleep` a ciegas.** Ni `sleep 420; grep …` ni
+  `while pgrep -f …; do sleep …; done` (ese guardia se espera a sí mismo: su propia línea
+  de órdenes contiene el patrón). Un verbo largo se ejecuta de una de estas dos formas, y
+  sólo estas dos: **síncrona**, si cabe en el tope de la herramienta; o **en segundo plano
+  con aviso de fin**, y ese aviso es el disparador del paso siguiente. Mientras corre se
+  hace otra cosa: el reloj no decide nada.
+- **Si de verdad hay que bloquearse**, hay una sola primitiva: `scripts/esperar.py`, que
+  sondea cada 2 s y sale **en el instante** en que la condición se cumple, con tope
+  (`--lab`, `--fichero`+`--patron`, `--pid`). Agotar el tope es un fallo, no un verde.
+- **El ciclo de desarrollo se lanza con `scripts/ciclo.py`**: `plan` → `destroy` → `apply`,
+  con diario propio por ciclo, estado en JSON (`labs/<lab>/logs/ciclo-estado.json`) y la
+  marca `=== CICLO FIN`. `apply` ya importa `verify.yml`, así que el ciclo verifica por su
+  cuenta; la pasada suelta de `verify` se añade (`--fases plan,destroy,apply,verify`) sólo
+  cuando se va a publicar. No es un verbo del motor y el motor no lo usa: es una
+  herramienta de desarrollo, como `perfilar.sh`.
 
 ## Versionado y entrega
 

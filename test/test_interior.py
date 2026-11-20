@@ -413,7 +413,8 @@ LEIDO_AL_DIA = {
     "alcanzable": True,
     "areas": {
         "identity": {"nombre": "rt-borde", "usuario_motor": True, "clave_motor": True, "credencial_motor": True},
-        "ip_services": {"deshabilitados": ["api", "api-ssl", "ftp", "telnet"]},
+        "ip_services": {"deshabilitados": ["api", "api-ssl", "ftp", "telnet"],
+                        "ssh_password_auth": "yes"},
         "dhcp_client": {"habilitado": False},
         "addresses": {"estaticas": [{"interface": "ether1", "address": "10.60.0.11/24"}, {"interface": "ether2", "address": "10.60.1.1/24"}], "dinamicas": []},
         "routes": {
@@ -457,7 +458,8 @@ LEIDO_CON_SOBRA = {
     "alcanzable": True,
     "areas": dict(
         LEIDO_AL_DIA["areas"],
-        ip_services={"deshabilitados": ["api", "api-ssl", "ftp", "telnet", "ssh"]},
+        ip_services={"deshabilitados": ["api", "api-ssl", "ftp", "telnet", "ssh"],
+                    "ssh_password_auth": "yes"},
         addresses={
             "estaticas": [
                 {"interface": "ether1", "address": "10.60.0.11/24"},
@@ -486,7 +488,7 @@ LEIDO_SIN_IDENTIDAD = {
     "alcanzable": True,
     "areas": {
         "identity": {"nombre": "", "usuario_motor": False, "clave_motor": False, "credencial_motor": False},
-        "ip_services": {"deshabilitados": []},
+        "ip_services": {"deshabilitados": [], "ssh_password_auth": "yes"},
         "dhcp_client": {"habilitado": True},
         "addresses": {"estaticas": [], "dinamicas": []},
         "routes": {"estaticas": [], "dinamicas": []},
@@ -1438,7 +1440,7 @@ igual(
 )
 igual(
     motor.SERVICIOS_LINUX, ("caddy", "netxms"),
-    "el vocabulario de servicios es CERRADO y hoy tiene dos miembros (ADR 0028)",
+    "el vocabulario de servicios es CERRADO: hoy caddy y netxms (ADR 0028)",
 )
 igual(
     motor.areas_de(EQUIPO_NETXMS)["servicio"], "netxms",
@@ -2876,6 +2878,180 @@ comprobar(
     "el `psql` de la recuperación y `systemctl start netxms-server` son DOS comandos: un "
     "backslash suelto pegaba el arranque al `psql` y el servidor no arrancaba",
 )
+
+# ---------------------------------------------------------------------------
+# El área `terminal`: el terminal SSH lo presta un AGENTE, y eso son cuatro hechos
+# ---------------------------------------------------------------------------
+LAB_TERMINAL = {"guests": [
+    {"rol": "control", "tipo": "ctl", "address": "10.60.0.10/24",
+     "config": {"linux": {"servicio": "netxms", "terminal": {}}}},
+    {"rol": "borde", "tipo": "rt", "address": "10.60.1.1/24", "config": {"routeros": {}}},
+    {"rol": "nucleo", "tipo": "rt", "address": "10.60.2.1/24", "config": {"routeros": {}}},
+]}
+VIGIA = LAB_TERMINAL["guests"][0]
+TERMINAL_AL_DIA = {
+    "agente": "active", "sshnsm": True, "capacidad": True, "tcpproxy": True,
+    "nodos": [{"ip": "10.60.1.1", "login": "admin", "puerto": "22", "proxy": "0", "clave": "si"},
+              {"ip": "10.60.2.1", "login": "admin", "puerto": "22", "proxy": "0", "clave": "si"}],
+}
+
+igual(motor._terminal_canonica({}, TERMINAL_AL_DIA, LAB_TERMINAL), [],
+      "con el agente vivo, ssh.nsm cargado, el proxy TCP en marcha, la capacidad puesta y los "
+      "dos routers dados de alta, el área `terminal` NO genera paso (es la idempotencia del área)")
+
+# El proxy TCP es la pieza que faltaba en el primer terminal REAL (medido el 20-nov-2026): el
+# agente abría la ventana y la cerraba con «TCP proxy function is disabled», con los otros
+# tres hechos en su sitio. Si el estado lo ignora, el área dice «al día» y el terminal no abre.
+_sin_proxy = dict(TERMINAL_AL_DIA, tcpproxy=False)
+_ops_proxy = motor._terminal_canonica({}, _sin_proxy, LAB_TERMINAL)
+comprobar(
+    len(_ops_proxy) == 1 and _ops_proxy[0]["op"] == "preparar_terminal"
+    and "proxy TCP" in _ops_proxy[0]["motivo"],
+    "sin el proxy TCP del agente el área pide preparar el terminal y lo dice con su motivo "
+    f"(obtenido {_ops_proxy!r})",
+)
+
+_sin_capacidad = dict(TERMINAL_AL_DIA, capacidad=False)
+_ops = motor._terminal_canonica({}, _sin_capacidad, LAB_TERMINAL)
+comprobar(
+    len(_ops) == 1 and _ops[0]["op"] == "preparar_terminal"
+    and [e["ip"] for e in _ops[0]["equipos"]] == ["10.60.1.1", "10.60.2.1"],
+    "sin la capacidad de agente, el área pide preparar el terminal para LOS DOS routers "
+    f"declarados (obtenido {_ops!r})",
+)
+comprobar("capacidad" in _ops[0]["motivo"],
+          "el motivo dice QUÉ falta: «el nodo del vigilante no tiene la capacidad de agente» "
+          "es el 502 que se midió, no un «no está» genérico")
+
+# La declaración que el driver recibe está NORMALIZADA: `tipo` es la virtualización y el tipo
+# de equipo viene en `equipo`. Filtrar por `tipo` dejaba la lista de equipos vacía y el área
+# decía «no hay nada que hacer» con dos routers delante (falló de verdad en el primer ciclo).
+igual(
+    [e["ip"] for e in motor._terminal_canonica(
+        {}, {"agente": "inactive", "sshnsm": False, "capacidad": False, "nodos": []},
+        {"guests": [
+            {"rol": "borde", "tipo": "qemu", "equipo": "rt", "address": "10.60.3.1/24",
+             "config": {"routeros": {}}},
+        ]},
+    )[0]["equipos"]],
+    ["10.60.3.1"],
+    "el tipo de equipo se lee de `equipo` en la declaración normalizada: si se mira `tipo` "
+    "(que ahí es `qemu`) el área no ve ningún router y no hace nada",
+)
+
+igual(motor._terminal_canonica({}, {}, {"guests": [VIGIA]}), [],
+      "un lab sin routers no tiene nada que vigilar: el área no inventa equipos ni se queja")
+
+_cmds = motor.escrituras_linux(_ops, VIGIA, LAB_TERMINAL, {"guests": []},
+                               {"routeros_usuario": "admin", "routeros_clave": "clave-inventada"})
+comprobar(len(_cmds) == 4 and all(c["area"] == "terminal" for c in _cmds),
+          "la escritura del terminal son CUATRO comandos, y todos del área (configuración del "
+          f"agente, agente vivo, credencial y alta de nodos) — obtenido {len(_cmds)}")
+comprobar(
+    any(c.get("comando_diario") for c in _cmds)
+    and not any("clave-inventada" in (c.get("comando_diario") or "") for c in _cmds),
+    "la credencial NO se diariza: el paso que la escribe lleva `comando_diario` y ahí no está "
+    "la clave (el diario es sagrado, regla 5)",
+)
+
+# La configuración que se escribe lleva la bandera, y el comando la aplica SÓLO si cambió,
+# reiniciando el agente en ese mismo instante: el agente lee sus banderas al arrancar, así que
+# un fichero nuevo sobre un proceso viejo no arregla nada.
+comprobar("EnableTCPProxy = 1" in motor.CONTENIDO_AGENTE,
+          "la configuración del agente lleva `EnableTCPProxy = 1`: sin ella la sesión del "
+          "terminal no se puede abrir")
+comprobar("cmp -s" in _cmds[0]["comando"] and "restart netxms-agent" in _cmds[0]["comando"],
+          "la escritura de la configuración compara antes de escribir y reinicia el agente "
+          "cuando cambia (si no, el proceso viejo sigue sin leer la bandera)")
+
+# La credencial de los nodos se comprueba DESPUÉS de reiniciar el servidor, que es cuando la
+# lee: el servidor vivo puede reescribir la fila que se acaba de tocar, y contar antes del
+# reinicio mide lo que va a tirar (medido en un lab recién nacido: el apply siguiente
+# «arreglaba» solo lo que la pasada anterior había escrito).
+_guion_terminal = motor._ficheros_servicio("netxms")[motor.RUTA_PREPARADOR_NETXMS]
+comprobar("restart netxms-server" in _guion_terminal and "terminal-estado" in _guion_terminal,
+          "el paso que deja la credencial de los nodos reinicia el servidor y cuenta lo que "
+          "lee él, no la tabla cruda")
+comprobar('intento_sql" -lt 3' in _guion_terminal,
+          "si tras el reinicio el servidor sigue sin ver los nodos, el par escribir+reiniciar "
+          "se repite (no se da por hecho con una sola escritura)")
+
+# Un nodo puede tener la dirección y el login buenos y AUN ASÍ no abrir: puerto distinto,
+# proxy puesto en otro agente o la clave vieja. Con sólo la dirección y el login, el área
+# decía «al día» y el terminal fallaba en silencio (hallazgo P1 de Greptile, PR #20).
+for _campo, _malo, _palabra in (("puerto", "2022", "puerto 22"),
+                                ("proxy", "3", "agente del vigilante"),
+                                ("clave", "no", "clave del motor")):
+    _nodos = [dict(n) for n in TERMINAL_AL_DIA["nodos"]]
+    _nodos[0][_campo] = _malo
+    _ops_nodo = motor._terminal_canonica({}, dict(TERMINAL_AL_DIA, nodos=_nodos), LAB_TERMINAL)
+    comprobar(
+        len(_ops_nodo) == 1 and _palabra in _ops_nodo[0]["motivo"],
+        f"un nodo con {_campo} mal ({_malo}) no se da por al día y el motivo lo nombra "
+        f"(obtenido {_ops_nodo!r})",
+    )
+
+# La credencial del terminal se guarda en `/etc/netlabs/terminal.env` y el agente la lee con
+# `.`: sin comillas simples, una clave con `$` o con comillas se expande al cargarla y el
+# agente recibe OTRA cosa -- el nodo queda con una clave que no es la declarada.
+_env = [c for c in _cmds if "terminal.env" in (c.get("comando") or "")]
+comprobar(len(_env) == 1, f"la credencial del terminal se escribe en UN paso (obtenido {len(_env)})")
+import base64 as _b64
+import re as _re
+_carga = _b64.b64decode(_re.search(r"echo (\S+) \| base64 -d", _env[0]["comando"]).group(1)).decode()
+comprobar("SSH_PASSWORD='clave-inventada'" in _carga,
+          f"la carga del terminal va entre comillas simples, para que el shell no la toque "
+          f"(obtenido {_carga!r})")
+_clave_rara = motor.escrituras_linux(
+    _ops, VIGIA, LAB_TERMINAL, {"guests": []},
+    {"routeros_usuario": "admin", "routeros_clave": "a'b$(id)"})
+_carga_rara = _b64.b64decode(_re.search(
+    r"echo (\S+) \| base64 -d",
+    [c for c in _clave_rara if "terminal.env" in (c.get("comando") or "")][0]["comando"]).group(1)).decode()
+comprobar("SSH_PASSWORD='a'\\''b$(id)'" in _carga_rara,
+          f"una clave con comilla y con `$` se escribe escapada y NO se expande al cargarla "
+          f"(obtenido {_carga_rara!r})")
+
+# Y el SQL que lleva la clave no puede quedarse en un /tmp previsible creado con la máscara
+# del sistema: nace 0600 y con nombre único.
+comprobar("umask 077 && mktemp /tmp/netlabs-terminal.XXXXXX" in _guion_terminal,
+          "el SQL de la credencial se escribe en un fichero que nace 0600 y con nombre único "
+          "(no en /tmp/netlabs-terminal.sql, que se crea con la máscara del sistema)")
+comprobar("/tmp/netlabs-terminal.sql" not in _guion_terminal,
+          "no queda ninguna escritura en la ruta previsible de /tmp")
+
+# El agente lee sus banderas al arrancar: si el fichero ya está bien pero el proceso es
+# anterior, hay que reiniciar igual. Con sólo `cmp -s` el paso no reiniciaba nunca y el área
+# repetía el fallo en cada pasada (hallazgo P1 de Greptile, PR #20).
+comprobar("rehacer" in _cmds[0]["comando"] and "etimes" in _cmds[0]["comando"],
+          "la escritura de la configuración reinicia también cuando el proceso del agente es "
+          "ANTERIOR al fichero (no sólo cuando el fichero cambia)")
+
+# El estado tiene que traer puerto, proxy y el sí/no de la clave: si la lectura no los pide,
+# la comparación de arriba no puede verlos nunca.
+comprobar("ssh_port, ssh_proxy" in _guion_terminal and "ssh_password = '" in _guion_terminal,
+          "la lectura del terminal trae puerto, proxy y si la clave guardada es la de ahora "
+          "(la clave se compara en la base: el diario no lleva credenciales)")
+comprobar("SSH_PASSWORD" in _guion_terminal and "-f -" in _guion_terminal,
+          "la consulta del terminal va por la entrada de psql, no en la línea de órdenes")
+
+# Un vigilante que YA existía y al que se le declara el área `terminal` no tiene todavía
+# `/etc/netlabs/terminal.env`: cargarlo con `.` a secas y `set -e` cortaba la lectura y el
+# driver se paraba ANTES de escribir la credencial (el área no se podía reparar nunca).
+comprobar("if [ -r /etc/netlabs/terminal.env ]; then . /etc/netlabs/terminal.env; fi" in _guion_terminal,
+          "la lectura carga el fichero de credenciales sólo si existe (si falta, el área tiene "
+          "que poder crearlo en vez de morir leyendo)")
+comprobar("faltan las credenciales del terminal" not in _guion_terminal.split("terminal_estado()")[1].split("\n}")[0],
+          "y la LECTURA no se muere si el fichero falta: sólo la escritura de nodos lo exige "
+          "(para esa, la credencial ya se habrá dejado antes)")
+
+# Si el temporal del agente no se pudo crear (o quedó vacío), el fichero VIVO no se toca: con
+# `;` en vez de `&&` se escribía vacío encima y el agente arrancaba sin configuración.
+comprobar("cp \"$nuevo\"" in _cmds[0]["comando"] and "[ ! -s \"$nuevo\" ]" in _cmds[0]["comando"],
+          "la configuración del agente se copia al fichero vivo sólo si el temporal salió bien "
+          "(un mktemp fallido no puede vaciar /etc/nxagentd.conf)")
+comprobar("cat \"$nuevo\" > " not in _cmds[0]["comando"],
+          "no queda la escritura que truncaba el fichero vivo del agente")
 
 if FALLOS:
     print(f"\nRESULTADO: {len(FALLOS)} fallo(s).")

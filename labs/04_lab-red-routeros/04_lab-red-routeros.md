@@ -30,6 +30,8 @@ graph LR
     i_borde --- b_vmb_lan1
     i_control[["ctl-1<br/>10.40.0.10/24<br/>etapa 1"]]:::ctl
     i_control --- b_vmb_gestion
+    i_monitor[["ctl-2<br/>10.40.0.20/24<br/>etapa 2"]]:::ctl
+    i_monitor --- b_vmb_gestion
     i_nucleo(["rt-nucleo<br/>10.40.1.11/24<br/>etapa 2"]):::rt
     i_nucleo --- b_vmb_lan1
     i_nucleo --- b_vmb_lan2
@@ -54,6 +56,7 @@ En el diagrama, la **forma** y el **color** de cada equipo dicen qué es (el tip
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | borde | rt (enruta y sale) | VM (qemu) | 1 | 2 | 512 | 1 | vmb_gestion + vmb_lan1 | 10.40.0.11/24 |
 | control | ctl (control del lab) | LXC | 1 | 1 | 512 | 4 | vmb_gestion | 10.40.0.10/24 |
+| monitor | ctl (control del lab) | LXC | 2 | 2 | 2048 | 8 | vmb_gestion | 10.40.0.20/24 |
 | nucleo | rt (enruta y sale) | VM (qemu) | 2 | 1 | 512 | 1 | vmb_lan1 + vmb_lan2 | 10.40.1.11/24 |
 | servidor | srv (servidor) | LXC | 2 | 1 | 512 | 4 | vmb_lan1 | dhcp |
 | puesto-1 | ws (puesto de trabajo) | LXC | 3 | 1 | 512 | 4 | vmb_lan1 | dhcp |
@@ -72,7 +75,7 @@ En el diagrama, la **forma** y el **color** de cada equipo dicen qué es (el tip
 | stage | roles |
 | --- | --- |
 | 1 | borde, control |
-| 2 | nucleo, servidor |
+| 2 | monitor, nucleo, servidor |
 | 3 | puesto-1, puesto-2 |
 
 ## Identidad: la deriva el motor, no la declara el lab
@@ -81,6 +84,7 @@ En el diagrama, la **forma** y el **color** de cada equipo dicen qué es (el tip
 | --- | --- | --- | --- | --- |
 | borde | rt (enruta y sale) | rt-borde | — | — |
 | control | ctl (control del lab) | ctl-1 | — | — |
+| monitor | ctl (control del lab) | ctl-2 | — | — |
 | nucleo | rt (enruta y sale) | rt-nucleo | — | — |
 | servidor | srv (servidor) | srv-1 | — | — |
 | puesto-1 | ws (puesto de trabajo) | ws-1 | — | — |
@@ -97,6 +101,7 @@ guion hasta que exista un despliegue real.
 | --- | --- | --- | --- | --- |
 | borde | rt (enruta y sale) | admin | `admin` / la de `secrets.yml` → `routeros_clave` (HTTP Basic) | REST por el túnel del bastión (`21000`+vmid); su consola, por la serial del nodo |
 | control | ctl (control del lab) | root | clave del lab (`~/.ssh/netlabs_tunnel_04_lab-red-routeros_ed25519`), sin contraseña | SSH a `127.0.0.1`:(`20000`+vmid): él ES el bastión, se entra directo por su túnel |
+| monitor | ctl (control del lab) | root | clave del lab (`~/.ssh/netlabs_tunnel_04_lab-red-routeros_ed25519`), sin contraseña | SSH por el bastión (salta por su túnel), a su dirección en el lab |
 | nucleo | rt (enruta y sale) | admin | `admin` / la de `secrets.yml` → `routeros_clave` (HTTP Basic) | REST por el túnel del bastión (`21000`+vmid); su consola, por la serial del nodo |
 | servidor | srv (servidor) | root | clave del lab (`~/.ssh/netlabs_tunnel_04_lab-red-routeros_ed25519`), sin contraseña | SSH por el bastión (salta por su túnel), a su dirección en el lab |
 | puesto-1 | ws (puesto de trabajo) | root | clave del lab (`~/.ssh/netlabs_tunnel_04_lab-red-routeros_ed25519`), sin contraseña | SSH por el bastión (salta por su túnel), a su dirección en el lab |
@@ -238,3 +243,76 @@ está en los `stages` de la declaración, y el plan lo respeta (regla 18).
   invitado dinámico por el host y sus concesiones (§6.3) y la del interior por áreas (§11)
   son el tramo siguiente; el ciclo verde de hoy lo es sin ellas, y eso se dice, no se
   maquilla.
+
+### El terminal de los dos routers, dentro de la web del vigilante (20-nov-2026, ADR 0035)
+
+Este lab tiene **dos** `rt`, así que es el primero donde una consola única tiene algo que
+enseñar. El vigilante declara `servicio: netxms` y `terminal: {}` — pero **en su propio
+invitado, `ctl-2`**, no en el bastión (`ADR 0029 §B`): el bastión es la forma de entrar del
+motor, y meterle un JVM con PostgreSQL al lado significa que un `apt upgrade` o el OOM killer
+se llevan el túnel del lab. Así lo hace también el lab 08 con su `monitor`, y aquí se había
+hecho mal durante un día: el vigilante vivía en `ctl-1` con el argumento de que «es el único
+que alcanza las dos redes», que es justo lo que 0029 resolvió generalizando la pata de
+gestión — un invitado que publica un servicio lleva **sus** interfaces y la salida, así que
+`ctl-2` llega a la LAN del CHR como se llega a cualquier red: con una **ruta** por el
+router que la sirve (`10.40.1.0/24 via 10.40.0.11`), no con una dirección de esa LAN puesta
+en su tarjeta de salida. La primera versión declaraba `addresses: eth1 10.40.1.3/24`, y el
+motor la aplicó donde tocaba —en `eth1`—, que es la pata de gestión (`vmbr1`): una dirección
+en una red en la que el invitado no está. El terminal abría la ventana y no llegaba a
+`rt-nucleo`.
+
+Y una trampa del nodo, que no es del lab: el nodo llega a `10.40.0.x` por la dirección
+`10.40.0.254` que le pone la unidad `netlabs-publicacion` en `vmb_gestion`. `destroy` borra
+ese bridge y con él se va la dirección, así que tras un ciclo la consola daba 502 hasta
+reiniciar la unidad a mano. Ahora hay un `netlabs-publicacion.timer` (calendario, cada
+minuto) que la repone sola. Con `OnUnitActive/InactiveSec` no servía: el servicio lleva
+`RemainAfterExit` y nunca pasa a inactivo, así que se disparaba una vez y se quedaba quieto.
+
+Lo que costó entenderlo, y que ahora está escrito en el código: **el terminal no lo presta
+el servidor**. La sesión SSH la abre un agente con el subagente `ssh.nsm`, y el servidor sólo
+transporta bytes. Tres piezas, y sin cualquiera de ellas el API contesta **502 «Cannot
+connect to SSH proxy agent»** con todo lo demás en su sitio:
+
+1. el agente carga `ssh.nsm` **en `[CORE]`** (al final del fichero la línea cae en
+   `[FILEMGR]` y no se carga);
+2. el nodo del propio vigilante lleva `NC_IS_NATIVE_AGENT` (`0x2`) además de `NC_IS_SSH`
+   (`0x80`) — el motor hace `OR` sobre el nodo que ya viene marcado como gestión local;
+3. cada router es un **nodo** con `ssh_login`/`ssh_password`/`ssh_port` y `ssh_proxy = 0`
+   («el agente de este servidor»).
+
+Capacidades y credenciales se leen **al arrancar**: por eso la escritura termina en un
+reinicio, y sólo cuando algo cambió. La credencial no viaja en la línea de órdenes —va a
+`/etc/netlabs/terminal.env` (0600), y el paso se diariza con `comando_diario`—: el diario
+cuenta lo que se hizo, no el secreto.
+
+**La cuarta pieza, medida al abrir el primer terminal (20-nov-2026).** Con las tres puestas,
+`Tools > SSH terminal` sobre `rt-borde` abrió la ventana y la cerró con *«TCP proxy function
+is disabled»*. La sesión es una conexión TCP que nace en el **agente**, y su configuración no
+traía `EnableTCPProxy`: sin `AF_ENABLE_TCP_PROXY` el agente la rechaza aunque todo lo demás
+esté en su sitio. Ya va en `/etc/nxagentd.conf`, y el área no se cree el fichero: exige que el
+proceso del agente sea **posterior** a él, porque las banderas se leen al arrancar y un fichero
+nuevo sobre un proceso viejo no arregla nada. La escritura compara antes de escribir y reinicia
+el agente en ese mismo paso. En el diálogo, la ruta que funciona es *Through NetXMS SSH proxy
+(session established by proxy agent)*, con usuario `admin` y la clave del router; la otra
+—conexión directa— necesitaría que el navegador alcanzara la red del equipo.
+
+### La consola del vigilante, con nombre: `04.netxms.matadepera.eu` (20-nov-2026)
+
+El vigilante de este lab se visita desde fuera en
+**https://04.netxms.matadepera.eu** — su consola web (el Tomcat del vigilante `ctl-2`, contexto
+`/nxmc/`), que es donde se abren los terminales de los `rt`. La cadena no la monta el motor:
+
+1. `*.matadepera.eu` resuelve al nodo;
+2. el nodo manda `:80` y `:443` al **proxy de la zona** (10.10.10.2), que termina el TLS con
+   su certificado y tiene un bloque por lab: `04.netxms.matadepera.eu → 10.40.0.20:8080`, que
+   es el **vigilante** (`ctl-2`, el `monitor`), no el bastión: el bastión ya no corre el
+   vigilante (ADR 0029);
+3. el proxy llega al bridge de gestión porque el **nodo tiene una dirección en él**
+   (`10.40.0.254/24`, la unidad `netlabs-publicacion` del nodo); sin ella saldría a la calle y
+   volvería. No confundirla con el `address:` del bridge en la declaración (10.40.0.1): ése es
+   la puerta que se le DICE a los invitados, y el motor no la pone en el nodo.
+
+Lo que el motor garantiza es lo suyo: que el vigilante **sirve** —la comprobación entra por su
+API autenticando, no mira el proceso— y que su consola escucha. Publicar un lab nuevo son dos
+líneas en el proxy de la zona (un bloque) y ninguna en la declaración; lo aprendido al hacerlo
+está en la skill (`references/publicacion-web.md`).

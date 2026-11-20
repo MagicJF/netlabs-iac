@@ -35,6 +35,11 @@
     - name: "IMPAIR · parámetros del entorno (los mismos que usa `apply`)"
       ansible.builtin.set_fact:
         parametros_motor:
+          # La credencial de los equipos, la MISMA con la que el motor los gobierna por su API
+          # (secrets.yml). Va aquí porque el área `terminal` la necesita para darlos de alta en
+          # el vigilante, y un filtro no lee secretos por su cuenta.
+          routeros_usuario: "{{ engine_routeros_usuario | default('admin') }}"
+          routeros_clave: "{{ routeros_clave | default('') }}"
           nodo: "{{ pve_nombre_nodo | default(pve_nodo) }}"
           ostemplate_lxc: "{{ engine_ostemplate_lxc }}"
           comentario_pool: "topología gestionada por netlabs_v4_b (motor por API)"

@@ -56,7 +56,7 @@ AREAS = {
     # porque el vocabulario es cerrado y hay que nombrarla, y `areas_de` la funde en
     # `address` para que la convergencia tenga un solo túnel.
     "linux": ("tunnel", "address", "addresses", "routes", "latido", "ip_forward", "dhcp_server",
-              "servicio", "monitorizacion"),
+              "servicio", "monitorizacion", "terminal"),
     "routeros": (
         "identity", "addresses", "ip_services", "dhcp_client", "routes", "dhcp_server", "uplink",
         "snmp",
@@ -620,7 +620,12 @@ RestartSec=5
 WantedBy=multi-user.target
 FIN_UNIDAD
 systemctl daemon-reload
-systemctl enable --now {UNIDAD_TUNNEL}
+systemctl enable {UNIDAD_TUNNEL}
+# RESTART, no `enable --now`: con el túnel ya en marcha, `--now` no hace nada y el guion
+# nuevo se queda en el disco mientras la sesión vieja sigue con los reenvíos de antes. Así
+# un puerto publicado que se AÑADE a un lab ya desplegado no aparecía nunca -- y el motor
+# decía que había convergido (medido: el túnel publicaba 21103/21106 y no 22110).
+systemctl restart {UNIDAD_TUNNEL}
 sleep 4
 echo {marca_tunnel()}
 """
@@ -941,6 +946,11 @@ def _ip_services_canonicos(declarado, leido):
         operaciones.append({"op": "disable_service", "servicio": servicio})
     for servicio in sorted((apagados - deseados) & set(SERVICIOS_GESTIONADOS)):
         operaciones.append({"op": "enable_service", "servicio": servicio})
+    # El SSH que se deja abierto tiene que admitir CONTRASEÑA, no sólo clave: es la credencial
+    # que el vigilante guarda por equipo. `yes-if-no-key` deja fuera a un usuario con clave
+    # importada --el del motor--, y entonces el terminal no puede entrar (medido).
+    if "ssh" not in deseados and str((leido or {}).get("ssh_password_auth") or "") != "yes":
+        operaciones.append({"op": "allow_ssh_password"})
     return operaciones
 
 
@@ -1787,6 +1797,10 @@ def pasos_de_convergencia(guest, identidad, declaracion, leido, parametros):
             # El área del servicio declarado: instalar, configurar, arrancar y comprobar que
             # SIRVE. El valor declarado es el NOMBRE del servicio (vocabulario cerrado).
             operaciones = _servicio_canonico(declaradas[area], actual)
+        elif area == "terminal":
+            # Va DESPUÉS de `monitorizacion` (orden de `AREAS`) y por eso encuentra el
+            # servicio ya convergido: el preparador existe y el API contesta.
+            operaciones = _terminal_canonica(declaradas[area], actual, declaracion)
         elif area == "monitorizacion":
             # El área de la vigilancia: que el servidor declarado SEPA a quién vigilar. Va
             # DESPUÉS de `servicio` (siempre, por el orden de `AREAS`), así que cuando corre
@@ -2400,6 +2414,24 @@ def lecturas_linux(guest):
                     "descripcion": (f"si el servidor de vigilancia '{nombre_servicio}' ya sabe a "
                                     "quién tiene que vigilar"),
                 })
+        elif area == "terminal":
+            # La pregunta va al PREPARADOR y no a una orden suelta: son cuatro hechos que
+            # tienen que contarse juntos (agente vivo, subagente cargado, capacidad del nodo
+            # del vigilante y qué equipos tienen ya su credencial).
+            lecturas.append({
+                "area": area,
+                "accion": "leer",
+                # El preparador es un fichero que escribe el área `servicio`: en la primera
+                # pasada todavía no está. Una lectura que sale con error no es un estado (el
+                # driver la da por no leída y para), así que se contesta lo que hay cuando no
+                # hay nada: el agente sin configurar. Sin esto, el primer `apply` se paraba
+                # pidiendo una lectura imposible.
+                "comando": (f"if [ -r {RUTA_PREPARADOR_NETXMS} ]; then "
+                            f"sh {RUTA_PREPARADOR_NETXMS} terminal-estado; "
+                            "else printf 'agente=inactive\\nsshnsm=no\\ntcpproxy=no\\ncapacidad=no\\n'; fi"),
+                "descripcion": ("si el vigilante puede prestar el terminal SSH: agente vivo "
+                                "con `ssh.nsm`, capacidad de agente y equipos dados de alta"),
+            })
         elif area in LECTURAS_LINUX:
             lecturas.append({
                 "area": area,
@@ -2531,6 +2563,36 @@ def leido_linux(lecturas):
                 "ficheros_leidos": [
                     (bloques[i] if i < len(bloques) else "").lstrip("\n") for i in (1, 2, 3)
                 ],
+            }
+
+        elif area == "terminal":
+            # Cinco formas de línea: `agente=`, `sshnsm=`, `capacidad=` y una `nodo=ip|login|puerto`
+            # por equipo. Se devuelven como hechos sueltos, no como un texto comparable: la
+            # diferencia se calcula contra lo que el lab declara, no contra la forma del guion.
+            nodos = []
+            for linea in lineas:
+                if not linea.startswith("nodo="):
+                    continue
+                trozos = linea.split("=", 1)[1].split("|")
+                if len(trozos) >= 2:
+                    nodos.append({"ip": trozos[0], "login": trozos[1],
+                                  "puerto": (trozos[2] if len(trozos) > 2 else "22"),
+                                  # El proxy va en el nodo (`ssh_proxy`): 0 = «el agente del
+                                  # propio servidor», que es el único que sabe llegar a los dos
+                                  # routers.
+                                  "proxy": (trozos[3] if len(trozos) > 3 else ""),
+                                  # La clave se compara en la base y sólo viaja el sí/no: el
+                                  # diario no puede llevar la credencial (regla 12).
+                                  "clave": (trozos[4] if len(trozos) > 4 else "")})
+            leido["terminal"] = {
+                "agente": _valor(lineas, "agente"),
+                "sshnsm": _valor(lineas, "sshnsm") == "si",
+                # El proxy TCP es lo que deja al agente ABRIR la conexión de la sesión: sin
+                # él la ventana del terminal se cierra sin prompt («TCP proxy function is
+                # disabled»), con todo lo demás en su sitio.
+                "tcpproxy": _valor(lineas, "tcpproxy") == "si",
+                "capacidad": _valor(lineas, "capacidad") == "si",
+                "nodos": nodos,
             }
 
         elif area == "claves":
@@ -2713,6 +2775,47 @@ RUTA_PREPARADOR_NETXMS = "/usr/local/sbin/netlabs-servicio-netxms"
 # binario trae por defecto: se le dice la nuestra con un `drop-in` de systemd, que es del
 # motor como el resto de la configuración.
 RUTA_DROPIN_NETXMS = "/etc/systemd/system/netxms-server.service.d/netlabs.conf"
+
+# --- El TERMINAL SSH (área `terminal`) ---------------------------------------------------
+# Dos ficheros y una idea: el vigilante presta la consola porque un AGENTE del propio invitado
+# abre la sesión SSH por él. El agente sólo sabe hacerlo si carga el subagente `ssh.nsm`, y
+# eso se declara en la sección [CORE] de su configuración -- la de arriba del fichero, no la de
+# FILEMGR, que es donde se perdía la línea cuando se añadía al final (medido).
+RUTA_AGENTE = "/etc/nxagentd.conf"
+# La credencial de los equipos que el terminal abre va en su propio fichero 0600 y no en la
+# línea de órdenes: el diario del motor guarda el comando tal cual (regla 12), así que un
+# secreto en el comando acabaría escrito en `interior.jsonl`.
+RUTA_TERMINAL_ENV = "/etc/netlabs/terminal.env"
+
+# Las dos capacidades que el nodo del propio vigilante necesita: sin `NC_IS_NATIVE_AGENT`
+# (0x2) `Node::createAgentConnection` devuelve nulo y el API contesta 502 «Cannot connect to
+# SSH proxy agent»; `NC_IS_SSH` (0x80) es lo que la interfaz lee para ofrecer el terminal.
+# Se ORDENAN sobre la capacidad que el nodo ya tiene, nunca se pisan (medido sobre la fuente).
+CAPACIDADES_TERMINAL = 0x2 | 0x80
+# `NC_IS_LOCAL_MGMT`: el bit con el que el servidor marca el nodo de su propio equipo. Es cómo
+# se encuentra ese nodo sin saber su nombre (que lo pone el instalador).
+CAPACIDAD_GESTION_LOCAL = 0x10
+
+# El usuario con el que el motor abre la consola de los equipos vigilados: es el mismo con el
+# que gobierna un RouterOS por su API. El lab no lo declara -- no es suyo, es del motor.
+USUARIO_TERMINAL = "admin"
+
+# La configuración del agente, y ninguna línea de más. `MasterServers` limita quién puede
+# hablarle (sólo la propia máquina: el servidor vive en este mismo invitado); `ssh.nsm` en
+# [CORE] es lo que le da la capacidad de abrir sesiones SSH para el terminal; y
+# `EnableTCPProxy` es lo que le permite ABRIR esas conexiones: la sesión del terminal es
+# una conexión TCP que nace en el agente, y sin la bandera el agente contesta
+# «TCP proxy function is disabled» y la ventana se cierra sin prompt (medido el 20-nov-2026
+# abriendo `Tools > SSH terminal` contra `rt-borde`; el error lo lanza el agente en
+# `src/agent/core/session.cpp` cuando falta `AF_ENABLE_TCP_PROXY`).
+CONTENIDO_AGENTE = """# PROPÓSITO: el agente del vigilante, que es quien abre las sesiones del terminal SSH.
+# No se edita a mano: el motor lo reescribe desde el área `terminal`.
+SubAgent = filemgr
+SubAgent = ssh.nsm
+MasterServers = 127.0.0.0/8
+EnableTCPProxy = 1
+LogFile = {syslog}
+"""
 
 # Lo que el motor sabe hacer con cada servicio, en un solo sitio. Nada de esto es un valor de
 # ningún lab: es vocabulario del MOTOR (regla 7). Las claves, todas obligatorias (un servicio
@@ -3218,6 +3321,175 @@ estado() {
     echo si
 }
 
+# --- El TERMINAL SSH: lo que hace falta para que el vigilante preste la consola -----------
+# Un terminal embebido no es "SSH desde el navegador": la sesión la abre un AGENTE con el
+# subagente `ssh.nsm` y el servidor sólo relaya bytes (ADR 0035). Estas tres funciones son
+# la diferencia entre "el API contesta" y "el terminal abre":
+#   * el agente carga `SubAgent = ssh.nsm` (en [CORE], no en la sección de FILEMGR);
+#   * el nodo del propio vigilante lleva las capacidades `NC_IS_NATIVE_AGENT` (0x2) y
+#     `NC_IS_SSH` (0x80). Sin el bit 2, `Node::createAgentConnection` devuelve nulo y el
+#     API contesta 502 «Cannot connect to SSH proxy agent» (medido sobre su fuente);
+#   * cada equipo vigilado es un NODO con `ssh_login`/`ssh_password`/`ssh_port` y
+#     `ssh_proxy = 0`, que significa «el agente del propio servidor»;
+#   * el agente tiene `EnableTCPProxy` EN MARCHA: la sesión SSH es una conexión TCP que abre
+#     él, y sin la bandera contesta «TCP proxy function is disabled» y la ventana se cierra
+#     sin prompt (medido el 20-nov-2026 con `Tools > SSH terminal` sobre `rt-borde`).
+# Capacidades y credenciales se LEEN AL ARRANCAR: la escritura termina con UN reinicio, y
+# sólo cuando algo cambió.
+terminal_estado() {
+    printf 'agente=%%s\n' "$(systemctl is-active netxms-agent 2>/dev/null | head -1)"
+    if grep -qiE '^[[:space:]]*SubAgent[[:space:]]*=[[:space:]]*ssh\.nsm' /etc/nxagentd.conf 2>/dev/null; then
+        echo 'sshnsm=si'
+    else
+        echo 'sshnsm=no'
+    fi
+    # `tcpproxy` NO se contesta mirando el fichero: lo que importa es si el agente que CORRE
+    # lo leyó, y eso se sabe por la hora. Un fichero con la bandera y un proceso anterior a
+    # él sigue sin poder abrir sesiones -- el estado diría «si» y el terminal seguiría muerto.
+    pid=$(systemctl show -p MainPID --value netxms-agent 2>/dev/null)
+    if grep -qiE '^[[:space:]]*EnableTCPProxy[[:space:]]*=[[:space:]]*(1|yes|true)' /etc/nxagentd.conf 2>/dev/null \
+       && [ -n "$pid" ] && [ "$pid" != 0 ] \
+       && [ $(( $(date +%%s) - $(ps -o etimes= -p "$pid" 2>/dev/null | tr -d ' ') )) -ge "$(stat -c %%Y /etc/nxagentd.conf 2>/dev/null || echo 0)" ]; then
+        echo 'tcpproxy=si'
+    else
+        echo 'tcpproxy=no'
+    fi
+    printf 'capacidad=%%s\n' "$(como_postgres "psql -tA -d %(bd)s -c \"select case when capabilities & 2 = 2 then 'si' else 'no' end from nodes where capabilities & 16 = 16 limit 1\"")"
+    # Y de cada equipo, TODO lo que hace falta para que el terminal abra: la dirección, el
+    # login, el PUERTO, el PROXY y si la clave guardada es la de ahora. El puerto y el proxy se
+    # comparan porque un nodo con la dirección y el login buenos pero el puerto mal pasa por
+    # «al día» y el terminal no abre. La clave no se imprime: se contesta sí/no comparándola en
+    # la base (hallazgo P1 de Greptile, PR #20).
+    # Si el fichero de credenciales todavía NO existe (a un vigilante ya instalado se le acaba
+    # de declarar el área), cargarlo no puede tumbar la lectura: sin él simplemente no se puede
+    # comparar la clave, y el área tiene que poder escribirla. Un `.` fallido con `set -e`
+    # cortaba el script y el driver se paraba ANTES de reparar (hallazgo P1 de Greptile, PR #20).
+    if [ -r /etc/netlabs/terminal.env ]; then . /etc/netlabs/terminal.env; fi
+    clave_terminal_sql=$(printf '%%s' "$SSH_PASSWORD" | sed "s/'/''/g")
+    # La consulta va por la ENTRADA de psql y no en la línea de órdenes: así no hay que anidar
+    # comillas (que es donde se rompen estas líneas) y la clave no aparece en ningún argv.
+    consulta="select primary_ip, ssh_login, ssh_port, ssh_proxy, case when ssh_password = '$clave_terminal_sql' then 'si' else 'no' end from nodes where ssh_login is not null and ssh_login <> ''"
+    printf '%%s\n' "$consulta" | como_postgres "psql -tA -F '|' -d %(bd)s -f -" | sed 's/^/nodo=/'
+}
+
+# La escritura: recibe `ip:nombre` por cada equipo que el lab declara y deja el nodo listo.
+# La credencial NO viaja por la línea de órdenes (se quedaría en el diario del motor): se lee
+# de un fichero 0600 que el motor escribe en el mismo paso.
+terminal_converger() {
+    . /etc/netlabs/terminal.env 2>/dev/null || { echo 'faltan las credenciales del terminal' >&2; exit 1; }
+    # El vigilante recién instalado tarda en levantar (el servicio se acaba de converger en
+    # esta misma pasada). Se ESPERA a que conteste en vez de fallar al primer intento: eso era
+    # lo que hacía fallar el primer `apply` de un lab recién nacido.
+    intento_entrada=0
+    while [ "$(entra)" != 'si' ] && [ "$intento_entrada" -lt 45 ]; do
+        intento_entrada=$((intento_entrada + 1))
+        sleep 2
+    done
+    [ "$(entra)" = 'si' ] || { echo 'no se puede entrar al vigilante para poner el terminal' >&2; exit 1; }
+    # El token se pide con reintento: el servidor recién reiniciado puede contestar al login
+    # antes de emitir tokens, y fallar aquí mataba el primer `apply` por una carrera de 2 s.
+    intento_token=0
+    token=""
+    while [ -z "$token" ] && [ "$intento_token" -lt 30 ]; do
+        intento_token=$((intento_token + 1))
+        token=$(curl -sS -m 10 -X POST http://127.0.0.1:8000/v1/login -H 'Content-Type: application/json' \
+            -d "{\"username\":\"$ADMIN\",\"password\":\"$ADMIN_CLAVE\"}" \
+            | python3 -c 'import sys,json;print(json.load(sys.stdin).get("token",""))' 2>/dev/null)
+        [ -n "$token" ] || sleep 2
+    done
+    [ -n "$token" ] || { echo 'el vigilante no dio token' >&2; exit 1; }
+    # Una sola comilla simple dentro de un valor SQL se ESCAPA doblando: sin esto, una clave
+    # con apóstrofo rompía el guion entero (y el SQL es de root, no del usuario).
+    login=$(printf '%%s' "$SSH_LOGIN" | sed "s/'/''/g")
+    clave=$(printf '%%s' "$SSH_PASSWORD" | sed "s/'/''/g")
+    sql=""
+    fallo=0
+    esperados=$#
+    for par in "$@"; do
+        ip=${par%%:*}
+        nombre=${par#*:}
+        id=$(como_postgres "psql -tA -d %(bd)s -c \"select id from nodes where primary_ip = '$ip' limit 1\"")
+        if [ -z "$id" ]; then
+            # El vigilante recién instalado contesta al login antes de poder crear nodos: el
+            # primer intento se queda sin id y ANTES se hacía `continue`, así que el paso decía
+            # que había ido bien con el nodo sin crear -- la segunda pasada lo arreglaba y
+            # parecía magia (medido el 20-nov en un lab recién nacido). Se reintenta aquí y,
+            # si no hay manera, se falla: que lo diga el diario, no la segunda pasada.
+            intento=0
+            while [ -z "$id" ] && [ "$intento" -lt 6 ]; do
+                intento=$((intento + 1))
+                respuesta=$(curl -sS -m 20 -w '\n%%{http_code}' -X POST http://127.0.0.1:8000/v1/objects \
+                     -H "Authorization: Bearer $token" -H 'Content-Type: application/json' \
+                     -d "{\"class\":\"Node\",\"parentId\":2,\"name\":\"$nombre\",\"ipAddress\":\"$ip\"}" 2>&1)
+                codigo=$(printf '%%s' "$respuesta" | tail -n1)
+                id=$(printf '%%s' "$respuesta" | sed '$d' \
+                     | python3 -c 'import sys,json;print(json.load(sys.stdin).get("id",""))' 2>/dev/null)
+                [ -n "$id" ] && break
+                echo "el vigilante no dejó el nodo $nombre ($ip): HTTP $codigo (intento $intento)" >&2
+                sleep 3
+            done
+        fi
+        case "$id" in
+            ''|*[!0-9]*) echo "no se pudo dejar el nodo $nombre ($ip)" >&2; fallo=1; continue ;;
+        esac
+        sql="$sql update nodes set ssh_login = '$login', ssh_password = '$clave', ssh_port = ${SSH_PUERTO:-22}, ssh_proxy = 0 where id = $id;"
+    done
+    # Y la capacidad del nodo del vigilante: es el bit que decide si hay agente detrás.
+    sql="$sql update nodes set capabilities = capabilities | 130 where capabilities & 16 = 16;"
+    [ "$fallo" = 0 ] || { echo 'no se pudo dejar algún nodo del terminal: se reintenta' >&2; exit 1; }
+    # El SQL LLEVA LA CLAVE: se escribe en un fichero que nace 0600 y con nombre único, no en
+    # un /tmp previsible que se crea con la máscara del sistema (022 = lo lee cualquiera) y
+    # que se queda ahí durante los reintentos (hallazgo P1 de Greptile, PR #20).
+    sql_ficha=$(umask 077 && mktemp /tmp/netlabs-terminal.XXXXXX) || { echo 'no se pudo crear el fichero temporal del terminal' >&2; exit 1; }
+    trap 'rm -f "$sql_ficha"' EXIT INT TERM
+    printf '%%s\n' "$sql" > "$sql_ficha"
+    chown postgres "$sql_ficha" 2>/dev/null
+    chmod 600 "$sql_ficha" 2>/dev/null
+    # El SQL se aplica sin fiarse de la tabla cruda: se comprueba LO QUE EL SERVIDOR LEE. El
+    # servidor vivo mantiene los objetos en memoria y puede reescribir la fila que se acaba
+    # de tocar, así que contar antes de reiniciar mide el estado que va a tirar (medido el
+    # 20-nov en un lab recién nacido: la pasada escribió la credencial, contó 0 y el `apply`
+    # siguiente --con el servidor ya caliente-- «la arregló» él solo). Se aplica, se reinicia,
+    # se cuenta, y si falta se repite el PAR entero, con la razón dicha al final.
+    aplicado=0
+    intento_sql=0
+    vistos=0
+    salida_sql=""
+    while [ "$intento_sql" -lt 3 ] && [ "$aplicado" = 0 ]; do
+        intento_sql=$((intento_sql + 1))
+        salida_sql=$(como_postgres "psql -q -d %(bd)s -f $sql_ficha" 2>&1)
+        case "$salida_sql" in
+            *ERROR*|*FATAL*) echo "la base del vigilante rechazó el terminal: $salida_sql" >&2 ;;
+        esac
+        # El reinicio es la ÚNICA forma de que el servidor lea lo que acaba de cambiar en su
+        # base. Se espera a que vuelva a entrar, no un tiempo fijo.
+        systemctl restart netxms-server >/dev/null 2>&1
+        i=0
+        while [ "$i" -lt 30 ]; do
+            i=$((i + 1))
+            sleep 2
+            [ "$(respuesta_de_la_web)" = "201" ] && break
+        done
+        [ "$(entra)" = 'si' ] || { echo 'el vigilante no volvió tras reiniciar' >&2; continue; }
+        # Y no basta con que el vigilante CONTESTE: lo que se ha escrito son credenciales en
+        # su base, y hasta que no las lee, `terminal-estado` sigue sin ver los nodos.
+        j=0
+        vistos=0
+        while [ "$j" -lt 30 ]; do
+            j=$((j + 1))
+            vistos=$(sh "$0" terminal-estado 2>/dev/null | grep -c '^nodo=')
+            [ "$vistos" -ge "$esperados" ] && break
+            sleep 2
+        done
+        [ "$vistos" -ge "$esperados" ] && aplicado=1
+    done
+    rm -f "$sql_ficha"
+    [ "$aplicado" = 1 ] \
+        || { echo "el vigilante no ve los $esperados nodo(s) del terminal tras ${intento_sql} intento(s) (ve ${vistos:-0}); la base dijo: ${salida_sql:-nada}" >&2; exit 1; }
+    echo 'si'
+}
+
+
 case "$VERBO" in
 estado)
     estado
@@ -3455,8 +3727,17 @@ preparar)
         fi
     fi
     ;;
+
+terminal-estado)
+    # Sólo lectura: qué le falta al vigilante para poder prestar la consola.
+    terminal_estado
+    ;;
+terminal)
+    # Escritura: deja el agente con `ssh.nsm` y un nodo por equipo, con su credencial.
+    terminal_converger "$@"
+    ;;
 *)
-    echo "uso: $0 preparar|estado|sembrar|sembrado|objetivos|api" >&2
+    echo "uso: $0 preparar|estado|sembrar|sembrado|objetivos|api|terminal|terminal-estado" >&2
     exit 2
     ;;
 esac
@@ -3477,6 +3758,7 @@ def _dropin_netxms():
         "ExecStart=",
         "ExecStart=/usr/bin/netxmsd -S -c /etc/netxmsd.conf",
     ]) + "\n"
+
 
 
 def _preparador_netxms():
@@ -3534,6 +3816,77 @@ def _lineas_servicio(bloque):
             # sólo un `NO` explícito pide instalarlo.
             presentes[clave.strip()] = valor.strip() != "NO"
     return presentes
+
+
+def _terminal_canonica(declarado, leido, declaracion):
+    """(declarado, leído) -> lo que falta para que el vigilante preste el terminal SSH.
+
+    El terminal embebido NO es una capacidad del servidor: la sesión la abre un AGENTE con
+    `ssh.nsm`, y el equipo que se abre es un NODO con su credencial. Así que lo que hay que
+    comprobar son cuatro hechos, y los cuatro tienen que estar:
+
+      1. el agente está vivo,
+      2. carga `ssh.nsm`,
+      3. el nodo del propio vigilante tiene la capacidad de agente (sin ella el API contesta
+         502 «Cannot connect to SSH proxy agent», medido),
+      4. cada RouterOS declarado tiene su nodo, con el usuario del motor.
+
+    Los equipos NO se inventan: son los `rt` de la declaración. Un lab sin routers no tiene
+    nada que vigilar aquí y esta área se queda en nada (no es un error declararla).
+    """
+    equipos = []
+    for otro in declaracion.get("guests") or []:
+        # El TIPO DE EQUIPO (rt/fw/srv/ws/sw/ctl) llega en `equipo` en la declaración
+        # NORMALIZADA (donde `tipo` es la virtualización: `qemu`/`lxc`), y en `tipo` cuando
+        # alguien llama al driver con la declaración cruda de un lab (las pruebas). Se aceptan
+        # las dos formas porque las dos son ciertas, y ninguna se adivina.
+        equipo_tipo = str(otro.get("equipo") or otro.get("tipo") or "")
+        if equipo_tipo != "rt":
+            continue
+        ip = str(otro.get("address") or "").split("/")[0]
+        if not ip or ip == "dhcp":
+            continue
+        # El NOMBRE del nodo es del vocabulario del motor (`<tipo>-<alias>`), no del lab:
+        # dos labs pueden repetir `rt-nucleo` y el nombre no prueba pertenencia (regla 3).
+        alias = otro.get("alias") or otro.get("nombre") or otro.get("rol")
+        equipos.append({"ip": ip, "nombre": f"rt-{alias}"})
+
+    if not equipos:
+        return []
+
+    actual = leido or {}
+    motivos = []
+    if str(actual.get("agente") or "") != "active":
+        motivos.append("el agente del vigilante no está vivo")
+    if not actual.get("sshnsm"):
+        motivos.append("el agente no carga el subagente ssh.nsm")
+    if not actual.get("tcpproxy"):
+        # Sin el proxy TCP el agente abre la ventana y la cierra: «TCP proxy function is
+        # disabled». Es un hecho MÁS, no un detalle: con los otros tres puestos el terminal
+        # parecía listo y no lo estaba (medido el 20-nov-2026).
+        motivos.append("el agente no tiene el proxy TCP en marcha (la sesión no se puede abrir)")
+    if not actual.get("capacidad"):
+        motivos.append("el nodo del vigilante no tiene la capacidad de agente")
+    dados = {str(n.get("ip")): n for n in actual.get("nodos") or []}
+    for equipo in equipos:
+        nodo = dados.get(equipo["ip"])
+        if nodo is None:
+            motivos.append(f"el equipo {equipo['ip']} no está dado de alta")
+        elif str(nodo.get("login") or "") != USUARIO_TERMINAL:
+            motivos.append(f"el equipo {equipo['ip']} no lleva el usuario del motor")
+        else:
+            # Puerto, proxy y clave: con la dirección y el login buenos, un nodo con el puerto
+            # mal o sin la clave de ahora pasaba por «al día» y el terminal no abría (hallazgo
+            # P1 de Greptile, PR #20).
+            if str(nodo.get("puerto") or "") != "22":
+                motivos.append(f"el equipo {equipo['ip']} no lleva el puerto 22")
+            if str(nodo.get("proxy") or "") != "0":
+                motivos.append(f"el equipo {equipo['ip']} no va por el agente del vigilante")
+            if str(nodo.get("clave") or "") != "si":
+                motivos.append(f"el equipo {equipo['ip']} no tiene guardada la clave del motor")
+    if not motivos:
+        return []
+    return [{"op": "preparar_terminal", "equipos": equipos, "motivo": "; ".join(motivos)}]
 
 
 def _servicio_canonico(declarado, leido):
@@ -3646,6 +3999,72 @@ def escrituras_linux(operaciones, guest, declaracion, identidad, parametros):
                 "area": "address", "accion": "escribir", "declarado": operacion.get("address"),
                 "descripcion": "poner su dirección declarada",
                 "comando": f"ip addr replace {operacion['address']} dev {operacion.get('interface') or 'eth0'}",
+            })
+
+        elif op == "preparar_terminal":
+            # Cuatro comandos, y en este orden: la configuración del agente, el agente vivo, la
+            # credencial y -- lo que de verdad hace el trabajo -- el guion del vigilante, que da
+            # de alta los nodos y reinicia el servidor una sola vez.
+            equipos = operacion.get("equipos") or []
+            usuario = str(parametros.get("routeros_usuario") or USUARIO_TERMINAL)
+            clave = str(parametros.get("routeros_clave") or "")
+            comandos.append({
+                "area": "terminal", "accion": "escribir", "declarado": "ssh.nsm",
+                "descripcion": "escribir la configuración del agente del vigilante (con ssh.nsm y el proxy TCP)",
+                # La configuración se escribe SÓLO si cambia, y el agente se reinicia en ese
+                # mismo instante: sus banderas se leen al arrancar, así que un fichero nuevo
+                # sobre un proceso viejo seguiría contestando «TCP proxy function is disabled».
+                # Antes se escribía a ciegas y el segundo comando no reiniciaba nunca.
+                # Se escribe sólo si cambia, pero se REINICIA también cuando el fichero ya está
+                # bien y el proceso que CORRE es anterior a él: sus banderas se leen al arrancar,
+                # y con el `cmp` solo el paso no reiniciaba nunca y el área repetía el fallo en
+                # cada pasada (hallazgo P1 de Greptile, PR #20).
+                # Y con guardia: si el temporal no se pudo crear o quedó vacío, NO se toca el
+                # fichero vivo -- con `;` se escribía vacío encima y el agente se quedaba sin
+                # configuración (segundo hallazgo P1, PR #20).
+                "comando": (f"nuevo=$(mktemp) || exit 1; echo {_b64(CONTENIDO_AGENTE)} | base64 -d > \"$nuevo\" || {{ rm -f \"$nuevo\"; exit 1; }}; "
+                            "if [ ! -s \"$nuevo\" ]; then rm -f \"$nuevo\"; echo 'no se pudo preparar la configuracion del agente' >&2; exit 1; fi; "
+                            f"cambia=0; if cmp -s \"$nuevo\" {RUTA_AGENTE}; then rm -f \"$nuevo\"; "
+                            f"else if cp \"$nuevo\" {RUTA_AGENTE}; then rm -f \"$nuevo\"; cambia=1; else rm -f \"$nuevo\"; exit 1; fi; fi; "
+                            "rehacer=0; if [ \"$cambia\" = 1 ]; then rehacer=1; else "
+                            "pid=$(systemctl show -p MainPID --value netxms-agent 2>/dev/null); "
+                            "seg=$(ps -o etimes= -p \"$pid\" 2>/dev/null | tr -d ' '); "
+                            "if [ -z \"$seg\" ] || [ \"$seg\" = '-' ]; then rehacer=1; "
+                            f"elif [ $(( $(date +%s) - $seg )) -lt $(stat -c %Y {RUTA_AGENTE}) ]; then rehacer=1; fi; fi; "
+                            "if [ \"$rehacer\" = 1 ]; then systemctl restart netxms-agent >/dev/null 2>&1 || true; fi"),
+            })
+            comandos.append({
+                "area": "terminal", "accion": "escribir", "declarado": "active",
+                "descripcion": "dejar el agente del vigilante habilitado y arrancado",
+                "comando": ("systemctl enable netxms-agent >/dev/null 2>&1 || true; "
+                            "systemctl is-active --quiet netxms-agent "
+                            "|| systemctl start netxms-agent >/dev/null 2>&1 || true"),
+            })
+            # Cada valor va entre comillas SIMPLES y con las comillas internas cerradas y
+            # reabiertas ('\''), que es la única forma de que el shell no toque el literal: sin
+            # comillas, una clave con `$HOME` se expande al hacer `. terminal.env` y NetXMS
+            # recibe otra cosa (hallazgo P1 de Greptile, PR #20).
+            def _literal(valor):
+                return "'" + str(valor).replace("'", "'\\''") + "'"
+
+            entorno = "\n".join([f"SSH_LOGIN={_literal(usuario)}",
+                                 f"SSH_PASSWORD={_literal(clave)}",
+                                 f"SSH_PUERTO={_literal(22)}"]) + "\n"
+            comandos.append({
+                "area": "terminal", "accion": "escribir", "declarado": "0600",
+                "descripcion": "dejar la credencial del terminal en un fichero que sólo root lee",
+                "comando": (f"mkdir -p /etc/netlabs && (umask 077 && echo {_b64(entorno)} "
+                            f"| base64 -d > {RUTA_TERMINAL_ENV})"),
+                # El diario guarda el comando TAL CUAL (regla 12): con la credencial dentro sería
+                # un secreto escrito en `interior.jsonl`. Se diariza lo que se hizo, no el blob.
+                "comando_diario": f"escribir {RUTA_TERMINAL_ENV} con la credencial (tapada)",
+            })
+            pares = " ".join(f"{e['ip']}:{e['nombre']}" for e in equipos)
+            comandos.append({
+                "area": "terminal", "accion": "escribir",
+                "declarado": ",".join(e["ip"] for e in equipos),
+                "descripcion": "dar de alta los equipos vigilados con su credencial y su proxy",
+                "comando": f"sh {RUTA_PREPARADOR_NETXMS} terminal {pares}",
             })
 
         elif op == "enable_ip_forward":
@@ -3860,6 +4279,7 @@ def pendiente_de_driver(operacion):
         "install_service", "write_service_config", "prepare_service",
         "enable_service", "reload_service", "sembrar_monitorizacion",
         "add_route", "remove_route", "write_routes", "write_latido", "start_latido",
+        "preparar_terminal",
     }
     op = (operacion or {}).get("op")
     if op in conocidas:
@@ -3955,7 +4375,16 @@ LECTURAS_ROUTEROS = {
         ("/user", "los usuarios que tiene (el del motor, si está)"),
         ("/user/ssh-keys", "las claves autorizadas (la del motor, si está importada)"),
     ),
-    "ip_services": (("/ip/service", "qué servicios de gestión tiene abiertos"),),
+    "ip_services": (
+        ("/ip/service", "qué servicios de gestión tiene abiertos"),
+        # `/ip/ssh` no es un servicio de la tabla: es la POLÍTICA del demonio. Y hace falta
+        # porque desde RouterOS 7.x `password-authentication` viene en `yes-if-no-key`, y si el
+        # usuario tiene una clave importada --el motor le importa la suya-- el sshd ofrece
+        # SÓLO publickey: el agente del vigilante no puede entrar con la contraseña del nodo
+        # (medido: `Permission denied (publickey)`, y el terminal contestaba 502 «Connect to
+        # remote system failed»).
+        ("/ip/ssh", "si su SSH admite contraseña además de clave"),
+    ),
     "dhcp_client": (("/ip/dhcp-client", "el cliente de fábrica, si sigue vivo"),),
     "addresses": (("/ip/address", "sus direcciones, estáticas y dinámicas"),),
     "routes": (("/ip/route", "sus rutas: estáticas, conectadas y las del DHCP"),),
@@ -4134,6 +4563,17 @@ def _ros_lista(datos):
     return []
 
 
+def _ros_objeto(datos):
+    """Lo que contestó el REST para un objeto SUELTO (`/ip/ssh`), como diccionario vacío si no
+    hay nada. Se acepta también la forma de lista de un elemento: la misma ruta contesta de
+    una u otra forma según la versión, y quedarse con una sola rompe la lectura en silencio."""
+    if isinstance(datos, dict):
+        return datos
+    if isinstance(datos, list) and datos:
+        return datos[0]
+    return {}
+
+
 def _ros_si(valor):
     """RouterOS dice los booleanos como cadenas: "true" / "false"."""
     return str(valor).lower() in ("true", "yes", "1")
@@ -4267,6 +4707,10 @@ def leido_routeros(leidos, guest=None, usuario_motor="", clave_publica="", crede
             "deshabilitados": [str(s.get("name")) for s in servicios if _ros_si(s.get("disabled"))],
             "habilitados": [str(s.get("name")) for s in servicios if not _ros_si(s.get("disabled"))],
             "ids": _ros_ids(servicios, lambda s: s.get("name")),
+            # La política de contraseña del demonio SSH. `/ip/ssh` es UN objeto, no una lista:
+            # se acepta la forma suelta y la envuelta para no depender de cómo lo devuelva.
+            "ssh_password_auth": _ros_objeto((leidos.get("/ip/ssh") or {}).get("json")).get(
+                "password-authentication"),
         }
 
     # --- dhcp_client: el de fábrica, el de las interfaces DEL LAB ---
@@ -4783,6 +5227,10 @@ def escrituras_routeros(operaciones, guest, declaracion, identidad, parametros, 
             llamada(area, "POST", "/user/ssh-keys/add",
                     {"user": usuario, "key": clave_publica},
                     "importar la clave pública del motor (sólo para depurar: se converge por REST)")
+
+        elif op == "allow_ssh_password":
+            llamada(area, "POST", "/ip/ssh/set", {"password-authentication": "yes"},
+                    "dejar que su SSH admita contraseña (el terminal del vigilante entra así)")
 
         elif op in ("disable_service", "enable_service"):
             servicio = str(operacion.get("servicio"))

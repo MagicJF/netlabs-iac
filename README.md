@@ -72,6 +72,9 @@ netlabs-iac/
 │   ├── informe-*.md          informes de trabajo (estado del arte, rendimiento)
 │   └── encargo-*.md          encargos ejecutados (registro de una fase)
 ├── scripts/                  herramientas de DESARROLLO (no las usa el motor):
+│   ├── ciclo.py              un ciclo `plan → destroy → apply` en UNA llamada, con
+│   │                         diario propio, estado en JSON y marca de fin
+│   ├── esperar.py            espera con CONDICIÓN y tope: sale en cuanto ocurre
 │   ├── perfilar.sh           perfila UN verbo sellando cada línea de su salida
 │   └── analizar_perfil.py    lee ese perfil y dice dónde se va el tiempo
 ├── labs/.plantilla/          lo que copia `./lab new`
@@ -110,6 +113,35 @@ comparten tareas por `deployment_engine/tasks/`; nunca se copia un verbo para un
 lab. El wrapper resuelve el lab, comprueba que existan declaración y `logs/`,
 verifica el entorno **antes** de empezar y captura la salida humana de Ansible en
 `labs/<lab>/logs/ansible.log` (por redirección desde el propio wrapper).
+
+### Ciclos de desarrollo: se lanzan y se avisan
+
+Un ciclo de desarrollo es `destroy → apply`, y `apply` ya importa `verify.yml` al
+final: verifica por su cuenta. Lo que **no** debe hacer quien orquesta —una persona o
+un agente— es esperarlo a ojo con un `sleep` de duración fija: o duerme de más
+(minutos tirados) o de menos (mira antes de que acabe). Para eso están dos
+herramientas de desarrollo, que **no son verbos del motor**: no llaman a la API, no
+tocan el mundo y el motor no las usa.
+
+```
+python3 scripts/ciclo.py --lab <nombre>                                  # plan → destroy → apply
+python3 scripts/ciclo.py --lab <nombre> --fases plan,destroy,apply,verify  # + la pasada suelta
+python3 scripts/esperar.py --lab <nombre>                                # bloquea con tope, sale al cerrar
+```
+
+- La primera fase es `plan`: valida la declaración **en segundos** y evita gastar
+  `destroy` en un YAML que el validador va a rechazar.
+- Cada ciclo deja su propio diario (`labs/<lab>/logs/ciclo-<sello>.log`), un estado
+  consultable (`ciclo-estado.json`) y un histórico de una línea por ciclo
+  (`ciclo-historial.jsonl`) para saber si las iteraciones van más rápidas.
+- La última línea es siempre `=== CICLO FIN …`, y **esa marca es el disparador** del
+  paso siguiente: el ciclo se lanza en segundo plano, el aviso llega al terminar y
+  mientras tanto se hace otra cosa. El reloj no decide nada.
+- `scripts/esperar.py` sondea cada 2 s y sale **en el instante** en que la condición
+  se cumple (`--lab`, `--fichero`+`--patron`, o `--pid`), siempre con tope. Agotar el
+  tope es un fallo, no un verde.
+- Un ciclo ya en vuelo no se pisa: `ciclo.py` se niega si hay otro del mismo lab (dos
+  `apply` a la vez se pisan los vmids y dejan el nodo a medias).
 
 ### Dónde se dice QUÉ se despliega
 
@@ -188,6 +220,13 @@ configurar dentro** de cada equipo, y el motor lo converge como una fase más de
   comprobación de que el servicio SIRVE se hace **autenticando por el API web** (la puerta de la
   interfaz), nunca por la consola del servidor.
   Sólo vale junto a un servicio que sepa vigilar (hoy `netxms`; ADR 0029).
+  Y **`terminal:`** — `terminal: {}` — que hace que ese vigilante preste el **terminal SSH
+  embebido** de su consola: una shell a cada RouterOS del lab, dentro de su web. El terminal no
+  lo abre el servidor, lo abre un **agente** con el subagente `ssh.nsm`; el motor deja el agente
+  cargado, marca el nodo del vigilante con la capacidad de agente y da de alta cada `rt` como
+  nodo con su credencial (ADR 0035). Exige `servicio: netxms` en el mismo equipo, y la
+  validación lo comprueba antes de tocar nada. El equipo que lo declara tiene que **alcanzar** a
+  los routers: el vigilante abre la sesión por su cuenta.
 - **`latido:`** en un Linux: una **marca** (`latido: {}`, o con su cadencia `latido: {cada: 5min}`)
   que promete una sola cosa — que ese equipo **se vea** en la topología del vigilante **sin** que
   el vigilante tenga que preguntarle a él. El motor le pone un temporizador que da un toque **a su

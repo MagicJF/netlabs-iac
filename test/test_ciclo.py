@@ -1,0 +1,142 @@
+#!/usr/bin/env python3
+# PROPÓSITO:   probar la capa de orquestación SIN Ansible y sin Proxmox: que el estado
+#              de un ciclo se lea y se escriba entero, que una fase desconocida se
+#              rechace antes de destruir nada, y —lo que más importa— que quien espera
+#              distinga «sigue corriendo» de «se cortó» y no se quede esperando a un
+#              proceso muerto.
+# INVARIANTES: cada caso tiene que poder FALLAR de verdad. El caso del PID muerto es el
+#              que da sentido a todo: si `veredicto` devolviera «sigue» para un ciclo
+#              cuyo proceso ya no existe, `esperar.py` agotaría el tope en balde, que es
+#              exactamente la espera ciega que estas herramientas vienen a quitar.
+# LÍMITES:     prueba las DECISIONES y el contrato de la marca de fin, no el despliegue:
+#              que un ciclo real converja lo dice el ciclo real (`scripts/ciclo.py`).
+# VER:         AGENTS.md §El agente no espera: se le avisa; README.md §Cómo se usa
+#
+# Uso:  python3 test/test_ciclo.py     (código de salida != 0 si algo falla)
+
+import json
+import os
+import subprocess
+import sys
+import tempfile
+
+RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(RAIZ, "scripts"))
+
+import ciclo  # noqa: E402
+import esperar  # noqa: E402
+
+FALLOS = []
+
+
+def comprobar(nombre, condicion, detalle=""):
+    if condicion:
+        print(f"  ok    {nombre}")
+    else:
+        print(f"  ROJO  {nombre}{(' · ' + detalle) if detalle else ''}")
+        FALLOS.append(nombre)
+
+
+def caso_1_las_fases_se_normalizan_y_el_orden_se_respeta():
+    comprobar("por defecto: plan, destroy, apply",
+              ciclo.normalizar_fases(ciclo.FASES_POR_DEFECTO) == ["plan", "destroy", "apply"])
+    comprobar("los espacios no cuentan y el orden pedido se conserva",
+              ciclo.normalizar_fases(" apply , plan ") == ["apply", "plan"])
+    try:
+        ciclo.normalizar_fases("plan,applyy")
+    except ValueError as error:
+        comprobar("una fase desconocida se rechaza nombrando la que existe",
+                  "applyy" in str(error) and "destroy" in str(error), str(error))
+    else:
+        comprobar("una fase desconocida se rechaza nombrando la que existe", False, "no falló")
+    try:
+        ciclo.normalizar_fases("  ,  ")
+    except ValueError:
+        comprobar("sin fases se rechaza", True)
+    else:
+        comprobar("sin fases se rechaza", False, "no falló")
+
+
+def caso_2_el_estado_va_y_vuelve_entero():
+    with tempfile.TemporaryDirectory() as carpeta:
+        ruta = os.path.join(carpeta, "ciclo-estado.json")
+        comprobar("sin fichero, el estado es None", ciclo.leer_estado(ruta) is None)
+        datos = {"lab": "x", "estado": "corriendo", "pid": os.getpid(),
+                 "fases": [{"nombre": "plan", "segundos": 12.5, "rc": 0}]}
+        ciclo.escribir_estado(ruta, datos)
+        comprobar("lo escrito se lee igual", ciclo.leer_estado(ruta) == datos)
+        comprobar("no queda temporal a medias", not os.path.exists(ruta + ".tmp"))
+        with open(ruta, "w", encoding="utf-8") as fichero:
+            fichero.write('{"lab": "x", "estado":')  # un /stop a mitad de escritura
+        comprobar("un JSON truncado no revienta la lectura", ciclo.leer_estado(ruta) is None)
+
+
+def caso_3_la_marca_de_fin_lleva_lo_que_hace_falta_para_disparar():
+    datos = {"lab": "04_lab", "estado": "ok", "rc": 0, "total_s": 1141.4,
+             "log": "labs/04_lab/logs/ciclo-x.log",
+             "fases": [{"nombre": "destroy", "segundos": 154.2},
+                       {"nombre": "apply", "segundos": 987.1}]}
+    linea = ciclo.linea_fin(datos)
+    comprobar("empieza por la marca exacta", linea.startswith(ciclo.MARCA_FIN))
+    comprobar("lleva lab, estado y rc", "lab=04_lab" in linea and "estado=ok" in linea and "rc=0" in linea)
+    comprobar("lleva el reparto del tiempo por fase",
+              "destroy=154s" in linea and "apply=987s" in linea, linea)
+    comprobar("es UNA sola línea", "\n" not in linea)
+
+
+def caso_4_quien_espera_distingue_corriendo_de_cortado():
+    comprobar("sin estado no se puede esperar (y se dice)",
+              esperar.veredicto(None)[0] == esperar.USO)
+    codigo, _ = esperar.veredicto({"estado": "corriendo", "pid": os.getpid(), "fases": []})
+    comprobar("corriendo con el proceso vivo: sigue esperando", codigo is None)
+    codigo, texto = esperar.veredicto(
+        {"estado": "corriendo", "pid": 999999, "fase_actual": "apply", "fases": []})
+    comprobar("corriendo con el proceso muerto: se cortó, no se espera más",
+              codigo == esperar.ROJO and "cortó" in texto, texto)
+    comprobar("en verde da 0", esperar.veredicto({"estado": "ok", "fases": []})[0] == esperar.VERDE)
+    comprobar("en rojo da 1", esperar.veredicto({"estado": "fallo", "rc": 2, "fases": []})[0] == esperar.ROJO)
+
+
+def caso_5_el_pid_se_pregunta_sin_matar_nada():
+    comprobar("el propio proceso está vivo", ciclo.proceso_vivo(os.getpid()) is True)
+    comprobar("un pid que no existe no lo está", ciclo.proceso_vivo(999999) is False)
+
+
+def caso_6_el_ciclo_se_niega_antes_de_tocar_nada():
+    """La validación corre por el camino real (el CLI), no por una copia de la regla."""
+    guion = os.path.join(RAIZ, "scripts", "ciclo.py")
+
+    resultado = subprocess.run([sys.executable, guion, "--lab", "no_existe_este_lab"],
+                               capture_output=True, text=True)
+    comprobar("un lab que no existe se rechaza con 2",
+              resultado.returncode == 2 and "no existe labs/" in resultado.stderr,
+              resultado.stderr.strip())
+
+    resultado = subprocess.run([sys.executable, guion, "--lab", "04_lab-red-routeros",
+                                "--fases", "plan,applyy"], capture_output=True, text=True)
+    comprobar("una fase con errata se rechaza ANTES de destruir nada",
+              resultado.returncode == 2 and "applyy" in resultado.stderr,
+              resultado.stderr.strip())
+
+
+def main():
+    print("=" * 62)
+    print("TESTS DE LA ORQUESTACIÓN DEL CICLO (sin Ansible, sin Proxmox)")
+    print("=" * 62)
+    caso_1_las_fases_se_normalizan_y_el_orden_se_respeta()
+    caso_2_el_estado_va_y_vuelve_entero()
+    caso_3_la_marca_de_fin_lleva_lo_que_hace_falta_para_disparar()
+    caso_4_quien_espera_distingue_corriendo_de_cortado()
+    caso_5_el_pid_se_pregunta_sin_matar_nada()
+    caso_6_el_ciclo_se_niega_antes_de_tocar_nada()
+    print()
+    print("=" * 62)
+    if FALLOS:
+        print(f"RESULTADO: {len(FALLOS)} comprobación(es) en rojo")
+        return 1
+    print("RESULTADO: todos los casos en verde")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -11,6 +11,8 @@
 #              Esos segundos importan: un túnel en pie que NO reenvía los REST --uno
 #              construido antes de que el motor los reenviara-- haría que las llamadas del
 #              driver fallaran sin que nadie supiera por qué. Sondeando el puerto, el túnel
+#              Y con los puertos de las WEBS publicadas (22000 + vmid, ADR 0036): un túnel al
+#              que le falta ese reenvío está INCOMPLETO y se rehace.
 #              se declara caído y el plan lo RECONSTRUYE. No se sondea ningún router que no
 #              exista todavía: en la primera pasada no hay ninguno, y no se fuerza nada.
 #              No toca la API de Proxmox ni el invitado. Todo sale del vmid: NADA derivado se

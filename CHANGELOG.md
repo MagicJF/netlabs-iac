@@ -20,6 +20,31 @@ aquí está su entrada; los tres tienen que contar lo mismo, y eso es lo que vig
 
 ### Añadido
 
+- **El ciclo de desarrollo se lanza y se avisa; nadie duerme a ciegas.** `scripts/ciclo.py`
+  ejecuta `plan → destroy → apply` en una sola invocación —el `plan` valida la declaración
+  en segundos, antes de destruir nada—, con diario propio por ciclo, estado en JSON
+  (`ciclo-estado.json`) e histórico de una línea por ciclo (`ciclo-historial.jsonl`), y
+  termina con una marca única (`=== CICLO FIN`) que es el disparador del paso siguiente.
+  `scripts/esperar.py` es la única forma de bloquearse: sondea cada 2 s y sale en el
+  instante en que la condición se cumple, siempre con tope (`--lab`, `--fichero/--patron`,
+  `--pid`). El motor no cambia: sus esperas ya eran sondeos acotados con techo.
+  `python3 test/test_ciclo.py` prueba la capa sin Ansible y sin Proxmox.
+
+- **Reconstruir el túnel REINICIA la sesión.** `enable --now` no reiniciaba una sesión ya viva:
+  un reenvío que se añadía a un lab desplegado no aparecía nunca y el motor decía que había
+  convergido. Ahora el arranque del túnel hace `restart`.
+- **El SSH de un RouterOS se deja admitiendo CONTRASEÑA cuando el servicio `ssh` queda abierto.**
+  Desde 7.x `password-authentication` viene en `yes-if-no-key`, y como el motor importa su clave
+  en el equipo, su sshd ofrecía SÓLO publickey: el vigilante no podía entrar con la contraseña
+  del nodo y el terminal contestaba 502 «Connect to remote system failed». Ahora el área
+  `ip_services` lee `/ip/ssh` y lo deja en `yes` (ADR 0035).
+- **El terminal SSH del vigilante: una consola a cada RouterOS, dentro de su web.** El área
+  `terminal` (en un Linux con `servicio: netxms`) deja el vigilante listo para prestar el terminal
+  embebido: agente con `ssh.nsm`, la capacidad de agente en el nodo del propio servidor —sin ella
+  el API contesta 502 «Cannot connect to SSH proxy agent»— y un nodo por `rt` con su credencial y
+  su proxy. La credencial no pasa por la línea de órdenes: va a un fichero 0600 y el paso se
+  diariza tapado. ADR 0035; el lab 04 declara `terminal: {}` en su bastión, que es el único que
+  alcanza las dos LANs.
 - **El API REST de NetXMS se carga de verdad, y se queda dentro.** `servicio: netxms` escribía la
   configuración del servidor sin el módulo `webapi`, así que el API contestaba al `login` (el que
   usa el motor) y sus recursos —`/v1/objects`, `/v1/alarms`…— daban **404**: el API de la
@@ -33,6 +58,41 @@ aquí está su entrada; los tres tienen que contar lo mismo, y eso es lo que vig
 
 ### Arreglado
 
+- **Y el vigilante alcanza la LAN del segundo router por una RUTA, no por una dirección.**
+  Al que publica un servicio se le dan sus interfaces y la salida (ADR 0029 §3), no una pata
+  por bridge; declarar `addresses: eth1 10.40.1.3/24` la dejaba en `eth1`, que es `vmbr1` —
+  una dirección en una red en la que el invitado no está. Va `routes: 10.40.1.0/24 via
+  10.40.0.11`, que es como se llega a cualquier red: por el router que la sirve. Medido:
+  `</dev/tcp/10.40.1.11/22` y `10.40.0.11/22` abiertos desde el vigilante.
+- **La dirección del nodo en el bridge de gestión se pierde al recrear el bridge.**
+  `netlabs-publicacion` es oneshot: `destroy` borra `vmb_gestion` y con ella el `10.40.0.254`,
+  y la consola publicada da 502 hasta reiniciarla. Ahora la repone un timer de calendario cada
+  minuto (`OnUnitActiveSec`/`OnUnitInactiveSec` no valen: el servicio lleva `RemainAfterExit` y
+  nunca pasa a inactivo).
+- **El vigilante del lab 04 vuelve a su propio invitado (`ctl-2`), como manda el ADR 0029.** Se
+  había metido en el bastión un día antes con el argumento de que era el único que alcanzaba
+  las dos redes — justo el argumento que 0029 resolvió generalizando la pata de gestión. Un
+  JVM con PostgreSQL y Tomcat sobre el invitado del que cuelga el túnel pone la forma de entrar
+  del motor a merced de un `apt upgrade` o del OOM killer. Ahora `ctl-1` es sólo bastión (512 MB)
+  y `ctl-2` es el vigilante, con `eth1` en la LAN del primer CHR para ver a `rt-nucleo` sin
+  pedirle nada a nadie. Ciclo completo `destroy → apply → verify` en verde y segunda pasada
+  `changed=0`. La lección queda en la ADR 0035 §8 y en la prosa del lab.
+- **Y la credencial de los nodos del terminal se comprueba después de reiniciar el servidor**,
+  que es cuando la lee: contar la tabla antes del reinicio mide lo que el servidor vivo va a
+  reescribir desde su caché (medido en el lab recién nacido: la pasada escribía la credencial,
+  contaba 0, y el `apply` siguiente la «arreglaba» solo). Si tras reiniciar sigue sin verlos, el
+  par escribir+reiniciar se repite y, si no cuaja, se dice qué contestó la base.
+- **El terminal del vigilante pedía una cuarta pieza: el proxy TCP del agente.** Con `ssh.nsm`
+  cargado, el nodo con su capacidad y los dos routers dados de alta, `Tools > SSH terminal`
+  abría la ventana y la cerraba con «TCP proxy function is disabled»: la sesión es una conexión
+  TCP que abre el AGENTE, y su configuración no traía `EnableTCPProxy`. Ahora va en
+  `/etc/nxagentd.conf` y el área `terminal` lo comprueba **en marcha** (proceso posterior al
+  fichero, no el fichero a secas: un fichero nuevo sobre un proceso viejo no arregla nada), así
+  que si falta pide preparar y se dice en el motivo. La escritura de la configuración compara
+  antes de escribir y reinicia el agente en ese mismo paso — antes se escribía a ciegas y el
+  comando siguiente no reiniciaba nunca. Medido en el lab 04: una pasada con `changed=1` y la
+  segunda `changed=0` con los diarios de sólo lectura; `test/test_interior.py` cubre el estado y
+  el comando.
 - **La persistencia de las rutas se repara aunque la tabla ya coincida.** Un invitado Linux con
   rutas declaradas y los ficheros que las reponen al arrancar perdidos —o su unidad
   deshabilitada— se daba por convergido, y el primer reinicio se llevaba el camino a las zonas

@@ -1,7 +1,7 @@
 ---
 # PROPÓSITO:   declarar la topología del lab `04_lab-red-routeros`: el lab de ACEPTACIÓN
 #              de la capa de configuración. Dos routers RouterOS (CHR) encadenados y
-#              un bastión, con servidores y puestos como contenedores: es
+#              un bastión y un vigilante, con servidores y puestos como contenedores: es
 #              lo que ejercita la cadena entera del arranque en frío -- el puesto de
 #              control da la primera dirección, el primer CHR se configura por su
 #              REST, el segundo etapa cuelga del primero, y los puestos obtienen su
@@ -26,7 +26,7 @@
 #              docs/decisiones/0004 (el token y la consola), 0005 (las áreas)
 #
 # EL NOMBRE de cada invitado dice QUÉ ES, no de qué lab es (ADR 0015): aquí se leen
-# `rt-borde`, `rt-nucleo`, `ctl-1`, `srv-1`, `ws-1` y `ws-2`.
+# `rt-borde`, `rt-nucleo`, `ctl-1`, `ctl-2`, `srv-1`, `ws-1` y `ws-2`.
 
 lab:
   nombre: 04_lab-red-routeros
@@ -143,13 +143,16 @@ containers:
     nombre: 1         # -> 'ctl-1'
     stage: 1
     cores: 1
+    # Sólo bastión: túnel, DHCP e `ip_forward`. 512 MB es lo que necesita para eso y
+    # nada más -- el vigilante NO vive aquí (ADR 0029: el bastión es una pieza del
+    # motor, y un JVM con PostgreSQL al lado lo tumba y se lleva la forma de entrar).
     memory: 512
     disk: 4
     bridge: vmb_gestion
     address: 10.40.0.10/24
     config:
       linux:
-        # Vacío a propósito: que hay túnel lo dice la clave, no su contenido. Por
+        # Vacío a propósito: que haya túnel lo dice la clave, no su contenido. Por
         # dónde sale es entorno (secrets.yml).
         tunnel: {}
         # Las interfaces EXTRA del bastión, una por bridge del lab: `eth0` es la de
@@ -168,6 +171,36 @@ containers:
           rango: 10.40.0.50-10.40.0.99
           static_leases: derived
         ip_forward: true
+
+  # EL VIGILANTE, en su propio invitado (ADR 0029 §B). No es el bastión: se cae él y
+  # se cae su web, no el túnel. Vive en la red de gestión porque es la única que
+  # comparten los dos routers (ahí nace `rt-borde`), y lleva UNA pata en la LAN del
+  # primer CHR para alcanzar `rt-nucleo`, que no está en gestión.
+  - rol: monitor
+    tipo: ctl         # -> 'ctl-2'
+    nombre: 2
+    stage: 2          # después del primer CHR: cuando converge, ya hay algo que vigilar
+    cores: 2
+    # 2 GB: la JVM de Tomcat con la base al lado no cabe en menos (medido: el OOM killer
+    # se lleva una de las dos).
+    memory: 2048
+    disk: 8
+    bridge: vmb_gestion
+    address: 10.40.0.20/24
+    config:
+      linux:
+        # El vigilante y su terminal SSH (ADR 0035): una consola por router dentro de su
+        # web. `terminal` no lleva valor, como `tunnel`: lo que hay lo dice la CLAVE.
+        servicio: netxms
+        terminal: {}
+        # La LAN del primer CHR no está en su tarjeta: al que publica un servicio se le da
+        # su red y la salida (ADR 0029 §3), no una pata por cada bridge del lab -- eso es del
+        # bastión. Con una `addresses` aquí la dirección acababa puesta en `eth1`, que es la
+        # salida (vmbr1), o sea en una red que no está: el terminal abría y no llegaba a
+        # `rt-nucleo`. Se llega por donde se llega en cualquier red: una ruta por el router
+        # que la sirve, que es quien tiene las dos patas.
+        routes:
+          - {dst_address: 10.40.1.0/24, gateway: 10.40.0.11}
 
   # Un servidor en la LAN del primer CHR: toma su dirección del DHCP del router, y
   # por eso se declara `dhcp` -- lo que se comprueba es que tiene dirección, que cae

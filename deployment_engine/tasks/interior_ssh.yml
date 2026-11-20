@@ -66,11 +66,18 @@
       area: "{{ interior_ejecutado.interior_comando.area }}"
       accion: "{{ interior_ejecutado.interior_comando.accion }}"
       declarado: "{{ interior_ejecutado.interior_comando.declarado | default('') }}"
-      comando: "{{ interior_ejecutado.interior_comando.comando }}"
+      # Lo que va al diario es el comando TAL CUAL, salvo que el driver diga otra cosa: un paso
+      # que lleva una credencial dentro (un fichero que se escribe en base64) se diariza con su
+      # `comando_diario`, que cuenta lo que se hizo sin escribir el secreto (regla 12).
+      comando: "{{ interior_ejecutado.interior_comando.comando_diario | default(interior_ejecutado.interior_comando.comando) }}"
       encontrado: "{{ (interior_ejecutado.stdout | default('') | trim)[: (engine_diario_max_cuerpo | default(0) | int)] }}"
       # El `rc` es lo que distingue «no está» de «no pude preguntar»: un `leer` que sale
       # con rc != 0 no es un estado, es una avería, y el driver lo dice así.
       rc: "{{ interior_ejecutado.rc | default(-1) }}"
+      # Cuando un paso sale con rc != 0, lo que EXPLICA el fallo viaja en `stderr` y no en la
+      # salida: sin esto el diario decía «error» y había que adivinar la causa entrando a mano
+      # (así se perdió una tarde con el terminal del vigilante). Sólo se guarda cuando falla.
+      error: "{{ (interior_ejecutado.stderr | default('') | trim)[: (engine_diario_max_cuerpo | default(0) | int)] if (interior_ejecutado.rc | default(-1)) != 0 else '' }}"
       cambiado: "{{ interior_ejecutado.interior_comando.accion == 'escribir' }}"
       resultado: "{{ 'ok' if (interior_ejecutado.rc | default(-1)) == 0 else 'error' }}"
   changed_when: false

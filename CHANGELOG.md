@@ -25,6 +25,10 @@ aquí está su entrada; los tres tienen que contar lo mismo, y eso es lo que vig
   PostgreSQL y Redis, gunicorn y nginx), lo deja SIRVIENDO en su 8080 y publica esa web en casa
   por el túnel del bastión, en un puerto derivado del vmid (banda 22000+, sin pisar la del túnel
   ni la del REST). El lab no declara paquete, base, puerto ni versión. ADR 0036.
+- **NetBox se publica con NOMBRE: `04.netbox.matadepera.eu`.** El proxy de la zona
+  (10.10.10.2) termina el TLS y habla con el invitado por el bridge de gestión; el nodo tiene
+  su dirección ahí (`netlabs-publicacion`) y Django se entera del https
+  (`SECURE_PROXY_SSL_HEADER` + `X-Forwarded-Proto`), sin lo cual el login se cae por CSRF.
 - **La sonda del túnel mira también las webs publicadas, y reconstruirlo REINICIA la sesión.**
   Un túnel al que le faltaba un reenvío se daba por bueno (sólo se sondeaba la consola y el
   REST), y `enable --now` no reiniciaba una sesión ya viva: un puerto publicado que se añadía a

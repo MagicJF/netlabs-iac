@@ -42,6 +42,27 @@
 - **Frente a meter NetBox a mano en un invitado**: se descarta. Lo que no está en la
   declaración no lo puede reproducir nadie, y `destroy` no sabría de quién es.
 
+## El nombre público: `NN.netbox.matadepera.eu`
+
+El lab 04 se visita en **https://04.netbox.matadepera.eu**. La cadena, para que se pueda
+repetir con otro número:
+
+1. `*.matadepera.eu` resuelve al nodo (54.36.168.83) — es el DNS que ya existe, no lo toca el motor.
+2. En el nodo, un DNAT manda :80 y :443 a **10.10.10.2**, el proxy de la zona (infraestructura
+   de casa, fuera del repo). Ese proxy termina el TLS con su certificado y **añade un bloque
+   por lab**: `04.netbox.matadepera.eu { reverse_proxy 10.40.0.20:8080 }`.
+3. Para que el proxy pueda hablar con el invitado, el **nodo** tiene dirección en el bridge de
+   gestión (`10.40.0.254/24` en `vmb_gestion`), que es lo único que le faltaba: sin ella,
+   salía a la calle y volvía. Lo garantiza la unidad `netlabs-publicacion` (idempotente).
+
+Lo que el motor garantiza es lo suyo: que NetBox **sirve** y que Django se entera de que la
+petición viene por https (`SECURE_PROXY_SSL_HEADER` + `X-Forwarded-Proto` en el nginx del
+invitado). Sin eso, la página se ve y el **login falla por CSRF** sin decir por qué.
+
+Publicar un lab nuevo es, entonces, dos líneas fuera del motor (un bloque en el Caddy de la
+zona) y ninguna en la declaración. Se deja dicho porque no es magia: es un proxy que hay que
+tocar, y quien despliegue en otro sitio tendrá que hacer el equivalente.
+
 ## Dos cosas que costaron, y por qué quedan escritas
 
 - **Publicar un puerto NUEVO sobre un túnel ya construido no hacía nada.** `systemctl enable

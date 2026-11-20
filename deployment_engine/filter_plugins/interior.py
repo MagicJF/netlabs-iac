@@ -2855,6 +2855,9 @@ preparar)
     if [ ! -f "$RAIZ/netbox/netbox/configuration.py" ]; then
         cp "$RAIZ/netbox/netbox/configuration_example.py" "$RAIZ/netbox/netbox/configuration.py" || exit 1
     fi
+    # La clave secreta se genera UNA vez y se guarda: si se regenerara en cada reparación,
+    # todas las sesiones --y los tokens del API-- dejarían de valer sin que nadie lo pidiera.
+    [ -f "$MARCA/clave_secreta" ] || head -c 50 /dev/urandom | base64 | tr -d '/+=' | head -c 50 > "$MARCA/clave_secreta"
     cat > "$RAIZ/netbox/netbox/configuration.py" <<CONF
 ALLOWED_HOSTS = ["*"]
 DATABASES = {
@@ -2872,7 +2875,11 @@ REDIS = {
     "tasks": {"HOST": "localhost", "PORT": 6379, "PASSWORD": "", "DATABASE": 0, "SSL": False},
     "caching": {"HOST": "localhost", "PORT": 6379, "PASSWORD": "", "DATABASE": 1, "SSL": False},
 }
-SECRET_KEY = "$(head -c 50 /dev/urandom | base64 | tr -d '/+=' | head -c 50)"
+SECRET_KEY = "$(cat $MARCA/clave_secreta)"
+# Detrás de un proxy que TERMINA el TLS (el nombre público), Django tiene que enterarse de
+# que la petición original venía por https: si no, el POST del login falla por CSRF --y el
+# navegador no dice por qué--. No es un valor de nadie: es la cabecera que el proxy manda.
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 CONF
 
     # 5. La base y su usuario (una vez).
@@ -2977,7 +2984,13 @@ server {
     server_name _;
     client_max_body_size 25m;
     location /static/ { alias %(raiz)s/netbox/static/; }
-    location / { proxy_pass http://127.0.0.1:8001; proxy_set_header Host $host; }
+    location / {
+        proxy_pass http://127.0.0.1:8001;
+        proxy_set_header Host $host;
+        # El esquema ORIGINAL, que es el que llega del proxy público: sin esto Django se cree
+        # http y el login por el nombre público se cae en el CSRF.
+        proxy_set_header X-Forwarded-Proto $http_x_forwarded_proto;
+    }
 }
 UNIT
     ln -sf /etc/nginx/sites-available/netbox /etc/nginx/sites-enabled/netbox

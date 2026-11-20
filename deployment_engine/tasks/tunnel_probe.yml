@@ -11,6 +11,8 @@
 #              Esos segundos importan: un túnel en pie que NO reenvía los REST --uno
 #              construido antes de que el motor los reenviara-- haría que las llamadas del
 #              driver fallaran sin que nadie supiera por qué. Sondeando el puerto, el túnel
+#              Y con los puertos de las WEBS publicadas (22000 + vmid, ADR 0036): un túnel al
+#              que le falta ese reenvío está INCOMPLETO y se rehace.
 #              se declara caído y el plan lo RECONSTRUYE. No se sondea ningún router que no
 #              exista todavía: en la primera pasada no hay ninguno, y no se fuerza nada.
 #              No toca la API de Proxmox ni el invitado. Todo sale del vmid: NADA derivado se
@@ -82,6 +84,31 @@
   failed_when: false
   when: tunnel_mundo_rest | length > 0
 
+# Y lo mismo con las WEBS publicadas (el inventario): un túnel en pie al que le falta ese
+# reenvío --porque el puerto se añadió después de construirlo-- está INCOMPLETO, y el plan
+# tiene que rehacerlo. Sin esta sonda, añadir una web publicada a un lab ya desplegado no
+# publicaba nada y nadie se enteraba: el ciclo seguía en verde.
+- name: "TÚNEL·MUNDO · los web que este túnel debería reenviar ya"
+  ansible.builtin.set_fact:
+    tunnel_mundo_web: >-
+      {{ (declaracion
+          | interior_interfaces_web(identidad,
+              {'tunnel_web_puerto_base': engine_tunnel_web_puerto_base}))
+         | map(attribute='puerto') | list }}
+
+- name: "TÚNEL·MUNDO · sondear si el túnel ya reenvía las webs publicadas"
+  ansible.builtin.wait_for:
+    host: "127.0.0.1"
+    port: "{{ puerto | int }}"
+    timeout: 1
+    state: started
+  loop: "{{ tunnel_mundo_web }}"
+  loop_control:
+    loop_var: puerto
+  register: tunnel_mundo_sondas_web
+  failed_when: false
+  when: tunnel_mundo_web | length > 0
+
 - name: "TÚNEL·MUNDO · dejar en el estado si el túnel responde o no"
   ansible.builtin.set_fact:
     estado: >-
@@ -97,6 +124,12 @@
          == (tunnel_mundo_rest | length) }}
     # Se convierte a booleano de verdad AQUÍ: el estado viaja por texto, y un «False»
     # escrito con letras es una cadena que en Python es cierta (`bool('False')` es True).
+    tunnel_mundo_web_ok: >-
+      {{ ((tunnel_mundo_sondas_web.results | default([]))
+          | selectattr('state', 'defined')
+          | selectattr('state', 'equalto', 'started') | list | length)
+         == (tunnel_mundo_web | length) }}
     tunnel_mundo_responde: >-
       {{ ((tunnel_mundo_sonda.state | default('') == 'started')
-          and (tunnel_mundo_rest_ok | bool)) | bool }}
+          and (tunnel_mundo_rest_ok | bool)
+          and (tunnel_mundo_web_ok | bool)) | bool }}

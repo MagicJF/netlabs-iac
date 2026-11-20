@@ -178,7 +178,7 @@ configurar dentro** de cada equipo, y el motor lo converge como una fase más de
   equipo se deje preguntar por SNMP: el motor enciende su agente y le pone **una** comunidad de
   lectura, la constante del motor; ADR 0029), `tunnel`…
   En un Linux, además, **`servicio:`** — el NOMBRE de un servicio de un **vocabulario
-  cerrado** (hoy `caddy` y `netxms`) que el motor instala, configura y **comprueba sirviéndolo**
+  cerrado** (hoy `caddy`, `netxms` y `netbox`) que el motor instala, configura y **comprueba sirviéndolo**
   (ADR 0027 y 0028): el lab declara el nombre, nunca el paquete, su base ni su configuración —
   y **`monitorizacion:`**, que hace que ese servicio **vigile**: el motor le declara las redes
   que el invitado ALCANZA —la suya, derivada de su interfaz, y las de sus **rutas**
@@ -188,6 +188,17 @@ configurar dentro** de cada equipo, y el motor lo converge como una fase más de
   comprobación de que el servicio SIRVE se hace **autenticando por el API web** (la puerta de la
   interfaz), nunca por la consola del servidor.
   Sólo vale junto a un servicio que sepa vigilar (hoy `netxms`; ADR 0029).
+  **`netbox`** es el inventario: el motor lo instala en su propio invitado (Django, PostgreSQL,
+  Redis, gunicorn y nginx), lo deja sirviendo en su 8080 y **publica su web en casa por el
+  túnel del bastión**, en un puerto derivado de su vmid (banda 22000+; ADR 0036). El lab no
+  declara paquete, base ni puerto: sólo el nombre del servicio.
+  Y **`terminal:`** — `terminal: {}` — que hace que ese vigilante preste el **terminal SSH
+  embebido** de su consola: una shell a cada RouterOS del lab, dentro de su web. El terminal no
+  lo abre el servidor, lo abre un **agente** con el subagente `ssh.nsm`; el motor deja el agente
+  cargado, marca el nodo del vigilante con la capacidad de agente y da de alta cada `rt` como
+  nodo con su credencial (ADR 0035). Exige `servicio: netxms` en el mismo equipo, y la
+  validación lo comprueba antes de tocar nada. El equipo que lo declara tiene que **alcanzar** a
+  los routers: el vigilante abre la sesión por su cuenta.
 - **`latido:`** en un Linux: una **marca** (`latido: {}`, o con su cadencia `latido: {cada: 5min}`)
   que promete una sola cosa — que ese equipo **se vea** en la topología del vigilante **sin** que
   el vigilante tenga que preguntarle a él. El motor le pone un temporizador que da un toque **a su

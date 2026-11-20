@@ -56,7 +56,7 @@ AREAS = {
     # porque el vocabulario es cerrado y hay que nombrarla, y `areas_de` la funde en
     # `address` para que la convergencia tenga un solo túnel.
     "linux": ("tunnel", "address", "addresses", "routes", "latido", "ip_forward", "dhcp_server",
-              "servicio", "monitorizacion"),
+              "servicio", "monitorizacion", "terminal"),
     "routeros": (
         "identity", "addresses", "ip_services", "dhcp_client", "routes", "dhcp_server", "uplink",
         "snmp",
@@ -502,6 +502,36 @@ def puerto_rest_tunnel(vmid, parametros):
     return int(parametros.get("tunnel_rest_puerto_base") or 21000) + int(vmid)
 
 
+def interfaces_web_del_bastion(declaracion, identidad, parametros):
+    """Los equipos cuya WEB se publica en casa por el túnel del bastión.
+
+    Hoy es uno: el que declara `servicio: netbox` (el inventario). El puerto en casa se
+    DERIVA del vmid --banda 22000+, que no pisa la del túnel (20000+) ni la del REST
+    (21000+)--, y el puerto dentro del invitado es el del servicio (8080). No se guarda
+    nada (regla 11): se vuelve a derivar leyendo la declaración.
+    """
+    equipos = []
+    for guest in (identidad or {}).get("guests") or []:
+        declarado = _declarado_por_rol(declaracion, guest.get("rol"))
+        linux = (declarado.get("config") or {}).get("linux") or {}
+        if str(linux.get("servicio") or "") not in SERVICIOS_WEB:
+            continue
+        direccion = _sin_prefijo(declarado.get("address"))
+        if not direccion or direccion == "dhcp":
+            continue
+        equipos.append({
+            "rol": guest.get("rol"),
+            "address": direccion,
+            # La banda sale de `vars/engine.yml` como el resto (una sola respuesta para la
+            # misma pregunta: lo que aquí se deriva y lo que sondea `tunnel_probe.yml` no se
+            # pueden separar).
+            "puerto": int((parametros or {}).get("tunnel_web_puerto_base") or PUERTO_WEB_BASE)
+            + int(guest.get("vmid")),
+            "puerto_servicio": SERVICIOS_WEB[str(linux.get("servicio"))],
+        })
+    return equipos
+
+
 def permitlisten_de(puertos):
     """`[20103, 21102]` -> `permitlisten="20103",permitlisten="21102"`.
 
@@ -555,7 +585,8 @@ def interfaces_rest_del_bastion(declaracion, identidad, parametros):
     return sorted(interfaces, key=lambda interface: str(interface["rol"]))
 
 
-def guion_tunnel(clave_privada, host, puerto, usuario, puerto_local, interfaces_rest=None):
+def guion_tunnel(clave_privada, host, puerto, usuario, puerto_local, interfaces_rest=None,
+                 interfaces_web=None):
     """El texto que se manda por la consola: UNA sola vez, y queda puesto.
 
     Qué hace, y por qué esto y no otra cosa:
@@ -581,7 +612,7 @@ def guion_tunnel(clave_privada, host, puerto, usuario, puerto_local, interfaces_
     seguimos = chr(92) + "\n"
     ip_forwards = "".join(
         f"  -R {interface['puerto']}:{interface['address']}:{interface['puerto_servicio']} {seguimos}"
-        for interface in (interfaces_rest or [])
+        for interface in (interfaces_rest or []) + (interfaces_web or [])
     )
     return f"""#!/bin/sh
 # PROPÓSITO: abrir la salida hacia casa del bastión y sostenerla.
@@ -620,7 +651,12 @@ RestartSec=5
 WantedBy=multi-user.target
 FIN_UNIDAD
 systemctl daemon-reload
-systemctl enable --now {UNIDAD_TUNNEL}
+systemctl enable {UNIDAD_TUNNEL}
+# RESTART, no `enable --now`: con el túnel ya en marcha, `--now` no hace nada y el guion
+# nuevo se queda en el disco mientras la sesión vieja sigue con los reenvíos de antes. Así
+# un puerto publicado que se AÑADE a un lab ya desplegado no aparecía nunca -- y el motor
+# decía que había convergido (medido: el túnel publicaba 21103/21106 y no 22110).
+systemctl restart {UNIDAD_TUNNEL}
 sleep 4
 echo {marca_tunnel()}
 """
@@ -710,10 +746,14 @@ def pasos_del_tunnel(guest, declaracion, estado, parametros, identidad=None):
     # del paso porque el puerto de cada una sale de su vmid, y el vmid sólo se conoce en
     # el plan (que los asigna todos de una vez), no al ejecutar el paso.
     interfaces_rest = interfaces_rest_del_bastion(declaracion, identidad, parametros)
+    # Las webs que este lab publica en casa (hoy el inventario): misma mecánica que el REST,
+    # otra banda de puertos y otro puerto dentro del equipo.
+    interfaces_web = interfaces_web_del_bastion(declaracion, identidad, parametros)
     # Los puertos que el túnel dejará autorizados y reenviados: el suyo y el REST de cada
     # equipo. Es la MISMA lista que escribe `tasks/tunnel.yml` en `authorized_keys`.
     puertos_autorizados = permitlisten_de(
         [puerto_local] + [interface["puerto"] for interface in interfaces_rest]
+        + [interface["puerto"] for interface in interfaces_web]
     )
     if interfaces_rest:
         detalle_rest = "y, por el MISMO túnel, reenvía el puerto 80 de cada equipo de REST: " + (
@@ -721,6 +761,9 @@ def pasos_del_tunnel(guest, declaracion, estado, parametros, identidad=None):
         )
     else:
         detalle_rest = "este lab no configura ningún RouterOS: por el túnel sólo va la consola"
+    if interfaces_web:
+        detalle_rest += ("; y publica en casa la web de: "
+                         + ", ".join(f"{i['rol']}->127.0.0.1:{i['puerto']}" for i in interfaces_web))
     host_salida = str(salida.get("host") or parametros.get("tunnel_host") or "")
     puerto_salida = int(salida.get("puerto") or parametros.get("tunnel_puerto") or 443)
 
@@ -744,6 +787,7 @@ def pasos_del_tunnel(guest, declaracion, estado, parametros, identidad=None):
                         {"bridge": interface["bridge"], "address": interface["address"]} for interface in interfaces
                     ],
                     "rest": interfaces_rest,
+                    "web": interfaces_web,
                 },
                 "detalle": [
                     "la clave pública del motor se deja en el invitado al CREARLO (ssh-public-keys):",
@@ -787,6 +831,7 @@ def pasos_del_tunnel(guest, declaracion, estado, parametros, identidad=None):
                 # primera reconexión el bastión se quedaba mudo sin que nada diera error.
                 # Medido: 230 «request was denied» de sshd y 0/6 invitados leídos.
                 "rest": interfaces_rest,
+                "web": interfaces_web,
             },
             "porque": (
                 f"comprueba la cadena entera: si el puerto {puerto_local} del nodo de control "
@@ -941,6 +986,11 @@ def _ip_services_canonicos(declarado, leido):
         operaciones.append({"op": "disable_service", "servicio": servicio})
     for servicio in sorted((apagados - deseados) & set(SERVICIOS_GESTIONADOS)):
         operaciones.append({"op": "enable_service", "servicio": servicio})
+    # El SSH que se deja abierto tiene que admitir CONTRASEÑA, no sólo clave: es la credencial
+    # que el vigilante guarda por equipo. `yes-if-no-key` deja fuera a un usuario con clave
+    # importada --el del motor--, y entonces el terminal no puede entrar (medido).
+    if "ssh" not in deseados and str((leido or {}).get("ssh_password_auth") or "") != "yes":
+        operaciones.append({"op": "allow_ssh_password"})
     return operaciones
 
 
@@ -1787,6 +1837,10 @@ def pasos_de_convergencia(guest, identidad, declaracion, leido, parametros):
             # El área del servicio declarado: instalar, configurar, arrancar y comprobar que
             # SIRVE. El valor declarado es el NOMBRE del servicio (vocabulario cerrado).
             operaciones = _servicio_canonico(declaradas[area], actual)
+        elif area == "terminal":
+            # Va DESPUÉS de `monitorizacion` (orden de `AREAS`) y por eso encuentra el
+            # servicio ya convergido: el preparador existe y el API contesta.
+            operaciones = _terminal_canonica(declaradas[area], actual, declaracion)
         elif area == "monitorizacion":
             # El área de la vigilancia: que el servidor declarado SEPA a quién vigilar. Va
             # DESPUÉS de `servicio` (siempre, por el orden de `AREAS`), así que cuando corre
@@ -2400,6 +2454,24 @@ def lecturas_linux(guest):
                     "descripcion": (f"si el servidor de vigilancia '{nombre_servicio}' ya sabe a "
                                     "quién tiene que vigilar"),
                 })
+        elif area == "terminal":
+            # La pregunta va al PREPARADOR y no a una orden suelta: son cuatro hechos que
+            # tienen que contarse juntos (agente vivo, subagente cargado, capacidad del nodo
+            # del vigilante y qué equipos tienen ya su credencial).
+            lecturas.append({
+                "area": area,
+                "accion": "leer",
+                # El preparador es un fichero que escribe el área `servicio`: en la primera
+                # pasada todavía no está. Una lectura que sale con error no es un estado (el
+                # driver la da por no leída y para), así que se contesta lo que hay cuando no
+                # hay nada: el agente sin configurar. Sin esto, el primer `apply` se paraba
+                # pidiendo una lectura imposible.
+                "comando": (f"if [ -r {RUTA_PREPARADOR_NETXMS} ]; then "
+                            f"sh {RUTA_PREPARADOR_NETXMS} terminal-estado; "
+                            "else printf 'agente=inactive\\nsshnsm=no\\ncapacidad=no\\n'; fi"),
+                "descripcion": ("si el vigilante puede prestar el terminal SSH: agente vivo "
+                                "con `ssh.nsm`, capacidad de agente y equipos dados de alta"),
+            })
         elif area in LECTURAS_LINUX:
             lecturas.append({
                 "area": area,
@@ -2531,6 +2603,25 @@ def leido_linux(lecturas):
                 "ficheros_leidos": [
                     (bloques[i] if i < len(bloques) else "").lstrip("\n") for i in (1, 2, 3)
                 ],
+            }
+
+        elif area == "terminal":
+            # Cinco formas de línea: `agente=`, `sshnsm=`, `capacidad=` y una `nodo=ip|login|puerto`
+            # por equipo. Se devuelven como hechos sueltos, no como un texto comparable: la
+            # diferencia se calcula contra lo que el lab declara, no contra la forma del guion.
+            nodos = []
+            for linea in lineas:
+                if not linea.startswith("nodo="):
+                    continue
+                trozos = linea.split("=", 1)[1].split("|")
+                if len(trozos) >= 2:
+                    nodos.append({"ip": trozos[0], "login": trozos[1],
+                                  "puerto": (trozos[2] if len(trozos) > 2 else "22")})
+            leido["terminal"] = {
+                "agente": _valor(lineas, "agente"),
+                "sshnsm": _valor(lineas, "sshnsm") == "si",
+                "capacidad": _valor(lineas, "capacidad") == "si",
+                "nodos": nodos,
             }
 
         elif area == "claves":
@@ -2672,7 +2763,285 @@ RUTA_DNSMASQ = "/etc/dnsmasq.d/netlabs.conf"
 # Cada miembro es un SERVICIO que el motor sabe instalar, configurar y dejar SIRVIENDO; un
 # nombre que no esté aquí se RECHAZA en el validador (`declaracion.py`) con su motivo: el lab
 # no inventa primitivas (regla 15). Añadir un miembro es una primitiva nueva, con su ADR.
-SERVICIOS_LINUX = ("caddy", "netxms")
+# ---------------------------------------------------------------------------
+# NetBox: el inventario como SERVICIO del invitado
+# ---------------------------------------------------------------------------
+# NetBox no está en Debian y no se instala con un paquete: es una aplicación Django que se
+# instala desde su repositorio, con su entorno virtual, su base y su servidor de aplicaciones.
+# Por eso entra en el vocabulario como un servicio más (`servicio: netbox`) y el motor lo deja
+# en estado de arrancar con un guion, igual que NetXMS.
+NETBOX_VERSION = "v4.4.1"
+NETBOX_RAIZ = "/opt/netbox"
+NETBOX_BD = {"nombre": "netbox", "usuario": "netbox", "clave": "netlabs"}
+NETBOX_ADMIN = {"usuario": "admin", "clave": "netlabs", "correo": "admin@netlabs.invalid"}
+# El puerto por el que sirve NGINX dentro del invitado. 8080 y no 80: el 80 del invitado queda
+# libre para lo que el lab quiera, y este es el puerto que el túnel reenvía hacia casa.
+NETBOX_PUERTO = 8080
+RUTA_PREPARADOR_NETBOX = "/usr/local/sbin/netlabs-servicio-netbox"
+
+# Lo que el túnel del bastión publica en casa por cada equipo que declara `servicio: netbox`:
+# un puerto propio, DERIVADO del vmid (regla 11), en una banda que no pisa ni la del túnel
+# (20000+) ni la del REST (21000+).
+PUERTO_WEB_BASE = 22000
+
+# Qué servicios tienen web propia y por qué puerto se entra a ella DENTRO del invitado.
+# Es el vocabulario del motor, no del lab: el lab dice `servicio: netbox` y el motor sabe
+# que eso se sirve en el 8080.
+SERVICIOS_WEB = {"netbox": NETBOX_PUERTO}
+
+
+# El guion del servicio NetBox. Va como fichero (no como una línea de shell) porque son seis
+# piezas idempotentes por separado, y cada una deja su marca: repetir una pasada no reinstala
+# nada, y la segunda ejecución de `apply` no escribe (regla 6).
+PLANTILLA_PREPARADOR_NETBOX = r"""#!/bin/sh
+# PROPÓSITO: dejar NetBox instalado, configurado y SIRVIENDO (gunicorn + nginx) en este invitado.
+# INVARIANTES: cada pieza deja su marca; repetir no reinstala ni reinicia lo que ya está.
+#              `estado` sólo LEE. La base y el administrador se crean una vez.
+# LÍMITES: no publica nada hacia fuera (eso lo hace el túnel del bastión, en el motor).
+# VER: docs/decisiones/0036-netbox-como-servicio.md
+VERBO="${1:-estado}"
+RAIZ="%(raiz)s"
+BD="%(bd)s"
+BD_USUARIO="%(usuario)s"
+BD_CLAVE="%(clave)s"
+PUERTO="%(puerto)s"
+MARCA=/var/lib/netlabs-netbox
+mkdir -p "$MARCA" 2>/dev/null
+
+ya() { [ -e "$MARCA/$1" ]; }
+marca() { : > "$MARCA/$1"; }
+
+case "$VERBO" in
+estado)
+    # «Sirviendo» es que el navegador pueda ENTRAR: se pide la página de login, no el proceso.
+    if [ -x "$RAIZ/venv/bin/gunicorn" ]; then
+        if curl -fsSL -m 10 "http://127.0.0.1:$PUERTO/login/" >/dev/null 2>&1; then
+            echo si
+        else
+            echo no
+        fi
+    else
+        echo no
+    fi
+    ;;
+preparar)
+    # 1. Paquetes del sistema (una vez).
+    if ! ya paquetes; then
+        export DEBIAN_FRONTEND=noninteractive
+        apt-get update -qq || exit 1
+        apt-get install -y -qq python3 python3-venv python3-dev build-essential \
+            libxml2-dev libxslt1-dev libffi-dev libssl-dev zlib1g-dev libpq-dev \
+            postgresql redis-server nginx git curl || exit 1
+        marca paquetes
+    fi
+
+    # 2. El código, en su versión fija (una vez; si ya está, no se toca).
+    if [ ! -d "$RAIZ/.git" ]; then
+        git clone -q --depth 1 -b "%(version)s" https://github.com/netbox-community/netbox.git "$RAIZ" || exit 1
+    fi
+    id -u netbox >/dev/null 2>&1 || useradd -r -d "$RAIZ" -s /usr/sbin/nologin netbox
+
+    # 3. El entorno virtual y sus dependencias (una vez).
+    if ! ya entorno; then
+        python3 -m venv "$RAIZ/venv" || exit 1
+        "$RAIZ/venv/bin/pip" install -q --upgrade pip || exit 1
+        "$RAIZ/venv/bin/pip" install -q -r "$RAIZ/requirements.txt" || exit 1
+        "$RAIZ/venv/bin/pip" install -q gunicorn || exit 1
+        marca entorno
+    fi
+
+    # 4. La configuración: base, Redis, clave y anfitriones. Se escribe ENTERA cada pasada
+    #    (es pequeña y es del motor); la comparación la hace el área antes de llegar aquí.
+    if [ ! -f "$RAIZ/netbox/netbox/configuration.py" ]; then
+        cp "$RAIZ/netbox/netbox/configuration_example.py" "$RAIZ/netbox/netbox/configuration.py" || exit 1
+    fi
+    # La clave secreta se genera UNA vez y se guarda: si se regenerara en cada reparación,
+    # todas las sesiones --y los tokens del API-- dejarían de valer sin que nadie lo pidiera.
+    [ -f "$MARCA/clave_secreta" ] || head -c 50 /dev/urandom | base64 | tr -d '/+=' | head -c 50 > "$MARCA/clave_secreta"
+    cat > "$RAIZ/netbox/netbox/configuration.py" <<CONF
+ALLOWED_HOSTS = ["*"]
+DATABASES = {
+    "default": {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": "$BD",
+        "USER": "$BD_USUARIO",
+        "PASSWORD": "$BD_CLAVE",
+        "HOST": "localhost",
+        "PORT": "",
+        "CONN_MAX_AGE": 300,
+    }
+}
+REDIS = {
+    "tasks": {"HOST": "localhost", "PORT": 6379, "PASSWORD": "", "DATABASE": 0, "SSL": False},
+    "caching": {"HOST": "localhost", "PORT": 6379, "PASSWORD": "", "DATABASE": 1, "SSL": False},
+}
+SECRET_KEY = "$(cat $MARCA/clave_secreta)"
+# Detrás de un proxy que TERMINA el TLS (el nombre público), Django tiene que enterarse de
+# que la petición original venía por https: si no, el POST del login falla por CSRF --y el
+# navegador no dice por qué--. No es un valor de nadie: es la cabecera que el proxy manda.
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+CONF
+
+    # 5. La base y su usuario (una vez).
+    if ! ya base; then
+        systemctl enable --now postgresql >/dev/null 2>&1
+        # Redis tiene que correr EN PRIMER PLANO bajo systemd: con `daemonize yes` el proceso
+        # se separa, la unidad lo da por terminado y muere en bucle ("Start request repeated
+        # too quickly"). Y sin Redis, NetBox no se cae: se QUEDA COLGADO en cada petición
+        # --600 s de espera y un timeout en el navegador--, que es peor que caerse.
+        # La unidad corre como usuario `redis`, y en esta imagen el paquete no lo crea (viene
+        # por sysusers, que no se ejecuta aquí): sin él, `status=217/USER` y Redis no arranca.
+        if getent passwd redis >/dev/null 2>&1; then :; else
+            useradd -r -d /var/lib/redis -s /usr/sbin/nologin redis 2>/dev/null
+        fi
+        mkdir -p /var/lib/redis /var/log/redis
+        chown -R redis:redis /var/lib/redis /var/log/redis 2>/dev/null
+        if [ -f /etc/redis/redis.conf ]; then
+            sed -i -e 's/^daemonize yes/daemonize no/' -e 's/^supervised no/supervised systemd/' /etc/redis/redis.conf
+        fi
+        # La unidad del paquete pide `PrivateUsers=true` y `RestrictNamespaces=true`. Dentro de
+        # un LXC sin privilegios eso NO se puede cumplir, y systemd lo dice con un
+        # `Failed to set up user namespacing: Permission denied` que no menciona Redis por
+        # ningún lado. Se le quitan SÓLO esas dos piezas: es el mismo Redis, en el mismo
+        # contenedor, con las defensas que el contenedor sí permite.
+        mkdir -p /etc/systemd/system/redis-server.service.d
+        cat > /etc/systemd/system/redis-server.service.d/netlabs-lxc.conf <<'UNIT'
+[Service]
+PrivateUsers=no
+RestrictNamespaces=no
+UNIT
+        systemctl daemon-reload >/dev/null 2>&1
+        systemctl reset-failed redis-server >/dev/null 2>&1
+        systemctl enable --now redis-server >/dev/null 2>&1
+        su postgres -c "psql -tAc \"select 1 from pg_roles where rolname='$BD_USUARIO'\"" 2>/dev/null | grep -q 1 \
+            || su postgres -c "psql -c \"create role $BD_USUARIO login password '$BD_CLAVE'\"" >/dev/null 2>&1
+        # La base nace UTF8 y de `template0`: un clúster con locale POSIX crea las bases en
+        # SQL_ASCII, y NetBox se niega a migrar sobre esa codificación («current database's
+        # encoding is not supported with this provider»). No es un detalle de estilo: sin esto
+        # el esquema no se crea y el servicio no arranca nunca.
+        su postgres -c "psql -tAc \"select 1 from pg_database where datname='$BD'\"" 2>/dev/null | grep -q 1 \
+            || su postgres -c "psql -c \"create database $BD owner $BD_USUARIO encoding 'UTF8' template template0\"" >/dev/null 2>&1
+        su postgres -c "psql -c \"alter role $BD_USUARIO createdb\"" >/dev/null 2>&1
+        marca base
+    fi
+
+    # 6. Esquema, estáticos y el administrador (una vez cada uno).
+    cd "$RAIZ/netbox" || exit 1
+    if ! ya esquema; then
+        # Nada de `>/dev/null`: el diario tiene que poder decir POR QUÉ falló (la primera
+        # pasada se quedó muda y hubo que entrar a mirar; regla 5).
+        "$RAIZ/venv/bin/python" manage.py migrate --no-input \
+            > /var/log/netlabs-netbox.log 2>&1 || { tail -n 5 /var/log/netlabs-netbox.log; exit 1; }
+        marca esquema
+    fi
+    if ! ya estaticos; then
+        "$RAIZ/venv/bin/python" manage.py collectstatic --no-input \
+            >> /var/log/netlabs-netbox.log 2>&1 || { tail -n 5 /var/log/netlabs-netbox.log; exit 1; }
+        marca estaticos
+    fi
+    if ! ya administrador; then
+        DJANGO_SUPERUSER_PASSWORD="%(admin_clave)s" "$RAIZ/venv/bin/python" manage.py createsuperuser \\
+            --noinput --username "%(admin_usuario)s" --email "%(admin_correo)s" >/dev/null 2>&1
+        marca administrador
+    fi
+
+    # 7. gunicorn y nginx: los dos servicios, con su configuración escrita cada pasada.
+    cat > /etc/systemd/system/netbox.service <<UNIT
+[Unit]
+Description=NetBox (gunicorn)
+After=network-online.target postgresql.service redis-server.service
+Wants=network-online.target
+[Service]
+User=netbox
+Group=netbox
+WorkingDirectory=$RAIZ/netbox
+ExecStart=$RAIZ/venv/bin/gunicorn --pid /var/tmp/netbox.pid --pythonpath $RAIZ/netbox --config $RAIZ/contrib/gunicorn.py netbox.wsgi
+Restart=on-failure
+RestartSec=5
+[Install]
+WantedBy=multi-user.target
+UNIT
+    cat > /etc/systemd/system/netbox-rq.service <<UNIT
+[Unit]
+Description=NetBox (cola de tareas)
+After=network-online.target postgresql.service redis-server.service netbox.service
+[Service]
+User=netbox
+Group=netbox
+WorkingDirectory=$RAIZ/netbox
+ExecStart=$RAIZ/venv/bin/python manage.py rqworker
+Restart=on-failure
+RestartSec=5
+[Install]
+WantedBy=multi-user.target
+UNIT
+    # Delimitador ENTRE COMILLAS: esta configuración lleva `$host`, y un heredoc sin comillas
+    # se come la variable (el fichero salía con `Host \\;` y nginx no arrancaba). Los dos
+    # valores que sí son del motor van ya resueltos desde la plantilla.
+    cat > /etc/nginx/sites-available/netbox <<'UNIT'
+server {
+    listen %(puerto)s;
+    server_name _;
+    client_max_body_size 25m;
+    location /static/ { alias %(raiz)s/netbox/static/; }
+    location / {
+        proxy_pass http://127.0.0.1:8001;
+        proxy_set_header Host $host;
+        # El esquema ORIGINAL, que es el que llega del proxy público: sin esto Django se cree
+        # http y el login por el nombre público se cae en el CSRF.
+        proxy_set_header X-Forwarded-Proto $http_x_forwarded_proto;
+    }
+}
+UNIT
+    ln -sf /etc/nginx/sites-available/netbox /etc/nginx/sites-enabled/netbox
+    rm -f /etc/nginx/sites-enabled/default
+    systemctl daemon-reload >/dev/null 2>&1
+    systemctl enable netbox netbox-rq >/dev/null 2>&1
+    systemctl restart netbox >/dev/null 2>&1
+    systemctl restart netbox-rq >/dev/null 2>&1
+    systemctl enable nginx >/dev/null 2>&1
+    if nginx -t >/dev/null 2>&1; then
+        systemctl reload nginx >/dev/null 2>&1 || systemctl restart nginx >/dev/null 2>&1
+    else
+        nginx -t 2>&1 | tail -n 3
+        exit 1
+    fi
+
+    # 8. Se contesta lo MISMO que pregunta `estado`, y se ESPERA a que conteste: gunicorn
+    #    carga NetBox en ~45 s en un contenedor de 2 núcleos, y preguntar a los 3 s decía «no»
+    #    sobre un servicio que estaba arrancando bien (y hacía repetir la instalación entera).
+    for _ in $(seq 1 40); do
+        if curl -fsSL -m 5 "http://127.0.0.1:$PUERTO/login/" >/dev/null 2>&1; then
+            echo si
+            exit 0
+        fi
+        sleep 3
+    done
+    echo no
+    ;;
+*)
+    echo "uso: $0 preparar|estado" >&2
+    exit 2
+    ;;
+esac
+"""
+
+
+def _preparador_netbox():
+    """El guion que deja NetBox en estado de arrancar (código, entorno, base, esquema y web)."""
+    return PLANTILLA_PREPARADOR_NETBOX % {
+        "raiz": NETBOX_RAIZ,
+        "version": NETBOX_VERSION,
+        "bd": NETBOX_BD["nombre"],
+        "usuario": NETBOX_BD["usuario"],
+        "clave": NETBOX_BD["clave"],
+        "puerto": NETBOX_PUERTO,
+        "admin_usuario": NETBOX_ADMIN["usuario"],
+        "admin_clave": NETBOX_ADMIN["clave"],
+        "admin_correo": NETBOX_ADMIN["correo"],
+    }
+
+SERVICIOS_LINUX = ("caddy", "netxms", "netbox")
 
 # El repositorio APT de NetXMS no está en Debian: lo añade su paquete de release, que se
 # descarga de packages.netxms.org. Se pincha VERSIÓN de la web porque el cliente web (el WAR)
@@ -2714,6 +3083,41 @@ RUTA_PREPARADOR_NETXMS = "/usr/local/sbin/netlabs-servicio-netxms"
 # motor como el resto de la configuración.
 RUTA_DROPIN_NETXMS = "/etc/systemd/system/netxms-server.service.d/netlabs.conf"
 
+# --- El TERMINAL SSH (área `terminal`) ---------------------------------------------------
+# Dos ficheros y una idea: el vigilante presta la consola porque un AGENTE del propio invitado
+# abre la sesión SSH por él. El agente sólo sabe hacerlo si carga el subagente `ssh.nsm`, y
+# eso se declara en la sección [CORE] de su configuración -- la de arriba del fichero, no la de
+# FILEMGR, que es donde se perdía la línea cuando se añadía al final (medido).
+RUTA_AGENTE = "/etc/nxagentd.conf"
+# La credencial de los equipos que el terminal abre va en su propio fichero 0600 y no en la
+# línea de órdenes: el diario del motor guarda el comando tal cual (regla 12), así que un
+# secreto en el comando acabaría escrito en `interior.jsonl`.
+RUTA_TERMINAL_ENV = "/etc/netlabs/terminal.env"
+
+# Las dos capacidades que el nodo del propio vigilante necesita: sin `NC_IS_NATIVE_AGENT`
+# (0x2) `Node::createAgentConnection` devuelve nulo y el API contesta 502 «Cannot connect to
+# SSH proxy agent»; `NC_IS_SSH` (0x80) es lo que la interfaz lee para ofrecer el terminal.
+# Se ORDENAN sobre la capacidad que el nodo ya tiene, nunca se pisan (medido sobre la fuente).
+CAPACIDADES_TERMINAL = 0x2 | 0x80
+# `NC_IS_LOCAL_MGMT`: el bit con el que el servidor marca el nodo de su propio equipo. Es cómo
+# se encuentra ese nodo sin saber su nombre (que lo pone el instalador).
+CAPACIDAD_GESTION_LOCAL = 0x10
+
+# El usuario con el que el motor abre la consola de los equipos vigilados: es el mismo con el
+# que gobierna un RouterOS por su API. El lab no lo declara -- no es suyo, es del motor.
+USUARIO_TERMINAL = "admin"
+
+# La configuración del agente: TRES líneas y ninguna de más. `MasterServers` limita quién
+# puede hablarle (sólo la propia máquina: el servidor vive en este mismo invitado); `ssh.nsm`
+# en [CORE] es lo que le da la capacidad de abrir sesiones SSH para el terminal.
+CONTENIDO_AGENTE = """# PROPÓSITO: el agente del vigilante, que es quien abre las sesiones del terminal SSH.
+# No se edita a mano: el motor lo reescribe desde el área `terminal`.
+SubAgent = filemgr
+SubAgent = ssh.nsm
+MasterServers = 127.0.0.0/8
+LogFile = {syslog}
+"""
+
 # Lo que el motor sabe hacer con cada servicio, en un solo sitio. Nada de esto es un valor de
 # ningún lab: es vocabulario del MOTOR (regla 7). Las claves, todas obligatorias (un servicio
 # sin alguna de ellas no se puede gobernar entero, así que no entra en el vocabulario):
@@ -2728,6 +3132,32 @@ RUTA_DROPIN_NETXMS = "/etc/systemd/system/netxms-server.service.d/netlabs.conf"
 #   preparar_paquetes  lo que hay que hacer ANTES de instalar (p. ej. añadir el repositorio)
 #   espera             segundos de respiro tras arrancar, antes de que la relectura pregunte
 SERVICIOS_LINUX_OPCIONES = {
+    "netbox": {
+        # NetBox es una aplicación Django: los paquetes son el andamiaje (intérprete, base,
+        # Redis, nginx y git); lo demás --el código, su entorno virtual y sus estáticos-- lo
+        # deja el preparador, que es idempotente por piezas.
+        "paquetes": ("python3", "python3-venv", "python3-dev", "build-essential", "libxml2-dev",
+                     "libxslt1-dev", "libffi-dev", "libssl-dev", "zlib1g-dev", "libpq-dev",
+                     "postgresql", "redis-server", "nginx", "git", "curl"),
+        "herramientas": ("git", "psql", "nginx", "curl", "python3"),
+        "unidad": "netbox",
+        # Sólo el guion: la configuración de Django y la de nginx las escribe él, y compararlas
+        # desde fuera obligaría al motor a saber de NetBox más de lo que necesita (regla 7).
+        "ficheros": (RUTA_PREPARADOR_NETBOX,),
+        # SIRVE = se puede ENTRAR: la página de login de la web, por el puerto publicado.
+        "sirve": (f"curl -fsSL -m 10 --retry 40 --retry-delay 3 --retry-connrefused "
+                  f"http://127.0.0.1:{NETBOX_PUERTO}/login/ 2>/dev/null || echo NO-SIRVE"),
+        # «¿Está INSTALADO?» se pregunta al propio preparador, que es el único que sabe en qué
+        # pieza va. Y es lo que dispara su pasada: sin un `extra` distinto del esperado, el
+        # motor escribiría el guion, daría la unidad por buena y la arrancaría sin que NetBox
+        # existiera todavía (medido en la primera pasada: enable_service sobre una unidad que
+        # no había creado nadie aún).
+        "extra": (f"sh {RUTA_PREPARADOR_NETBOX} estado 2>/dev/null || echo no"),
+        "extra_esperado": "si",
+        "preparar": (f"sh {RUTA_PREPARADOR_NETBOX} preparar",),
+        "preparar_paquetes": (),
+        "espera": 5,
+    },
     "caddy": {
         "paquetes": ("caddy", "curl"),
         "herramientas": ("caddy", "curl"),
@@ -3218,6 +3648,79 @@ estado() {
     echo si
 }
 
+# --- El TERMINAL SSH: lo que hace falta para que el vigilante preste la consola -----------
+# Un terminal embebido no es "SSH desde el navegador": la sesión la abre un AGENTE con el
+# subagente `ssh.nsm` y el servidor sólo relaya bytes (ADR 0035). Estas tres funciones son
+# la diferencia entre "el API contesta" y "el terminal abre":
+#   * el agente carga `SubAgent = ssh.nsm` (en [CORE], no en la sección de FILEMGR);
+#   * el nodo del propio vigilante lleva las capacidades `NC_IS_NATIVE_AGENT` (0x2) y
+#     `NC_IS_SSH` (0x80). Sin el bit 2, `Node::createAgentConnection` devuelve nulo y el
+#     API contesta 502 «Cannot connect to SSH proxy agent» (medido sobre su fuente);
+#   * cada equipo vigilado es un NODO con `ssh_login`/`ssh_password`/`ssh_port` y
+#     `ssh_proxy = 0`, que significa «el agente del propio servidor».
+# Capacidades y credenciales se LEEN AL ARRANCAR: la escritura termina con UN reinicio, y
+# sólo cuando algo cambió.
+terminal_estado() {
+    printf 'agente=%%s\n' "$(systemctl is-active netxms-agent 2>/dev/null | head -1)"
+    if grep -qiE '^[[:space:]]*SubAgent[[:space:]]*=[[:space:]]*ssh\.nsm' /etc/nxagentd.conf 2>/dev/null; then
+        echo 'sshnsm=si'
+    else
+        echo 'sshnsm=no'
+    fi
+    printf 'capacidad=%%s\n' "$(como_postgres "psql -tA -d %(bd)s -c \"select case when capabilities & 2 = 2 then 'si' else 'no' end from nodes where capabilities & 16 = 16 limit 1\"")"
+    como_postgres "psql -tA -F '|' -d %(bd)s -c \"select primary_ip, ssh_login, ssh_port from nodes where ssh_login is not null and ssh_login <> ''\"" | sed 's/^/nodo=/'
+}
+
+# La escritura: recibe `ip:nombre` por cada equipo que el lab declara y deja el nodo listo.
+# La credencial NO viaja por la línea de órdenes (se quedaría en el diario del motor): se lee
+# de un fichero 0600 que el motor escribe en el mismo paso.
+terminal_converger() {
+    . /etc/netlabs/terminal.env 2>/dev/null || { echo 'faltan las credenciales del terminal' >&2; exit 1; }
+    [ "$(entra)" = 'si' ] || { echo 'no se puede entrar al vigilante para poner el terminal' >&2; exit 1; }
+    token=$(curl -sS -m 10 -X POST http://127.0.0.1:8000/v1/login -H 'Content-Type: application/json' \
+        -d "{\"username\":\"$ADMIN\",\"password\":\"$ADMIN_CLAVE\"}" \
+        | python3 -c 'import sys,json;print(json.load(sys.stdin).get("token",""))' 2>/dev/null)
+    [ -n "$token" ] || { echo 'el vigilante no dio token' >&2; exit 1; }
+    # Una sola comilla simple dentro de un valor SQL se ESCAPA doblando: sin esto, una clave
+    # con apóstrofo rompía el guion entero (y el SQL es de root, no del usuario).
+    login=$(printf '%%s' "$SSH_LOGIN" | sed "s/'/''/g")
+    clave=$(printf '%%s' "$SSH_PASSWORD" | sed "s/'/''/g")
+    sql=""
+    for par in "$@"; do
+        ip=${par%%:*}
+        nombre=${par#*:}
+        id=$(como_postgres "psql -tA -d %(bd)s -c \"select id from nodes where primary_ip = '$ip' limit 1\"")
+        if [ -z "$id" ]; then
+            id=$(curl -sS -m 20 -X POST http://127.0.0.1:8000/v1/objects \
+                 -H "Authorization: Bearer $token" -H 'Content-Type: application/json' \
+                 -d "{\"class\":\"Node\",\"parentId\":2,\"name\":\"$nombre\",\"ipAddress\":\"$ip\"}" \
+                 | python3 -c 'import sys,json;print(json.load(sys.stdin).get("id",""))' 2>/dev/null)
+        fi
+        case "$id" in
+            ''|*[!0-9]*) echo "no se pudo dejar el nodo $nombre ($ip)" >&2; continue ;;
+        esac
+        sql="$sql update nodes set ssh_login = '$login', ssh_password = '$clave', ssh_port = ${SSH_PUERTO:-22}, ssh_proxy = 0 where id = $id;"
+    done
+    # Y la capacidad del nodo del vigilante: es el bit que decide si hay agente detrás.
+    sql="$sql update nodes set capabilities = capabilities | 130 where capabilities & 16 = 16;"
+    printf '%%s\n' "$sql" > /tmp/netlabs-terminal.sql
+    chown postgres /tmp/netlabs-terminal.sql 2>/dev/null
+    como_postgres "psql -q -d %(bd)s -f /tmp/netlabs-terminal.sql" >/dev/null 2>&1
+    rm -f /tmp/netlabs-terminal.sql
+    # El reinicio es la ÚNICA forma de que el servidor lea lo que acaba de cambiar en su base.
+    # Se espera a que vuelva a entrar, no un tiempo fijo.
+    systemctl restart netxms-server >/dev/null 2>&1
+    i=0
+    while [ "$i" -lt 30 ]; do
+        i=$((i + 1))
+        sleep 2
+        [ "$(respuesta_de_la_web)" = "201" ] && break
+    done
+    [ "$(entra)" = 'si' ] || { echo 'el vigilante no volvió tras reiniciar' >&2; exit 1; }
+    echo 'si'
+}
+
+
 case "$VERBO" in
 estado)
     estado
@@ -3455,8 +3958,17 @@ preparar)
         fi
     fi
     ;;
+
+terminal-estado)
+    # Sólo lectura: qué le falta al vigilante para poder prestar la consola.
+    terminal_estado
+    ;;
+terminal)
+    # Escritura: deja el agente con `ssh.nsm` y un nodo por equipo, con su credencial.
+    terminal_converger "$@"
+    ;;
 *)
-    echo "uso: $0 preparar|estado|sembrar|sembrado|objetivos|api" >&2
+    echo "uso: $0 preparar|estado|sembrar|sembrado|objetivos|api|terminal|terminal-estado" >&2
     exit 2
     ;;
 esac
@@ -3477,6 +3989,7 @@ def _dropin_netxms():
         "ExecStart=",
         "ExecStart=/usr/bin/netxmsd -S -c /etc/netxmsd.conf",
     ]) + "\n"
+
 
 
 def _preparador_netxms():
@@ -3519,6 +4032,7 @@ def _ficheros_servicio(nombre):
         "/etc/netxmsd.conf": _configuracion_netxms,
         RUTA_DROPIN_NETXMS: _dropin_netxms,
         RUTA_PREPARADOR_NETXMS: _preparador_netxms,
+        RUTA_PREPARADOR_NETBOX: _preparador_netbox,
     }
     return {ruta: generadores[ruta]() for ruta in opciones["ficheros"]}
 
@@ -3534,6 +4048,62 @@ def _lineas_servicio(bloque):
             # sólo un `NO` explícito pide instalarlo.
             presentes[clave.strip()] = valor.strip() != "NO"
     return presentes
+
+
+def _terminal_canonica(declarado, leido, declaracion):
+    """(declarado, leído) -> lo que falta para que el vigilante preste el terminal SSH.
+
+    El terminal embebido NO es una capacidad del servidor: la sesión la abre un AGENTE con
+    `ssh.nsm`, y el equipo que se abre es un NODO con su credencial. Así que lo que hay que
+    comprobar son cuatro hechos, y los cuatro tienen que estar:
+
+      1. el agente está vivo,
+      2. carga `ssh.nsm`,
+      3. el nodo del propio vigilante tiene la capacidad de agente (sin ella el API contesta
+         502 «Cannot connect to SSH proxy agent», medido),
+      4. cada RouterOS declarado tiene su nodo, con el usuario del motor.
+
+    Los equipos NO se inventan: son los `rt` de la declaración. Un lab sin routers no tiene
+    nada que vigilar aquí y esta área se queda en nada (no es un error declararla).
+    """
+    equipos = []
+    for otro in declaracion.get("guests") or []:
+        # El TIPO DE EQUIPO (rt/fw/srv/ws/sw/ctl) llega en `equipo` en la declaración
+        # NORMALIZADA (donde `tipo` es la virtualización: `qemu`/`lxc`), y en `tipo` cuando
+        # alguien llama al driver con la declaración cruda de un lab (las pruebas). Se aceptan
+        # las dos formas porque las dos son ciertas, y ninguna se adivina.
+        equipo_tipo = str(otro.get("equipo") or otro.get("tipo") or "")
+        if equipo_tipo != "rt":
+            continue
+        ip = str(otro.get("address") or "").split("/")[0]
+        if not ip or ip == "dhcp":
+            continue
+        # El NOMBRE del nodo es del vocabulario del motor (`<tipo>-<alias>`), no del lab:
+        # dos labs pueden repetir `rt-nucleo` y el nombre no prueba pertenencia (regla 3).
+        alias = otro.get("alias") or otro.get("nombre") or otro.get("rol")
+        equipos.append({"ip": ip, "nombre": f"rt-{alias}"})
+
+    if not equipos:
+        return []
+
+    actual = leido or {}
+    motivos = []
+    if str(actual.get("agente") or "") != "active":
+        motivos.append("el agente del vigilante no está vivo")
+    if not actual.get("sshnsm"):
+        motivos.append("el agente no carga el subagente ssh.nsm")
+    if not actual.get("capacidad"):
+        motivos.append("el nodo del vigilante no tiene la capacidad de agente")
+    dados = {str(n.get("ip")): n for n in actual.get("nodos") or []}
+    for equipo in equipos:
+        nodo = dados.get(equipo["ip"])
+        if nodo is None:
+            motivos.append(f"el equipo {equipo['ip']} no está dado de alta")
+        elif str(nodo.get("login") or "") != USUARIO_TERMINAL:
+            motivos.append(f"el equipo {equipo['ip']} no lleva el usuario del motor")
+    if not motivos:
+        return []
+    return [{"op": "preparar_terminal", "equipos": equipos, "motivo": "; ".join(motivos)}]
 
 
 def _servicio_canonico(declarado, leido):
@@ -3646,6 +4216,44 @@ def escrituras_linux(operaciones, guest, declaracion, identidad, parametros):
                 "area": "address", "accion": "escribir", "declarado": operacion.get("address"),
                 "descripcion": "poner su dirección declarada",
                 "comando": f"ip addr replace {operacion['address']} dev {operacion.get('interface') or 'eth0'}",
+            })
+
+        elif op == "preparar_terminal":
+            # Cuatro comandos, y en este orden: la configuración del agente, el agente vivo, la
+            # credencial y -- lo que de verdad hace el trabajo -- el guion del vigilante, que da
+            # de alta los nodos y reinicia el servidor una sola vez.
+            equipos = operacion.get("equipos") or []
+            usuario = str(parametros.get("routeros_usuario") or USUARIO_TERMINAL)
+            clave = str(parametros.get("routeros_clave") or "")
+            comandos.append({
+                "area": "terminal", "accion": "escribir", "declarado": "ssh.nsm",
+                "descripcion": "escribir la configuración del agente del vigilante (con ssh.nsm)",
+                "comando": f"echo {_b64(CONTENIDO_AGENTE)} | base64 -d > {RUTA_AGENTE}",
+            })
+            comandos.append({
+                "area": "terminal", "accion": "escribir", "declarado": "active",
+                "descripcion": "dejar el agente del vigilante habilitado y arrancado",
+                "comando": ("systemctl enable netxms-agent >/dev/null 2>&1 || true; "
+                            "systemctl is-active --quiet netxms-agent "
+                            "|| systemctl start netxms-agent >/dev/null 2>&1 || true"),
+            })
+            entorno = "\n".join([f"SSH_LOGIN={usuario}", f"SSH_PASSWORD={clave}",
+                                 "SSH_PUERTO=22"]) + "\n"
+            comandos.append({
+                "area": "terminal", "accion": "escribir", "declarado": "0600",
+                "descripcion": "dejar la credencial del terminal en un fichero que sólo root lee",
+                "comando": (f"mkdir -p /etc/netlabs && (umask 077 && echo {_b64(entorno)} "
+                            f"| base64 -d > {RUTA_TERMINAL_ENV})"),
+                # El diario guarda el comando TAL CUAL (regla 12): con la credencial dentro sería
+                # un secreto escrito en `interior.jsonl`. Se diariza lo que se hizo, no el blob.
+                "comando_diario": f"escribir {RUTA_TERMINAL_ENV} con la credencial (tapada)",
+            })
+            pares = " ".join(f"{e['ip']}:{e['nombre']}" for e in equipos)
+            comandos.append({
+                "area": "terminal", "accion": "escribir",
+                "declarado": ",".join(e["ip"] for e in equipos),
+                "descripcion": "dar de alta los equipos vigilados con su credencial y su proxy",
+                "comando": f"sh {RUTA_PREPARADOR_NETXMS} terminal {pares}",
             })
 
         elif op == "enable_ip_forward":
@@ -3860,6 +4468,7 @@ def pendiente_de_driver(operacion):
         "install_service", "write_service_config", "prepare_service",
         "enable_service", "reload_service", "sembrar_monitorizacion",
         "add_route", "remove_route", "write_routes", "write_latido", "start_latido",
+        "preparar_terminal",
     }
     op = (operacion or {}).get("op")
     if op in conocidas:
@@ -3955,7 +4564,16 @@ LECTURAS_ROUTEROS = {
         ("/user", "los usuarios que tiene (el del motor, si está)"),
         ("/user/ssh-keys", "las claves autorizadas (la del motor, si está importada)"),
     ),
-    "ip_services": (("/ip/service", "qué servicios de gestión tiene abiertos"),),
+    "ip_services": (
+        ("/ip/service", "qué servicios de gestión tiene abiertos"),
+        # `/ip/ssh` no es un servicio de la tabla: es la POLÍTICA del demonio. Y hace falta
+        # porque desde RouterOS 7.x `password-authentication` viene en `yes-if-no-key`, y si el
+        # usuario tiene una clave importada --el motor le importa la suya-- el sshd ofrece
+        # SÓLO publickey: el agente del vigilante no puede entrar con la contraseña del nodo
+        # (medido: `Permission denied (publickey)`, y el terminal contestaba 502 «Connect to
+        # remote system failed»).
+        ("/ip/ssh", "si su SSH admite contraseña además de clave"),
+    ),
     "dhcp_client": (("/ip/dhcp-client", "el cliente de fábrica, si sigue vivo"),),
     "addresses": (("/ip/address", "sus direcciones, estáticas y dinámicas"),),
     "routes": (("/ip/route", "sus rutas: estáticas, conectadas y las del DHCP"),),
@@ -4134,6 +4752,17 @@ def _ros_lista(datos):
     return []
 
 
+def _ros_objeto(datos):
+    """Lo que contestó el REST para un objeto SUELTO (`/ip/ssh`), como diccionario vacío si no
+    hay nada. Se acepta también la forma de lista de un elemento: la misma ruta contesta de
+    una u otra forma según la versión, y quedarse con una sola rompe la lectura en silencio."""
+    if isinstance(datos, dict):
+        return datos
+    if isinstance(datos, list) and datos:
+        return datos[0]
+    return {}
+
+
 def _ros_si(valor):
     """RouterOS dice los booleanos como cadenas: "true" / "false"."""
     return str(valor).lower() in ("true", "yes", "1")
@@ -4267,6 +4896,10 @@ def leido_routeros(leidos, guest=None, usuario_motor="", clave_publica="", crede
             "deshabilitados": [str(s.get("name")) for s in servicios if _ros_si(s.get("disabled"))],
             "habilitados": [str(s.get("name")) for s in servicios if not _ros_si(s.get("disabled"))],
             "ids": _ros_ids(servicios, lambda s: s.get("name")),
+            # La política de contraseña del demonio SSH. `/ip/ssh` es UN objeto, no una lista:
+            # se acepta la forma suelta y la envuelta para no depender de cómo lo devuelva.
+            "ssh_password_auth": _ros_objeto((leidos.get("/ip/ssh") or {}).get("json")).get(
+                "password-authentication"),
         }
 
     # --- dhcp_client: el de fábrica, el de las interfaces DEL LAB ---
@@ -4784,6 +5417,10 @@ def escrituras_routeros(operaciones, guest, declaracion, identidad, parametros, 
                     {"user": usuario, "key": clave_publica},
                     "importar la clave pública del motor (sólo para depurar: se converge por REST)")
 
+        elif op == "allow_ssh_password":
+            llamada(area, "POST", "/ip/ssh/set", {"password-authentication": "yes"},
+                    "dejar que su SSH admita contraseña (el terminal del vigilante entra así)")
+
         elif op in ("disable_service", "enable_service"):
             servicio = str(operacion.get("servicio"))
             identificador = ((areas.get("ip_services") or {}).get("ids") or {}).get(servicio) or servicio
@@ -5245,6 +5882,7 @@ class FilterModule:
             "interior_puerto_rest": puerto_rest_tunnel,
             "interior_permitlisten": permitlisten_de,
             "interior_interfaces_rest": interfaces_rest_del_bastion,
+            "interior_interfaces_web": interfaces_web_del_bastion,
             "interior_guion_tunnel": guion_tunnel,
             "interior_linea_consola": linea_consola,
             "interior_marca_tunnel": marca_tunnel,

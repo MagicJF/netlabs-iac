@@ -65,6 +65,7 @@
       {{ (identidad.guests | selectattr('rol', 'equalto', item.rol) | first).tipo }}
     tunnel_puerto: "{{ item.parametros.puerto }}"
     tunnel_rest: "{{ item.parametros.rest | default([]) }}"
+    tunnel_web: "{{ item.parametros.web | default([]) }}"
     tunnel_salida_host: "{{ item.parametros.salida_host }}"
     tunnel_salida_puerto: "{{ item.parametros.salida_puerto }}"
     tunnel_usuario: "{{ parametros_motor.tunnel_usuario }}"

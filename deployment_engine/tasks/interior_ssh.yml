@@ -66,7 +66,10 @@
       area: "{{ interior_ejecutado.interior_comando.area }}"
       accion: "{{ interior_ejecutado.interior_comando.accion }}"
       declarado: "{{ interior_ejecutado.interior_comando.declarado | default('') }}"
-      comando: "{{ interior_ejecutado.interior_comando.comando }}"
+      # Lo que va al diario es el comando TAL CUAL, salvo que el driver diga otra cosa: un paso
+      # que lleva una credencial dentro (un fichero que se escribe en base64) se diariza con su
+      # `comando_diario`, que cuenta lo que se hizo sin escribir el secreto (regla 12).
+      comando: "{{ interior_ejecutado.interior_comando.comando_diario | default(interior_ejecutado.interior_comando.comando) }}"
       encontrado: "{{ (interior_ejecutado.stdout | default('') | trim)[: (engine_diario_max_cuerpo | default(0) | int)] }}"
       # El `rc` es lo que distingue «no está» de «no pude preguntar»: un `leer` que sale
       # con rc != 0 no es un estado, es una avería, y el driver lo dice así.

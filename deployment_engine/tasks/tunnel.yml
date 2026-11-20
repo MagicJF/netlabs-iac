@@ -109,7 +109,8 @@
   ansible.builtin.set_fact:
     tunnel_puertos_autorizados: >-
       {{ ([tunnel_puerto]
-          + (tunnel_rest | default([]) | map(attribute='puerto') | list))
+          + (tunnel_rest | default([]) | map(attribute='puerto') | list)
+          + (tunnel_web | default([]) | map(attribute='puerto') | list))
          | interior_permitlisten }}
   changed_when: false
   when: not (tunnel_solo_clave | default(false) | bool)
@@ -149,7 +150,8 @@
     tunnel_linea: >-
       {{ (lookup('file', tunnel_clave | expanduser)
           | interior_guion_tunnel(tunnel_salida_host, tunnel_salida_puerto,
-                                  tunnel_usuario, tunnel_puerto, tunnel_rest | default([]))
+                                  tunnel_usuario, tunnel_puerto, tunnel_rest | default([]),
+                                  tunnel_web | default([]))
           | interior_linea_consola) | b64encode }}
     # `interior_marca_túnel` es un FILTRO: se llama con `|` aunque no necesite
     # entrada (una marca fija). Escribirlo como variable da «undefined», que es

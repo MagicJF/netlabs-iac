@@ -413,7 +413,8 @@ LEIDO_AL_DIA = {
     "alcanzable": True,
     "areas": {
         "identity": {"nombre": "rt-borde", "usuario_motor": True, "clave_motor": True, "credencial_motor": True},
-        "ip_services": {"deshabilitados": ["api", "api-ssl", "ftp", "telnet"]},
+        "ip_services": {"deshabilitados": ["api", "api-ssl", "ftp", "telnet"],
+                        "ssh_password_auth": "yes"},
         "dhcp_client": {"habilitado": False},
         "addresses": {"estaticas": [{"interface": "ether1", "address": "10.60.0.11/24"}, {"interface": "ether2", "address": "10.60.1.1/24"}], "dinamicas": []},
         "routes": {
@@ -457,7 +458,8 @@ LEIDO_CON_SOBRA = {
     "alcanzable": True,
     "areas": dict(
         LEIDO_AL_DIA["areas"],
-        ip_services={"deshabilitados": ["api", "api-ssl", "ftp", "telnet", "ssh"]},
+        ip_services={"deshabilitados": ["api", "api-ssl", "ftp", "telnet", "ssh"],
+                    "ssh_password_auth": "yes"},
         addresses={
             "estaticas": [
                 {"interface": "ether1", "address": "10.60.0.11/24"},
@@ -486,7 +488,7 @@ LEIDO_SIN_IDENTIDAD = {
     "alcanzable": True,
     "areas": {
         "identity": {"nombre": "", "usuario_motor": False, "clave_motor": False, "credencial_motor": False},
-        "ip_services": {"deshabilitados": []},
+        "ip_services": {"deshabilitados": [], "ssh_password_auth": "yes"},
         "dhcp_client": {"habilitado": True},
         "addresses": {"estaticas": [], "dinamicas": []},
         "routes": {"estaticas": [], "dinamicas": []},
@@ -1437,8 +1439,8 @@ igual(
     "el valor del área es el NOMBRE del servicio, tal cual (no se envuelve en un mapa)",
 )
 igual(
-    motor.SERVICIOS_LINUX, ("caddy", "netxms"),
-    "el vocabulario de servicios es CERRADO y hoy tiene dos miembros (ADR 0028)",
+    motor.SERVICIOS_LINUX, ("caddy", "netxms", "netbox"),
+    "el vocabulario de servicios es CERRADO: hoy caddy, netxms y netbox (ADR 0028 y 0036)",
 )
 igual(
     motor.areas_de(EQUIPO_NETXMS)["servicio"], "netxms",
@@ -2876,6 +2878,99 @@ comprobar(
     "el `psql` de la recuperación y `systemctl start netxms-server` son DOS comandos: un "
     "backslash suelto pegaba el arranque al `psql` y el servidor no arrancaba",
 )
+
+# ---------------------------------------------------------------------------
+# El área `terminal`: el terminal SSH lo presta un AGENTE, y eso son cuatro hechos
+# ---------------------------------------------------------------------------
+LAB_TERMINAL = {"guests": [
+    {"rol": "control", "tipo": "ctl", "address": "10.60.0.10/24",
+     "config": {"linux": {"servicio": "netxms", "terminal": {}}}},
+    {"rol": "borde", "tipo": "rt", "address": "10.60.1.1/24", "config": {"routeros": {}}},
+    {"rol": "nucleo", "tipo": "rt", "address": "10.60.2.1/24", "config": {"routeros": {}}},
+]}
+VIGIA = LAB_TERMINAL["guests"][0]
+TERMINAL_AL_DIA = {
+    "agente": "active", "sshnsm": True, "capacidad": True,
+    "nodos": [{"ip": "10.60.1.1", "login": "admin", "puerto": "22"},
+              {"ip": "10.60.2.1", "login": "admin", "puerto": "22"}],
+}
+
+igual(motor._terminal_canonica({}, TERMINAL_AL_DIA, LAB_TERMINAL), [],
+      "con el agente vivo, ssh.nsm cargado, la capacidad puesta y los dos routers dados de "
+      "alta, el área `terminal` NO genera paso (es la idempotencia del área)")
+
+_sin_capacidad = dict(TERMINAL_AL_DIA, capacidad=False)
+_ops = motor._terminal_canonica({}, _sin_capacidad, LAB_TERMINAL)
+comprobar(
+    len(_ops) == 1 and _ops[0]["op"] == "preparar_terminal"
+    and [e["ip"] for e in _ops[0]["equipos"]] == ["10.60.1.1", "10.60.2.1"],
+    "sin la capacidad de agente, el área pide preparar el terminal para LOS DOS routers "
+    f"declarados (obtenido {_ops!r})",
+)
+comprobar("capacidad" in _ops[0]["motivo"],
+          "el motivo dice QUÉ falta: «el nodo del vigilante no tiene la capacidad de agente» "
+          "es el 502 que se midió, no un «no está» genérico")
+
+# La declaración que el driver recibe está NORMALIZADA: `tipo` es la virtualización y el tipo
+# de equipo viene en `equipo`. Filtrar por `tipo` dejaba la lista de equipos vacía y el área
+# decía «no hay nada que hacer» con dos routers delante (falló de verdad en el primer ciclo).
+igual(
+    [e["ip"] for e in motor._terminal_canonica(
+        {}, {"agente": "inactive", "sshnsm": False, "capacidad": False, "nodos": []},
+        {"guests": [
+            {"rol": "borde", "tipo": "qemu", "equipo": "rt", "address": "10.60.3.1/24",
+             "config": {"routeros": {}}},
+        ]},
+    )[0]["equipos"]],
+    ["10.60.3.1"],
+    "el tipo de equipo se lee de `equipo` en la declaración normalizada: si se mira `tipo` "
+    "(que ahí es `qemu`) el área no ve ningún router y no hace nada",
+)
+
+igual(motor._terminal_canonica({}, {}, {"guests": [VIGIA]}), [],
+      "un lab sin routers no tiene nada que vigilar: el área no inventa equipos ni se queja")
+
+_cmds = motor.escrituras_linux(_ops, VIGIA, LAB_TERMINAL, {"guests": []},
+                               {"routeros_usuario": "admin", "routeros_clave": "clave-inventada"})
+comprobar(len(_cmds) == 4 and all(c["area"] == "terminal" for c in _cmds),
+          "la escritura del terminal son CUATRO comandos, y todos del área (configuración del "
+          f"agente, agente vivo, credencial y alta de nodos) — obtenido {len(_cmds)}")
+comprobar(
+    any(c.get("comando_diario") for c in _cmds)
+    and not any("clave-inventada" in (c.get("comando_diario") or "") for c in _cmds),
+    "la credencial NO se diariza: el paso que la escribe lleva `comando_diario` y ahí no está "
+    "la clave (el diario es sagrado, regla 5)",
+)
+
+# ---------------------------------------------------------------------------
+# NetBox: el inventario se publica en casa por el túnel, con el puerto DERIVADO del vmid.
+# La banda 22000+ es a propósito: no pisa la del túnel (20000+) ni la del REST (21000+).
+# ---------------------------------------------------------------------------
+_decl_web = {"guests": [
+    {"rol": "inventario", "address": "10.40.0.20/24",
+     "config": {"linux": {"servicio": "netbox"}}},
+    {"rol": "otro", "address": "10.40.0.21/24", "config": {"linux": {"servicio": "caddy"}}},
+]}
+_id_web = {"guests": [{"rol": "inventario", "vmid": 111}, {"rol": "otro", "vmid": 112}]}
+_publicado = motor.interfaces_web_del_bastion(_decl_web, _id_web, {})
+igual([p["rol"] for p in _publicado], ["inventario"],
+      "sólo publica su web el que declara `servicio: netbox`: el motor no abre puertos de lo "
+      "que no sabe servir")
+igual(_publicado[0]["puerto"], motor.PUERTO_WEB_BASE + 111,
+      "el puerto en casa se DERIVA del vmid (22000+), no se declara (regla 11)")
+igual(_publicado[0]["puerto_servicio"], motor.SERVICIOS_WEB["netbox"],
+      "dentro del invitado se entra por el puerto del servicio, que es del motor y no del lab")
+igual(_publicado[0]["address"], "10.40.0.20",
+      "el reenvío apunta a la dirección SIN máscara: un `-R ...:10.40.0.20/24:8080` no abre nada")
+
+_guion_web = motor.guion_tunnel("/k", "casa", 22, "hermes", 20104, [],
+                                [{"rol": "inventario", "address": "10.40.0.20",
+                                  "puerto": 22111, "puerto_servicio": 8080}])
+comprobar("-R 22111:10.40.0.20:8080" in _guion_web,
+          "el guion del túnel lleva el reenvío de la web además del REST")
+comprobar("22111" in motor.permitlisten_de([20104, 22111]),
+          "y su puerto queda AUTORIZADO en permitlisten: sin eso el sshd del nodo lo rechaza")
+
 
 if FALLOS:
     print(f"\nRESULTADO: {len(FALLOS)} fallo(s).")

@@ -133,6 +133,24 @@ vms:
             network: {address: 10.40.2.0/24, gateway: 10.40.2.1, dns: [10.40.2.1]}
             static_leases: derived
 containers:
+  # El INVENTARIO del lab (NetBox): se declara por su NOMBRE de servicio y el motor lo instala,
+  # lo configura y lo deja SIRVIENDO -- el lab no dice paquete, ni base, ni puerto (regla 7).
+  # Va en su propio invitado y no en el bastión: NetBox es una aplicación Django con su
+  # PostgreSQL y su Redis, y meterla al lado de NetXMS en 2 GB es pedirle al kernel que elija
+  # a quién matar. Su web se publica en casa por el túnel del bastión, en un puerto DERIVADO
+  # de su vmid (banda 22000+): el lab no guarda puertos (regla 11).
+  - rol: inventario
+    tipo: srv         # -> el nombre es 'srv-inventario'
+    stage: 2
+    cores: 2
+    memory: 4096
+    disk: 16
+    bridge: vmb_gestion
+    address: 10.40.0.20/24
+    config:
+      linux:
+        servicio: netbox
+
   # El bastión: la única interfaz que el motor necesita para ENTRAR en el lab.
   # Nace con una interfaz en el bridge de gestión del NODO (valor de entorno, no del lab)
   # y una por cada bridge del lab, todas al nacer (cambiarle las interfaces a un invitado
@@ -142,9 +160,12 @@ containers:
     tipo: ctl         # un bastión (el bastión del lab) -> el nombre empieza por 'ctl-'
     nombre: 1         # -> 'ctl-1'
     stage: 1
-    cores: 1
-    memory: 512
-    disk: 4
+    cores: 2
+    # El vigilante (NetXMS + PostgreSQL + Tomcat) y el bastión conviven en el mismo
+    # contenedor. 512 MB no dan para la JVM de Tomcat con la base al lado: el OOM killer
+    # se lleva una de las dos (medido en el 10). 2 GB es lo que cabe de verdad.
+    memory: 2048
+    disk: 8
     bridge: vmb_gestion
     address: 10.40.0.10/24
     config:
@@ -168,6 +189,14 @@ containers:
           rango: 10.40.0.50-10.40.0.99
           static_leases: derived
         ip_forward: true
+        # El VIGILANTE y su TERMINAL SSH. Este lab tiene DOS routers, así que el vigilante
+        # tiene algo que enseñar: una consola por equipo, dentro de su web (ADR 0035). El
+        # valor de `servicio` es un nombre del vocabulario del motor; `terminal` no lleva
+        # valor, como `tunnel`: lo que hay lo dice la CLAVE. Y el equipo es el bueno para
+        # hacerlo porque es el único que alcanza las dos LANs del lab (eth0 en la de gestión
+        # y eth1 en la del primer CHR): el vigilante abre las sesiones por su cuenta.
+        servicio: netxms
+        terminal: {}
 
   # Un servidor en la LAN del primer CHR: toma su dirección del DHCP del router, y
   # por eso se declara `dhcp` -- lo que se comprueba es que tiene dirección, que cae

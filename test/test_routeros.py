@@ -101,6 +101,9 @@ CRUDO_RECIEN_NACIDO = {
     "/system/identity": respuesta({"name": "CHR"}),
     "/user": respuesta([{"name": "admin", "group": "full", ".id": "*1"}]),
     "/user/ssh-keys": respuesta([]),
+    # La política del demonio SSH: el motor la lee porque desde 7.x `yes-if-no-key` deja fuera
+    # al usuario con clave importada, y entonces el terminal del vigilante no entra.
+    "/ip/ssh": respuesta({"password-authentication": "yes", "publickey-authentication": "yes"}),
     "/ip/service": respuesta([
         {".id": "*0", "name": "telnet", "port": "23", "disabled": "false", "dynamic": "false"},
         {".id": "*1", "name": "ftp", "port": "21", "disabled": "false", "dynamic": "false"},
@@ -174,7 +177,7 @@ igual(
     "y con `address: dhcp` esa dirección NO se deriva: no hay nada estático que poner",
 )
 igual(
-    [l["metodo"] for l in motor.lecturas_routeros(BORDE)], ["GET"] * 11,
+    [l["metodo"] for l in motor.lecturas_routeros(BORDE)], ["GET"] * 12,
     "todas las lecturas de un router son GET: leer no cambia nada",
 )
 
@@ -467,6 +470,9 @@ CONVERGIDO = {
     "/system/identity": respuesta({"name": "rt-borde"}),
     "/user": respuesta([{"name": "admin", "group": "full", ".id": "*1"}]),
     "/user/ssh-keys": respuesta([{"user": "admin", "key": CLAVE_PUBLICA, ".id": "*1"}]),
+    # La política del demonio SSH: el motor la lee porque desde 7.x `yes-if-no-key` deja fuera
+    # al usuario con clave importada, y entonces el terminal del vigilante no entra.
+    "/ip/ssh": respuesta({"password-authentication": "yes", "publickey-authentication": "yes"}),
     "/ip/service": respuesta([
         {".id": "*0", "name": "telnet", "disabled": "true", "dynamic": "false"},
         {".id": "*1", "name": "ftp", "disabled": "true", "dynamic": "false"},
